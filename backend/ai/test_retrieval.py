@@ -54,8 +54,8 @@ print("=" * 60)
 
 for i, result in enumerate(results, start=1):
 
-    chunk = result["chunk"]
-    score = result["score"]
+    chunk = result.chunk
+    score = result.score
 
     print(f"\nResult {i}")
     print(f"Similarity: {score:.4f}")

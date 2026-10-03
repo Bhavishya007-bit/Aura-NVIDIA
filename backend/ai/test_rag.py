@@ -106,7 +106,6 @@ for source in result_1["sources"]:
     print(f"File: {source['source_name']}")
     print(f"Page: {source['page']}")
     print(f"Similarity: {source['score']:.4f}")
-    print(f"Content: {source['content']}")
     print()
 
 
@@ -139,5 +138,4 @@ for source in result_2["sources"]:
     print(f"File: {source['source_name']}")
     print(f"Page: {source['page']}")
     print(f"Similarity: {source['score']:.4f}")
-    print(f"Content: {source['content']}")
     print()

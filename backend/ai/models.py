@@ -15,3 +15,7 @@ class KnowledgeUnit(BaseModel):
 
 class Chunk(KnowledgeUnit):
     chunk_id: str
+
+class RetrievedChunk(BaseModel):
+    chunk: Chunk
+    score: float

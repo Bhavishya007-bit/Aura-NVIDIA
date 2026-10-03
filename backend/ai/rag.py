@@ -38,6 +38,7 @@ class RAG:
 
         # Safety check.
         if not results:
+
             return {
                 "answer": (
                     "I couldn't find enough information about this "
@@ -46,20 +47,18 @@ class RAG:
                 "sources": []
             }
 
-        # Step 3: Build context.
+        # Step 3: Build context for the LLM.
         context_parts = []
 
         for i, result in enumerate(results, start=1):
 
-            chunk = result["chunk"]
-            score = result["score"]
+            chunk = result.chunk
+            score = result.chunk
 
             source = (
                 f"Source {i}\n"
-                f"File: {chunk.source_name}\n"
-                f"Page: {chunk.page}\n"
-                f"Similarity: {score:.4f}\n"
-                f"Content:\n{chunk.content}"
+                f"Content:\n"
+                f"{chunk.content}"
             )
 
             context_parts.append(source)
@@ -90,23 +89,32 @@ STUDENT QUESTION:
 {question}
 
 Give a clear and concise answer.
+
+Do not create, invent, or mention page numbers,
+timestamps, file names, or citations.
 """
 
         # Step 5: Generate answer.
         answer = self.llm.generate(prompt)
 
-        # Step 6: Prepare source metadata.
+        # Step 6: Python creates the citations.
+        # The LLM does NOT control citation metadata.
         sources = []
 
         for result in results:
 
-            chunk = result["chunk"]
+            chunk = result.chunk
 
             sources.append({
+                "chunk_id": chunk.chunk_id,
+                "source_id": chunk.source_id,
                 "source_name": chunk.source_name,
+                "source_type": chunk.source_type,
                 "page": chunk.page,
-                "score": result["score"],
-                "content": chunk.content
+                "slide": chunk.slide,
+                "timestamp_start": chunk.timestamp_start,
+                "timestamp_end": chunk.timestamp_end,
+                "score": float(result.score)
             })
 
         return {

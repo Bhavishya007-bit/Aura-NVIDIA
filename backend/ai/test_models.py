@@ -1,4 +1,4 @@
-from models import KnowledgeUnit
+from backend.ai.models import KnowledgeUnit
 
 
 unit = KnowledgeUnit(
