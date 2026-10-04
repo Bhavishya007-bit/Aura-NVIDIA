@@ -11,11 +11,11 @@ class KnowledgeUnit(BaseModel):
     slide: int | None = None
     timestamp_start: float | None = None
     timestamp_end: float | None = None
+    topic: str | None = None
 
 
 class Chunk(KnowledgeUnit):
     chunk_id: str
-
 class RetrievedChunk(BaseModel):
     chunk: Chunk
     score: float

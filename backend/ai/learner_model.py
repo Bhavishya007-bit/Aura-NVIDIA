@@ -110,3 +110,15 @@ class LearnerState:
             return "medium"
 
         return "hard"
+
+    def get_weakest_topic(self) -> str | None:
+
+        if not self.topic_states:
+            return None
+
+        weakest_topic = min(
+            self.topic_states,
+            key=lambda topic: self.topic_states[topic].p_known
+        )
+
+        return weakest_topic

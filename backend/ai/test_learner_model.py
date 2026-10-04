@@ -50,3 +50,36 @@ for _ in range(1):
 
 print("After 5 correct:", learner.get_mastery(topic))
 print("Difficulty:", learner.get_difficulty(topic))
+
+print("\n--- Weakest Topic Test ---")
+
+learner = LearnerState(student_id=1)
+
+topics = [
+    "ATP synthase",
+    "Electron transport chain",
+    "Chemiosmosis"
+]
+
+# ATP synthase → strong
+for _ in range(4):
+    learner.update_mastery("ATP synthase", True)
+
+# Electron transport chain → medium
+for _ in range(2):
+    learner.update_mastery("Electron transport chain", True)
+
+# Chemiosmosis → weak
+learner.update_mastery("Chemiosmosis", False)
+
+print("\nTopic Mastery:")
+
+for topic_name in topics:
+    print(
+        topic_name,
+        ":",
+        learner.get_mastery(topic_name)
+    )
+
+print("\nWeakest Topic:")
+print(learner.get_weakest_topic())

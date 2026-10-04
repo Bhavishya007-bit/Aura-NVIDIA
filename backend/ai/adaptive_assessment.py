@@ -6,6 +6,7 @@ from backend.ai.question_validator import QuestionValidator
 from backend.ai.question_grounding import QuestionGrounding
 from backend.ai.question_duplicate import QuestionDuplicateDetector
 
+
 class AdaptiveAssessment:
 
     def __init__(
@@ -26,28 +27,78 @@ class AdaptiveAssessment:
 
     def generate_question(
         self,
-        topic: str,
         retrieved_chunks: list[RetrievedChunk],
+        topic: str | None = None,
         max_attempts: int = 5
     ) -> MCQ:
 
+        # ========================================================
+        # 1. SELECT TOPIC
+        # ========================================================
+
+        if topic is None:
+
+            topic = self.learner.get_weakest_topic()
+
+            if topic is None:
+                raise ValueError(
+                    "No topic is available for assessment."
+                )
+
+            print(f"Automatically selected weakest topic: {topic}")
+
+        # ========================================================
+        # 2. SELECT DIFFICULTY
+        # ========================================================
+
         difficulty = self.learner.get_difficulty(topic)
 
-        print(f"Learner mastery: {self.learner.get_mastery(topic)}")
-        print(f"Selected difficulty: {difficulty}")
+        print(
+            f"Learner mastery: "
+            f"{self.learner.get_mastery(topic)}"
+        )
 
-        while True:
+        print(
+            f"Selected difficulty: "
+            f"{difficulty}"
+        )
+
+        # ========================================================
+        # 3. GENERATE QUESTION
+        # ========================================================
+
+        for attempt in range(1, max_attempts + 1):
+
+            print(
+                f"\nGenerating question "
+                f"(attempt {attempt}/{max_attempts})"
+            )
+
             mcq = self.question_generator.generate_mcq(
                 retrieved_chunks,
                 difficulty=difficulty
             )
 
-            is_valid, errors = self.question_validator.validate(mcq)
+            # ====================================================
+            # 4. VALIDATE QUESTION
+            # ====================================================
+
+            is_valid, errors = self.question_validator.validate(
+                mcq
+            )
 
             if not is_valid:
-                raise ValueError(
-                    f"Generated MCQ failed validation: {errors}"
-                )
+
+                print("Question validation failed:")
+
+                for error in errors:
+                    print(f"- {error}")
+
+                continue
+
+            # ====================================================
+            # 5. GROUNDING VERIFICATION
+            # ====================================================
 
             is_grounded, reason = self.grounding_checker.verify(
                 mcq,
@@ -55,21 +106,39 @@ class AdaptiveAssessment:
             )
 
             if not is_grounded:
-                raise ValueError(
-                    f"Generated MCQ failed grounding verification: {reason}"
-                )
 
-            # Duplicate detection
+                print("Question grounding failed:")
+                print(reason)
+
+                continue
+
+            # ====================================================
+            # 6. DUPLICATE DETECTION
+            # ====================================================
+
             if self.duplicate_detector.is_duplicate(mcq):
+
                 print(
                     "Duplicate question detected. "
                     "Generating another question..."
                 )
+
                 continue
 
+            # ====================================================
+            # 7. ACCEPT QUESTION
+            # ====================================================
+
             self.duplicate_detector.add_question(mcq)
+
             print("Question accepted.")
+
             return mcq
+
+        raise RuntimeError(
+            f"Unable to generate a valid question "
+            f"after {max_attempts} attempts."
+        )
 
     def submit_answer(
         self,
@@ -80,15 +149,27 @@ class AdaptiveAssessment:
 
         student_answer = student_answer.strip()
 
-        is_correct = student_answer == mcq.correct_answer
+        is_correct = (
+            student_answer == mcq.correct_answer
+        )
 
         if not topic:
-            raise ValueError("Assessment topic is missing.")
+            raise ValueError(
+                "Assessment topic is missing."
+            )
+
+        # ========================================================
+        # UPDATE BKT
+        # ========================================================
 
         new_mastery = self.learner.update_mastery(
             topic=topic,
             correct=is_correct
         )
+
+        # ========================================================
+        # STORE RESULT
+        # ========================================================
 
         self.session.add_result(
             question=mcq,
@@ -96,6 +177,10 @@ class AdaptiveAssessment:
             is_correct=is_correct,
             mastery=new_mastery
         )
+
+        # ========================================================
+        # RETURN RESULT
+        # ========================================================
 
         return {
             "question": mcq.question,

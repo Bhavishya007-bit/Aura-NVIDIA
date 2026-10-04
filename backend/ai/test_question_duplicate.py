@@ -7,7 +7,7 @@ embedding_model = EmbeddingModel()
 
 detector = QuestionDuplicateDetector(
     embedding_model=embedding_model,
-    similarity_threshold=0.80
+    similarity_threshold=0.90
 )
 
 

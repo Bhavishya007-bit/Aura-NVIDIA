@@ -61,7 +61,8 @@ def chunk_knowledge_unit(
                 page=unit.page,
                 slide=unit.slide,
                 timestamp_start=unit.timestamp_start,
-                timestamp_end=unit.timestamp_end
+                timestamp_end=unit.timestamp_end,
+                topic=unit.topic
             )
 
             chunks.append(chunk)
@@ -98,7 +99,8 @@ def chunk_knowledge_unit(
             page=unit.page,
             slide=unit.slide,
             timestamp_start=unit.timestamp_start,
-            timestamp_end=unit.timestamp_end
+            timestamp_end=unit.timestamp_end,
+            topic=unit.topic
         )
 
         chunks.append(chunk)

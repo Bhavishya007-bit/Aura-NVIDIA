@@ -3,7 +3,6 @@ from backend.ai.chunking import chunk_knowledge_unit
 from backend.ai.embeddings import EmbeddingModel
 from backend.ai.retrieval import Retriever
 from backend.ai.llm import LLM
-
 from backend.ai.learner_model import LearnerState
 from backend.ai.question_generator import QuestionGenerator
 from backend.ai.question_validator import QuestionValidator
@@ -14,7 +13,7 @@ from backend.ai.assessment_session import AssessmentSession
 
 
 # ============================================================
-# COURSE MATERIAL
+# 1. COURSE MATERIAL
 # ============================================================
 
 text = """
@@ -25,6 +24,10 @@ The movement of protons through ATP synthase provides energy for ATP production.
 The electron transport chain consists of several protein complexes located
 in the inner mitochondrial membrane. These complexes transfer electrons
 and use the released energy to pump protons across the membrane.
+
+Chemiosmosis is the process in which the movement of protons down their
+electrochemical gradient is coupled to ATP synthesis. The proton gradient
+provides the energy required for ATP synthase to produce ATP.
 """
 
 
@@ -38,7 +41,7 @@ unit = KnowledgeUnit(
 
 
 # ============================================================
-# CHUNKING
+# 2. CHUNK THE COURSE MATERIAL
 # ============================================================
 
 chunks = chunk_knowledge_unit(
@@ -49,7 +52,7 @@ chunks = chunk_knowledge_unit(
 
 
 # ============================================================
-# EMBEDDINGS + RETRIEVAL
+# 3. CREATE EMBEDDING MODEL + RETRIEVER
 # ============================================================
 
 embedding_model = EmbeddingModel()
@@ -58,21 +61,24 @@ retriever = Retriever(embedding_model)
 
 retriever.add_chunks(chunks)
 
-retrieved_chunks = retriever.search(
-    "How does ATP synthase produce ATP?",
-    top_k=3
-)
-
 
 # ============================================================
-# AI COMPONENTS
+# 4. CREATE LLM
 # ============================================================
 
 llm = LLM()
 
-learner = LearnerState(
-    student_id=1
-)
+
+# ============================================================
+# 5. CREATE LEARNER MODEL
+# ============================================================
+
+learner = LearnerState(student_id=1)
+
+
+# ============================================================
+# 6. CREATE QUESTION COMPONENTS
+# ============================================================
 
 question_generator = QuestionGenerator(llm)
 
@@ -87,17 +93,17 @@ duplicate_detector = QuestionDuplicateDetector(
 
 
 # ============================================================
-# ASSESSMENT SESSION
+# 7. CREATE ASSESSMENT SESSION
 # ============================================================
 
 session = AssessmentSession(
     student_id=1,
-    topic="ATP synthase"
+    topic="Adaptive Assessment"
 )
 
 
 # ============================================================
-# ADAPTIVE ASSESSMENT
+# 8. CREATE ADAPTIVE ASSESSMENT
 # ============================================================
 
 assessment = AdaptiveAssessment(
@@ -111,137 +117,152 @@ assessment = AdaptiveAssessment(
 
 
 # ============================================================
-# ASSESSMENT CONFIGURATION
-# ============================================================
-
-topic = "ATP synthase"
-
-# Simulated student performance
-#
-# True  = student answers correctly
-# False = student answers incorrectly
-
-student_performance = [
-    True,
-    True,
-    False,
-    True,
-    False
-]
-
-
-# ============================================================
-# ADAPTIVE ASSESSMENT LOOP
-# ============================================================
-
-for question_number, should_be_correct in enumerate(
-    student_performance,
-    start=1
-):
-
-    print("\n" + "=" * 70)
-    print(f"QUESTION {question_number}")
-    print("=" * 70)
-
-    # --------------------------------------------------------
-    # Generate question
-    # --------------------------------------------------------
-
-    mcq = assessment.generate_question(
-        topic=topic,
-        retrieved_chunks=retrieved_chunks
-    )
-
-    print("\nQuestion:")
-    print(mcq.question)
-
-    print("\nOptions:")
-
-    for i, option in enumerate(mcq.options):
-        print(f"{chr(65 + i)}. {option}")
-
-    print("\nDifficulty:")
-    print(mcq.difficulty)
-
-    # --------------------------------------------------------
-    # Simulate student's answer
-    # --------------------------------------------------------
-
-    if should_be_correct:
-
-        # Student chooses the correct answer
-        student_answer = mcq.correct_answer
-
-    else:
-
-        # Student chooses the first incorrect answer
-        student_answer = next(
-            option
-            for option in mcq.options
-            if option != mcq.correct_answer
-        )
-
-    # --------------------------------------------------------
-    # Submit answer
-    # --------------------------------------------------------
-
-    result = assessment.submit_answer(
-        mcq=mcq,
-        student_answer=student_answer,
-        topic=topic
-    )
-
-    # --------------------------------------------------------
-    # Display answer result
-    # --------------------------------------------------------
-
-    print("\nStudent Answer:")
-    print(result["student_answer"])
-
-    print("\nCorrect Answer:")
-    print(result["correct_answer"])
-
-    print("\nCorrect:")
-    print(result["is_correct"])
-
-    print("\nExplanation:")
-    print(result["explanation"])
-
-    print("\nUpdated Mastery:")
-    print(result["mastery"])
-
-    print("\nNext Difficulty:")
-    print(result["next_difficulty"])
-
-
-# ============================================================
-# FINAL ASSESSMENT REPORT
+# 9. INITIALIZE MULTIPLE TOPICS
 # ============================================================
 
 print("\n" + "=" * 70)
-print("FINAL ASSESSMENT REPORT")
+print("INITIAL LEARNER STATE")
 print("=" * 70)
 
-print("\nStudent ID:")
-print(session.student_id)
+learner.update_mastery("ATP synthase", True)
+learner.update_mastery("ATP synthase", True)
+
+learner.update_mastery("Electron transport chain", True)
+
+learner.update_mastery("Chemiosmosis", False)
+
+
+print("\nTopic Mastery:")
+
+for topic, state in learner.topic_states.items():
+    print(f"{topic}: {state.p_known:.2f}")
+
+
+# ============================================================
+# 10. AUTOMATICALLY FIND THE WEAKEST TOPIC
+# ============================================================
+
+weakest_topic = learner.get_weakest_topic()
+
+if weakest_topic is None:
+    raise ValueError("No weakest topic was found.")
+
+print("\nAutomatically selected weakest topic:")
+print(weakest_topic)
+
+print("\nWeakest topic mastery:")
+print(learner.get_mastery(weakest_topic))
+
+print("\nSelected difficulty:")
+print(learner.get_difficulty(weakest_topic))
+
+
+# ============================================================
+# 11. RETRIEVE MATERIAL FOR THE WEAKEST TOPIC
+# ============================================================
+
+retrieved_chunks = retriever.search(
+    weakest_topic,
+    top_k=3
+)
+
+
+print("\nRetrieved chunks for weakest topic:")
+
+for result in retrieved_chunks:
+    print("\nSimilarity:", round(result.score, 4))
+    print("Content:", result.chunk.content)
+
+
+# ============================================================
+# 12. GENERATE ADAPTIVE QUESTION
+# ============================================================
+
+print("\n" + "=" * 70)
+print("GENERATING ADAPTIVE QUESTION")
+print("=" * 70)
+
+
+mcq = assessment.generate_question(
+    retrieved_chunks=retrieved_chunks
+)
+
+
+# ============================================================
+# 13. DISPLAY QUESTION
+# ============================================================
+
+print("\nQuestion:")
+print(mcq.question)
+
+print("\nOptions:")
+
+for i, option in enumerate(mcq.options):
+    print(f"{chr(65 + i)}. {option}")
+
+
+print("\nCorrect Answer:")
+print(mcq.correct_answer)
+
+print("\nDifficulty:")
+print(mcq.difficulty)
 
 print("\nTopic:")
-print(session.topic)
+print(mcq.topic)
 
-print("\nTotal Questions:")
-print(session.get_total_questions())
+print("\nExplanation:")
+print(mcq.explanation)
+
+
+# ============================================================
+# 14. SIMULATE STUDENT ANSWER
+# ============================================================
+
+student_answer = mcq.correct_answer
+
+
+result = assessment.submit_answer(
+    mcq=mcq,
+    student_answer=student_answer,
+    topic=weakest_topic
+)
+
+
+# ============================================================
+# 15. DISPLAY RESULT
+# ============================================================
+
+print("\n" + "=" * 70)
+print("ASSESSMENT RESULT")
+print("=" * 70)
+
+print("\nStudent Answer:")
+print(result["student_answer"])
+
+print("\nCorrect Answer:")
+print(result["correct_answer"])
 
 print("\nCorrect:")
-print(session.get_correct_answers())
+print(result["is_correct"])
 
-print("\nIncorrect:")
-print(session.get_incorrect_answers())
+print("\nUpdated Mastery:")
+print(result["mastery"])
 
-print("\nAccuracy:")
-print(session.get_accuracy(), "%")
+print("\nNext Difficulty:")
+print(result["next_difficulty"])
 
-print("\nFinal Mastery:")
-print(learner.get_mastery(topic))
 
-print("\nFinal Difficulty:")
-print(learner.get_difficulty(topic))
+# ============================================================
+# 16. FINAL LEARNER STATE
+# ============================================================
+
+print("\n" + "=" * 70)
+print("FINAL LEARNER STATE")
+print("=" * 70)
+
+for topic, state in learner.topic_states.items():
+    print(f"{topic}: {state.p_known:.2f}")
+
+
+print("\nFinal Weakest Topic:")
+print(learner.get_weakest_topic())

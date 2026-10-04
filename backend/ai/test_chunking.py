@@ -14,7 +14,9 @@ unit = KnowledgeUnit(
     source_type="pdf",
     source_name="Biochemistry.pdf",
     content=text,
-    page=142
+    page=142,
+    topic="ATP synthase"
+
 )
 
 
@@ -31,4 +33,5 @@ for i, chunk in enumerate(chunks, start=1):
     print(f"Chunk ID: {chunk.chunk_id}")
     print(f"Source: {chunk.source_name}")
     print(f"Page: {chunk.page}")
+    print("Topic:", chunk.topic)
     print(f"Content: {chunk.content}")

@@ -3,8 +3,10 @@ import numpy as np
 from backend.ai.embeddings import EmbeddingModel
 from backend.ai.models import Chunk, RetrievedChunk
 
+
 RELEVANCE_THRESHOLD = 0.50
 MIN_CHUNK_SCORE = 0.45
+
 
 class Retriever:
 
@@ -32,7 +34,12 @@ class Retriever:
 
         self.chunks.extend(chunks)
 
-    def search(self, query: str, top_k: int = 3):
+    def search(
+        self,
+        query: str,
+        top_k: int = 3,
+        topic: str | None = None
+    ):
 
         if not self.chunks:
             return []
@@ -41,7 +48,24 @@ class Retriever:
 
         scores = self.embeddings @ query_embedding
 
-        sorted_indices = np.argsort(scores)[::-1]
+        candidate_indices = []
+
+        for index, chunk in enumerate(self.chunks):
+
+            if topic is not None:
+                if chunk.topic != topic:
+                    continue
+
+            candidate_indices.append(index)
+
+        if not candidate_indices:
+            return []
+
+        sorted_indices = sorted(
+            candidate_indices,
+            key=lambda index: scores[index],
+            reverse=True
+        )
 
         top_indices = [
             index
@@ -61,11 +85,16 @@ class Retriever:
 
         return results
 
-    def is_relevant(self, query: str) -> bool:
+    def is_relevant(
+        self,
+        query: str,
+        topic: str | None = None
+    ) -> bool:
 
         results = self.search(
-            query,
-            top_k=1
+            query=query,
+            top_k=1,
+            topic=topic
         )
 
         if not results:
