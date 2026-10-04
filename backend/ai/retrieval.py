@@ -4,6 +4,7 @@ from backend.ai.embeddings import EmbeddingModel
 from backend.ai.models import Chunk, RetrievedChunk
 
 RELEVANCE_THRESHOLD = 0.50
+MIN_CHUNK_SCORE = 0.45
 
 class Retriever:
 
@@ -40,7 +41,13 @@ class Retriever:
 
         scores = self.embeddings @ query_embedding
 
-        top_indices = np.argsort(scores)[::-1][:top_k]
+        sorted_indices = np.argsort(scores)[::-1]
+
+        top_indices = [
+            index
+            for index in sorted_indices
+            if scores[index] >= MIN_CHUNK_SCORE
+        ][:top_k]
 
         results = []
 

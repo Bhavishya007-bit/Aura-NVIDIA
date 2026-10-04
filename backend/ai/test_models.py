@@ -1,4 +1,4 @@
-from backend.ai.models import KnowledgeUnit
+from backend.ai.models import KnowledgeUnit, MCQ
 
 
 unit = KnowledgeUnit(
@@ -10,3 +10,24 @@ unit = KnowledgeUnit(
 )
 
 print(unit)
+
+mcq = MCQ(
+    question="What does ATP synthase use to produce ATP?",
+    options=[
+        "Proton gradient",
+        "DNA replication",
+        "Glucose",
+        "Oxygen"
+    ],
+    correct_answer="Proton gradient",
+    explanation=(
+        "ATP synthase uses the energy from the proton gradient "
+        "to produce ATP."
+    ),
+    topic="Oxidative phosphorylation",
+    difficulty="easy",
+    source_ids=[1]
+)
+
+print("\nMCQ:")
+print(mcq)

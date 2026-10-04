@@ -1,6 +1,8 @@
 import os
+import time
 
 from openai import OpenAI
+from openai import RateLimitError
 
 
 MODEL_NAME = "qwen/qwen3.8-27b:free"
@@ -22,21 +24,51 @@ class LLM:
             api_key=api_key
         )
 
-    def generate(self, prompt: str) -> str:
+    def generate(
+        self,
+        prompt: str,
+        max_retries: int = 3
+    ) -> str:
 
-        response = self.client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
+        for attempt in range(max_retries):
 
-        content = response.choices[0].message.content
+            try:
 
-        if content is None:
-            raise RuntimeError("LLM returned an empty response.")
+                response = self.client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
+                )
 
-        return content
+                content = response.choices[0].message.content
+
+                if content:
+                    return content.strip()
+
+                raise RuntimeError(
+                    "LLM returned an empty response."
+                )
+
+            except RateLimitError:
+
+                if attempt == max_retries - 1:
+
+                    raise RuntimeError(
+                        "LLM rate limit exceeded after "
+                        f"{max_retries} attempts."
+                    )
+
+                wait_time = 5 * (attempt + 1)
+
+                print(
+                    f"\nLLM rate limited. "
+                    f"Retrying in {wait_time} seconds..."
+                )
+
+                time.sleep(wait_time)
+
+        raise RuntimeError("LLM generation failed.")

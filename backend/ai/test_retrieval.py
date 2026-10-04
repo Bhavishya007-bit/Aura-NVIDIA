@@ -41,24 +41,40 @@ retriever = Retriever(embedding_model)
 retriever.add_chunks(chunks)
 
 
-query = "How does ATP synthase produce ATP?"
+test_questions = [
+    "How does ATP synthase produce ATP?",
+    "What is oxidative phosphorylation?",
+    "What does DNA polymerase do?",
+    "What is the capital of France?",
+    "What is photosynthesis?"
+]
 
-results = retriever.search(
-    query,
-    top_k=3
-)
 
+for question in test_questions:
 
-print("\nSEARCH RESULTS")
-print("=" * 60)
+    results = retriever.search(
+        question,
+        top_k=3
+    )
 
-for i, result in enumerate(results, start=1):
+    print("\n" + "=" * 60)
+    print(f"QUESTION: {question}")
+    print("=" * 60)
 
-    chunk = result.chunk
-    score = result.score
+    if not results:
+        print("No relevant chunks found.")
+        continue
 
-    print(f"\nResult {i}")
-    print(f"Similarity: {score:.4f}")
-    print(f"Source: {chunk.source_name}")
-    print(f"Page: {chunk.page}")
-    print(f"Content: {chunk.content}")
+    print(f"Best score: {results[0].score:.4f}")
+    print(f"Returned chunks: {len(results)}")
+
+    for i, result in enumerate(results, start=1):
+
+        chunk = result.chunk
+        score = result.score
+
+        print(f"\nResult {i}")
+        print(f"Similarity: {score:.4f}")
+        print(f"Source: {chunk.source_name}")
+        print(f"Page: {chunk.page}")
+        print(f"Content: {chunk.content}")

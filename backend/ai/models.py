@@ -19,3 +19,14 @@ class Chunk(KnowledgeUnit):
 class RetrievedChunk(BaseModel):
     chunk: Chunk
     score: float
+
+class MCQ(BaseModel):
+    question: str
+    options: list[str]
+    correct_answer: str
+    explanation: str
+
+    topic: str | None = None
+    difficulty: str | None = None
+
+    source_ids: list[int] = []
