@@ -49,26 +49,50 @@ class LLM:
                 if content:
                     return content.strip()
 
-                raise RuntimeError(
-                    "LLM returned an empty response."
+                print(
+                    f"\nLLM returned an empty response "
+                    f"(attempt {attempt + 1}/{max_retries})."
                 )
 
-            except RateLimitError:
+            except RateLimitError as error:
 
-                if attempt == max_retries - 1:
+                error_message = str(error)
+
+                # ------------------------------------------------
+                # DAILY FREE-MODEL QUOTA EXHAUSTED
+                # ------------------------------------------------
+
+                if "free-models-per-day" in error_message:
 
                     raise RuntimeError(
-                        "LLM rate limit exceeded after "
-                        f"{max_retries} attempts."
+                        "OpenRouter daily free-model quota has been "
+                        "exhausted. Please wait for the daily reset "
+                        "or use a model/API route with available quota."
                     )
+
+                # ------------------------------------------------
+                # TEMPORARY RATE LIMIT
+                # ------------------------------------------------
+
+                print(
+                    f"\nLLM temporarily rate limited "
+                    f"(attempt {attempt + 1}/{max_retries})."
+                )
+
+            # ----------------------------------------------------
+            # RETRY
+            # ----------------------------------------------------
+
+            if attempt < max_retries - 1:
 
                 wait_time = 5 * (attempt + 1)
 
                 print(
-                    f"\nLLM rate limited. "
                     f"Retrying in {wait_time} seconds..."
                 )
 
                 time.sleep(wait_time)
 
-        raise RuntimeError("LLM generation failed.")
+        raise RuntimeError(
+            f"LLM generation failed after {max_retries} attempts."
+        )
