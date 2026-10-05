@@ -88,7 +88,9 @@ CREATE TABLE answers (
     question_id INT REFERENCES questions(question_id),
     student_answer TEXT,
     is_correct BOOLEAN,
-    answered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    answered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (attempt_id, question_id)
 );
 
 CREATE TABLE mastery (
