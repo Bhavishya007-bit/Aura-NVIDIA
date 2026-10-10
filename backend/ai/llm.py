@@ -1,11 +1,14 @@
 import os
 import time
 
-from openai import OpenAI
-from openai import RateLimitError
+from dotenv import load_dotenv
+from openai import OpenAI, RateLimitError
 
 
-MODEL_NAME = "qwen/qwen3.8-27b:free"
+load_dotenv("backend/.env")
+
+
+MODEL_NAME = "openrouter/free"
 
 
 class LLM:
@@ -15,6 +18,7 @@ class LLM:
         api_key = os.getenv("OPENROUTER_API_KEY")
 
         if not api_key:
+
             raise ValueError(
                 "OPENROUTER_API_KEY environment variable is not set."
             )
@@ -23,6 +27,7 @@ class LLM:
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key
         )
+
 
     def generate(
         self,
@@ -47,6 +52,7 @@ class LLM:
                 content = response.choices[0].message.content
 
                 if content:
+
                     return content.strip()
 
                 print(
@@ -58,30 +64,19 @@ class LLM:
 
                 error_message = str(error)
 
-                # ------------------------------------------------
-                # DAILY FREE-MODEL QUOTA EXHAUSTED
-                # ------------------------------------------------
-
                 if "free-models-per-day" in error_message:
 
                     raise RuntimeError(
-                        "OpenRouter daily free-model quota has been "
-                        "exhausted. Please wait for the daily reset "
-                        "or use a model/API route with available quota."
+                        "OpenRouter daily free-model quota has "
+                        "been exhausted. Please wait for the "
+                        "daily reset or use another available "
+                        "free model."
                     )
-
-                # ------------------------------------------------
-                # TEMPORARY RATE LIMIT
-                # ------------------------------------------------
 
                 print(
                     f"\nLLM temporarily rate limited "
                     f"(attempt {attempt + 1}/{max_retries})."
                 )
-
-            # ----------------------------------------------------
-            # RETRY
-            # ----------------------------------------------------
 
             if attempt < max_retries - 1:
 
@@ -93,6 +88,8 @@ class LLM:
 
                 time.sleep(wait_time)
 
+
         raise RuntimeError(
-            f"LLM generation failed after {max_retries} attempts."
+            f"LLM generation failed after "
+            f"{max_retries} attempts."
         )

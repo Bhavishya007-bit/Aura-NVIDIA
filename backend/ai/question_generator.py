@@ -7,10 +7,12 @@ class QuestionGenerator:
     def __init__(self, llm: LLM):
         self.llm = llm
 
+
     def generate_mcq(
         self,
         retrieved_chunks: list[RetrievedChunk],
-        difficulty: str
+        difficulty: str,
+        previous_questions: list[str] | None = None
     ) -> MCQ:
 
         if not retrieved_chunks:
@@ -19,9 +21,7 @@ class QuestionGenerator:
         context_parts = []
 
         for i, result in enumerate(retrieved_chunks, start=1):
-
             chunk = result.chunk
-
             context_parts.append(
                 f"Source {i}\n"
                 f"Content:\n{chunk.content}"
@@ -29,66 +29,62 @@ class QuestionGenerator:
 
         context = "\n\n".join(context_parts)
 
+        previous_questions = previous_questions or []
+
+        if previous_questions:
+            history_text = "\n".join(
+                f"- {question}" for question in previous_questions
+            )
+        else:
+            history_text = "No previously answered questions."
+
         prompt = f"""
 You are an AI question generator for an educational study platform.
 
-Your task is to generate exactly ONE multiple-choice question using
-ONLY the provided course material.
+Generate exactly ONE multiple-choice question using ONLY the
+provided course material. Do not use outside knowledge.
 
-Do NOT use outside knowledge.
-
-==================================================
 DIFFICULTY RULES
-==================================================
 
 EASY:
 - Test direct recall of an important fact.
-- The answer should be directly stated in the material.
-- Do not require complex reasoning.
 - Keep the question and options concise.
 
 MEDIUM:
-- Require the learner to connect, compare, or interpret information
-  from the provided material.
-- The answer must still be completely supported by the material.
-- Distractors should be plausible.
+- Require the learner to connect, compare, or interpret information.
+- The answer must be supported by the material.
 
 HARD:
-- Require reasoning using multiple pieces of information from
-  the provided material.
+- Require reasoning using multiple pieces of information.
 - Test distinctions between closely related concepts.
-- Distractors should be plausible and related to the material.
-- Only one option must be correct.
 
 Requested difficulty: {difficulty}
 
-==================================================
 QUESTION REQUIREMENTS
-==================================================
 
-- Generate exactly ONE question.
-- The question must be specific and meaningful.
-- Do not ask vague questions.
-- Do not use phrases such as:
-  "What is stated in the material?"
-  "According to the passage..."
-- The question should test understanding of the course material.
-- Do not invent facts.
-- Do not use outside knowledge.
-- The correct answer must be explicitly supported by the material.
-- The explanation must be supported only by the material.
-- Generate exactly four options.
-- All four options must belong to the same conceptual category.
-- Avoid obviously unrelated distractors.
-- Distractors should be plausible.
+- Generate exactly ONE specific, meaningful question.
+- Do not invent facts or use outside knowledge.
+- The correct answer and explanation must be supported by the material.
+- Generate exactly four options, A, B, C, and D.
+- All options must belong to the same conceptual category.
+- Distractors must be plausible.
 - Only ONE option can be correct.
-- Do not make the correct option obviously longer or more detailed
-  than the distractors.
-- Avoid unnecessary wording in the options.
+- Avoid making the correct option obviously longer than the others.
 
-==================================================
+QUESTION HISTORY — IMPORTANT
+
+The following questions have already been answered by this student
+for this topic:
+
+{history_text}
+
+Do not repeat any question in this history.
+Do not merely reword a previous question.
+Test a different fact, relationship, application, or concept whenever
+the provided material supports it.
+If history is empty, generate a suitable new question.
+
 OUTPUT FORMAT
-==================================================
 
 Return ONLY the following format:
 
@@ -113,13 +109,9 @@ TOPIC:
 DIFFICULTY:
 <easy/medium/hard>
 
-==================================================
 COURSE MATERIAL
-==================================================
 
 {context}
-
-==================================================
 """
 
         response = self.llm.generate(prompt)
@@ -129,124 +121,126 @@ COURSE MATERIAL
             retrieved_chunks=retrieved_chunks
         )
 
+    
     def _parse_response(
         self,
         response: str,
         retrieved_chunks: list[RetrievedChunk]
     ) -> MCQ:
 
-        sections = response.split("\n")
+        import re
 
-        question = ""
-        options = []
-        correct_letter = ""
-        explanation = ""
-        topic = ""
-        difficulty = ""
+        # Normalize common Markdown formatting from LLM responses.
+        text = response.replace("\r\n", "\n").strip()
+        text = re.sub(r"```(?:text|markdown)?", "", text, flags=re.IGNORECASE)
+        text = text.replace("```", "")
+        text = re.sub(r"\*\*(QUESTION|OPTIONS|CORRECT|EXPLANATION|TOPIC|DIFFICULTY):\*\*", r"\1:", text, flags=re.IGNORECASE)
+
+        labels = r"QUESTION|OPTIONS|CORRECT|EXPLANATION|TOPIC|DIFFICULTY"
+
+        # Accept labels with or without their values on the same line.
+        pattern = re.compile(
+            rf"^\s*(?:\*\*)?({labels})(?:\*\*)?\s*:\s*(.*)$",
+            re.IGNORECASE
+        )
+
+        sections = {
+            "QUESTION": [],
+            "OPTIONS": [],
+            "CORRECT": [],
+            "EXPLANATION": [],
+            "TOPIC": [],
+            "DIFFICULTY": [],
+        }
 
         current_section = None
 
-        for line in sections:
-
-            line = line.strip()
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
 
             if not line:
                 continue
 
-            if line == "QUESTION:":
-                current_section = "question"
+            match = pattern.match(line)
+
+            if match:
+                current_section = match.group(1).upper()
+                value = match.group(2).strip()
+
+                if value:
+                    sections[current_section].append(value)
+
                 continue
 
-            if line == "OPTIONS:":
-                current_section = "options"
-                continue
+            if current_section == "OPTIONS":
+                option_match = re.match(
+                    r"^[A-D][.)]\s*(.+)$",
+                    line,
+                    re.IGNORECASE
+                )
 
-            if line == "CORRECT:":
-                current_section = "correct"
-                continue
+                if option_match:
+                    sections["OPTIONS"].append(
+                        option_match.group(1).strip()
+                    )
 
-            if line == "EXPLANATION:":
-                current_section = "explanation"
-                continue
+            elif current_section is not None:
+                sections[current_section].append(line)
 
-            if line == "TOPIC:":
-                current_section = "topic"
-                continue
+        question = " ".join(sections["QUESTION"]).strip()
+        options = sections["OPTIONS"]
+        correct_text = " ".join(sections["CORRECT"]).strip()
+        explanation = " ".join(sections["EXPLANATION"]).strip()
+        topic = " ".join(sections["TOPIC"]).strip()
+        difficulty = " ".join(sections["DIFFICULTY"]).strip().lower()
 
-            if line == "DIFFICULTY:":
-                current_section = "difficulty"
-                continue
+        # Accept "A", "A.", "Option A", or "A. answer text".
+        correct_match = re.match(
+            r"^(?:OPTION\s+)?([A-D])(?:[.)\s]|$)",
+            correct_text,
+            re.IGNORECASE
+        )
 
-            if current_section == "question":
-
-                question += " " + line
-
-            elif current_section == "options":
-
-                if line.startswith(("A.", "B.", "C.", "D.")):
-                    options.append(line[2:].strip())
-
-            elif current_section == "correct":
-
-                correct_letter = line.upper()
-
-            elif current_section == "explanation":
-
-                explanation += " " + line
-
-            elif current_section == "topic":
-
-                topic = line
-
-            elif current_section == "difficulty":
-
-                difficulty = line.lower()
-
-        # --------------------------------------------------
-        # VALIDATE CORRECT ANSWER
-        # --------------------------------------------------
-
-        if correct_letter not in ["A", "B", "C", "D"]:
+        if not correct_match:
             raise ValueError(
-                f"Invalid correct answer: {correct_letter}"
+                "Could not parse the correct answer from the LLM response. "
+                f"Received CORRECT section: {correct_text!r}. "
+                f"Response preview: {response[:1000]!r}"
             )
 
-        # --------------------------------------------------
-        # VALIDATE OPTIONS
-        # --------------------------------------------------
+        correct_letter = correct_match.group(1).upper()
 
         if len(options) != 4:
             raise ValueError(
-                f"Expected 4 options, got {len(options)}"
+                f"Expected 4 options, got {len(options)}. "
+                f"Response preview: {response[:1000]!r}"
             )
 
-        # --------------------------------------------------
-        # CONVERT LETTER TO ACTUAL OPTION
-        # --------------------------------------------------
+        if not question:
+            raise ValueError("Generated question is empty.")
+
+        if not explanation:
+            raise ValueError("Generated explanation is empty.")
+
+        if difficulty not in {"easy", "medium", "hard"}:
+            raise ValueError(
+                f"Invalid generated difficulty: {difficulty!r}"
+            )
 
         correct_index = ord(correct_letter) - ord("A")
-
         correct_answer = options[correct_index]
-
-        # --------------------------------------------------
-        # GET SOURCE IDS
-        # --------------------------------------------------
 
         source_ids = list({
             result.chunk.source_id
             for result in retrieved_chunks
         })
 
-        # --------------------------------------------------
-        # CREATE MCQ OBJECT
-        # --------------------------------------------------
-
         return MCQ(
-            question=question.strip(),
+            question=question,
             options=options,
             correct_answer=correct_answer,
-            explanation=explanation.strip(),
-            topic=topic.strip() or None,
-            difficulty=difficulty.strip() or None,
+            explanation=explanation,
+            topic=topic or None,
+            difficulty=difficulty,
             source_ids=source_ids
         )

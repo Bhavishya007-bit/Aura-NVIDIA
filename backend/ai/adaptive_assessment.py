@@ -29,7 +29,8 @@ class AdaptiveAssessment:
         self,
         retrieved_chunks: list[RetrievedChunk],
         topic: str | None = None,
-        max_attempts: int = 5
+        max_attempts: int = 5,
+        previous_questions: list[str] | None = None
     ) -> MCQ:
 
         # ========================================================
@@ -76,7 +77,8 @@ class AdaptiveAssessment:
 
             mcq = self.question_generator.generate_mcq(
                 retrieved_chunks,
-                difficulty=difficulty
+                difficulty=difficulty,
+                previous_questions=previous_questions
             )
 
             # ====================================================

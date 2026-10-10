@@ -2,3 +2,13 @@ pydantic
 sentence-transformers>=2.7.0
 transformers>=4.51.0
 openai
+
+fastapi
+uvicorn
+psycopg2-binary
+python-dotenv
+pgvector
+
+PyMuPDF
+python-pptx
+python-docx

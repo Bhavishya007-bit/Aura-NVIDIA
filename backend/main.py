@@ -1,3 +1,19 @@
+from functools import lru_cache
+
+from backend.ai.embeddings import EmbeddingModel
+from backend.ai.pg_retrieval import PostgresRetriever
+
+from backend.ai.rag import RAG
+from backend.ai.llm import LLM
+
+from backend.ai.adaptive_assessment import AdaptiveAssessment
+from backend.ai.learner_model import LearnerState
+from backend.ai.question_generator import QuestionGenerator
+from backend.ai.question_validator import QuestionValidator
+from backend.ai.question_grounding import QuestionGrounding
+from backend.ai.question_duplicate import QuestionDuplicateDetector
+from backend.ai.assessment_session import AssessmentSession
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -32,11 +48,21 @@ class ChunkEmbeddingRequest(BaseModel):
     embedding: list[float] | None = None
 
 class SearchRequest(BaseModel):
-    embedding: list[float]
+    query: str
     top_k: int = 5
     course_id: int | None = None
     topic_id: int | None = None
     concept_id: int | None = None
+
+class ChatRequest(BaseModel):
+    question: str
+    top_k: int = 3
+
+class AdaptiveQuestionRequest(BaseModel):
+    student_id: int
+    topic_id: int
+    top_k: int = 3
+
 class StudentRequest(BaseModel):
     name: str
     email: str    
@@ -96,9 +122,331 @@ def get_connection():
         host=os.getenv("DB_HOST"),
         port=os.getenv("DB_PORT")
     )
+
     register_vector(connection)
 
     return connection
+
+
+@lru_cache(maxsize=1)
+def get_retriever():
+    embedding_model = EmbeddingModel()
+    return PostgresRetriever(embedding_model)
+
+
+@lru_cache(maxsize=1)
+def get_rag():
+    retriever = get_retriever()
+    llm = LLM()
+
+    return RAG(
+        retriever=retriever,
+        llm=llm
+    )
+
+@lru_cache(maxsize=1)
+def get_assessment_components():
+    llm = LLM()
+    embedding_model = get_retriever().embedding_model
+
+    return {
+        "question_generator": QuestionGenerator(llm),
+        "question_validator": QuestionValidator(),
+        "grounding_checker": QuestionGrounding(llm),
+        "duplicate_detector": QuestionDuplicateDetector(embedding_model),
+    }
+
+
+@app.post("/adaptive/question")
+def generate_adaptive_question(request: AdaptiveQuestionRequest):
+    # 1. Retrieve the topic and verify the student exists.
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(
+            """
+            SELECT topic_name
+            FROM topics
+            WHERE topic_id = %s;
+            """,
+            (request.topic_id,)
+        )
+        topic_row = cursor.fetchone()
+
+        cursor.execute(
+            """
+            SELECT student_id
+            FROM students
+            WHERE student_id = %s;
+            """,
+            (request.student_id,)
+        )
+        student_row = cursor.fetchone()
+
+    finally:
+        cursor.close()
+        connection.close()
+
+    if topic_row is None:
+        raise HTTPException(status_code=404, detail="Topic not found.")
+
+    if student_row is None:
+        raise HTTPException(status_code=404, detail="Student not found.")
+
+    topic_name = topic_row[0]
+
+    # 1.1 Retrieve previously answered questions for this student and topic.
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(
+            """
+            SELECT
+                q.question_text,
+                MAX(a.answered_at) AS last_answered
+            FROM answers AS a
+            JOIN quiz_attempts AS qa
+                ON qa.attempt_id = a.attempt_id
+            JOIN questions AS q
+                ON q.question_id = a.question_id
+            WHERE qa.student_id = %s
+              AND qa.topic_id = %s
+            GROUP BY q.question_text
+            ORDER BY last_answered DESC
+            LIMIT 30;
+            """,
+            (request.student_id, request.topic_id)
+        )
+
+        previous_questions = [
+            row[0] for row in cursor.fetchall()
+        ]
+
+    finally:
+        cursor.close()
+        connection.close()
+
+    # 2. Retrieve relevant course material.
+    retriever = get_retriever()
+
+    retrieved_chunks = retriever.search(
+        query=topic_name,
+        top_k=request.top_k,
+        topic=topic_name
+    )
+
+    if not retrieved_chunks:
+        raise HTTPException(
+            status_code=404,
+            detail="No indexed course material was found for this topic."
+        )
+
+    # 3. Initialize the assessment components.
+    components = get_assessment_components()
+
+    # Load the student's saved mastery for this topic.
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(
+            """
+            SELECT mastery_score
+            FROM mastery
+            WHERE student_id = %s
+              AND topic_id = %s;
+            """,
+            (request.student_id, request.topic_id)
+        )
+
+        mastery_row = cursor.fetchone()
+
+    finally:
+        cursor.close()
+        connection.close()
+
+    # Initialize the learner with saved mastery when available.
+    learner = LearnerState(student_id=request.student_id)
+
+    if mastery_row is not None:
+        learner.get_topic_state(
+            topic_name,
+            initial_mastery=float(mastery_row[0])
+        )
+
+    session = AssessmentSession(
+        student_id=request.student_id,
+        topic=topic_name
+    )
+
+    assessment = AdaptiveAssessment(
+        learner=learner,
+        question_generator=components["question_generator"],
+        question_validator=components["question_validator"],
+        grounding_checker=components["grounding_checker"],
+        duplicate_detector=components["duplicate_detector"],
+        session=session
+    )
+
+    # 4. Generate and validate the question using persistent history.
+    try:
+        mcq = assessment.generate_question(
+            retrieved_chunks=retrieved_chunks,
+            topic=topic_name,
+            previous_questions=previous_questions
+        )
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not generate a valid question: {error}"
+        ) from error
+
+    # 5. Resolve a valid source and chunk for the database.
+    source_id = mcq.source_ids[0] if mcq.source_ids else None
+
+    if source_id is None:
+        raise HTTPException(
+            status_code=502,
+            detail="Generated question has no source ID."
+        )
+
+    matching_chunks = [
+        result.chunk
+        for result in retrieved_chunks
+        if result.chunk.source_id == source_id
+    ]
+
+    if not matching_chunks:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not resolve the question's source chunk."
+        )
+
+    chunk = matching_chunks[0]
+
+    # Convert the generator's difficulty to the database's 1–5 scale.
+    difficulty_map = {
+        "easy": 1,
+        "medium": 3,
+        "hard": 5
+    }
+
+    difficulty_value = difficulty_map.get(
+        (mcq.difficulty or "").lower()
+    )
+
+    if difficulty_value is None:
+        raise HTTPException(
+            status_code=502,
+            detail="Generated question has an invalid difficulty."
+        )
+
+    # 6. Save the generated question.
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+        # Avoid saving an exact duplicate question for the same topic.
+        cursor.execute(
+            """
+            SELECT question_id
+            FROM questions
+            WHERE topic_id = %s
+              AND LOWER(TRIM(question_text)) = LOWER(TRIM(%s))
+            LIMIT 1;
+            """,
+            (request.topic_id, mcq.question)
+        )
+
+        existing_question = cursor.fetchone()
+
+        if existing_question is not None:
+            connection.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="This question already exists for the selected topic."
+            )
+
+        cursor.execute(
+            """
+            INSERT INTO questions (
+                topic_id,
+                source_id,
+                chunk_id,
+                question_text,
+                difficulty,
+                correct_answer,
+                question_type,
+                options,
+                explanation,
+                verified
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING question_id;
+            """,
+            (
+                request.topic_id,
+                source_id,
+                chunk.chunk_id,
+                mcq.question,
+                difficulty_value,
+                mcq.correct_answer,
+                "MCQ",
+                Json({
+                    "A": mcq.options[0],
+                    "B": mcq.options[1],
+                    "C": mcq.options[2],
+                    "D": mcq.options[3]
+                }),
+                mcq.explanation,
+                True
+            )
+        )
+
+        inserted_row = cursor.fetchone()
+
+        if inserted_row is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Question was inserted, but no question ID was returned."
+            )
+
+        question_id = inserted_row[0]
+        connection.commit()
+
+    except HTTPException:
+        connection.rollback()
+        raise
+
+    except Exception as error:
+        connection.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save generated question: {error}"
+        ) from error
+
+    finally:
+        cursor.close()
+        connection.close()
+
+    # 7. Return the saved question without exposing its answer.
+    return {
+        "question_id": question_id,
+        "student_id": request.student_id,
+        "topic_id": request.topic_id,
+        "topic": topic_name,
+        "question": mcq.question,
+        "options": mcq.options,
+        "difficulty": mcq.difficulty,
+        "source_ids": mcq.source_ids,
+        "verified": True
+    }
+
+
+
+
 @app.get("/")
 def home():
     return {
@@ -270,102 +618,95 @@ def get_chunks(source_id: int):
 @app.post("/search")
 def search_chunks(request: SearchRequest):
 
-    # Validate embedding dimension
-    if len(request.embedding) != 1024:
+    if not request.query or not request.query.strip():
         raise HTTPException(
             status_code=422,
-            detail="Embedding must contain exactly 1024 values"
+            detail="Query cannot be empty"
         )
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    if request.top_k < 1 or request.top_k > 20:
+        raise HTTPException(
+            status_code=422,
+            detail="top_k must be between 1 and 20"
+        )
 
     try:
-        query_vector = Vector(request.embedding)
+        retriever = get_retriever()
 
-        query = """
-            SELECT
-                chunks.chunk_id,
-                chunks.source_id,
-                chunks.topic_id,
-                chunks.concept_id,
-                chunks.content,
-                chunks.page_number,
-                chunks.slide_number,
-                chunks.timestamp_seconds,
-                chunks.timestamp_end,
-                chunks.metadata,
-                sources.source_name,
-                sources.source_type,
-                1 - (chunks.embedding <=> %s) AS similarity
-            FROM chunks
-            JOIN sources
-                ON chunks.source_id = sources.source_id
-            WHERE chunks.embedding IS NOT NULL
-        """
+        results = retriever.search(
+            query=request.query,
+            top_k=request.top_k,
+            topic=None
+        )
 
-        parameters = [query_vector]
+        response_results = []
 
-        # Filter by course
-        if request.course_id is not None:
-            query += " AND sources.course_id = %s"
-            parameters.append(request.course_id)
-
-        # Filter by topic
-        if request.topic_id is not None:
-            query += " AND chunks.topic_id = %s"
-            parameters.append(request.topic_id)
-
-        # Filter by concept
-        if request.concept_id is not None:
-            query += " AND chunks.concept_id = %s"
-            parameters.append(request.concept_id)
-
-        query += """
-            ORDER BY chunks.embedding <=> %s
-            LIMIT %s;
-        """
-
-        parameters.append(query_vector)
-        parameters.append(request.top_k)
-
-        cursor.execute(query, parameters)
-
-        rows = cursor.fetchall()
-
-        results = []
-
-        for row in rows:
-            results.append({
-                "chunk_id": row[0],
-                "source_id": row[1],
-                "topic_id": row[2],
-                "concept_id": row[3],
-                "content": row[4],
-                "page_number": row[5],
-                "slide_number": row[6],
-                "timestamp_seconds": row[7],
-                "timestamp_end": row[8],
-                "metadata": row[9],
-                "source_name": row[10],
-                "source_type": row[11],
-                "similarity": row[12]
+        for result in results:
+            response_results.append({
+                "chunk_id": int(result.chunk.chunk_id),
+                "source_id": result.chunk.source_id,
+                "source_name": result.chunk.source_name,
+                "source_type": result.chunk.source_type,
+                "content": result.chunk.content,
+                "page_number": result.chunk.page,
+                "slide_number": result.chunk.slide,
+                "timestamp_seconds": result.chunk.timestamp_start,
+                "timestamp_end": result.chunk.timestamp_end,
+                "topic": result.chunk.topic,
+                "similarity": result.score
             })
 
         return {
-            "results": results
+            "query": request.query,
+            "results": response_results
         }
 
-    except Exception:
-        connection.rollback()
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print(f"Search error: {error}")
+
         raise HTTPException(
             status_code=500,
             detail="Search operation failed"
         )
 
-    finally:
-        cursor.close()
-        connection.close()
+@app.post("/chat")
+def chat(request: ChatRequest):
+    if not request.question or not request.question.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Question cannot be empty"
+        )
+
+    if request.top_k < 1 or request.top_k > 10:
+        raise HTTPException(
+            status_code=422,
+            detail="top_k must be between 1 and 10"
+        )
+
+    try:
+        rag = get_rag()
+
+        result = rag.answer(
+            question=request.question,
+            top_k=request.top_k
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print(f"Chat error: {error}")
+        raise HTTPException(
+            status_code=500,
+            detail="Chat operation failed"
+        )
+
+    
 @app.get("/students/{student_id}/mastery")
 def get_student_mastery(student_id: int):
 
@@ -433,6 +774,101 @@ def get_student_mastery(student_id: int):
     finally:
         cursor.close()
         connection.close()
+
+
+@app.post("/students/{student_id}/mastery/{topic_id}")
+def update_topic_mastery(
+    student_id: int,
+    topic_id: int,
+    score: float
+):
+    if score < 0 or score > 100:
+        raise HTTPException(
+            status_code=422,
+            detail="Score must be between 0 and 100"
+        )
+
+    current_performance = score / 100.0
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(
+            "SELECT student_id FROM students WHERE student_id = %s;",
+            (student_id,)
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Student not found")
+
+        cursor.execute(
+            "SELECT topic_id FROM topics WHERE topic_id = %s;",
+            (topic_id,)
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Topic not found")
+
+        cursor.execute(
+            """
+            SELECT mastery_score
+            FROM mastery
+            WHERE student_id = %s AND topic_id = %s;
+            """,
+            (student_id, topic_id)
+        )
+        existing = cursor.fetchone()
+
+        if existing is None:
+            new_mastery = current_performance
+
+            cursor.execute(
+                """
+                INSERT INTO mastery (student_id, topic_id, mastery_score)
+                VALUES (%s, %s, %s);
+                """,
+                (student_id, topic_id, new_mastery)
+            )
+            previous_mastery = None
+        else:
+            previous_mastery = float(existing[0])
+            new_mastery = (
+                0.7 * previous_mastery
+                + 0.3 * current_performance
+            )
+
+            cursor.execute(
+                """
+                UPDATE mastery
+                SET mastery_score = %s,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE student_id = %s AND topic_id = %s;
+                """,
+                (new_mastery, student_id, topic_id)
+            )
+
+        connection.commit()
+
+        return {
+            "status": "updated",
+            "student_id": student_id,
+            "topic_id": topic_id,
+            "previous_mastery": previous_mastery,
+            "mastery_score": new_mastery
+        }
+
+    except HTTPException:
+        connection.rollback()
+        raise
+    except Exception as error:
+        connection.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update topic mastery: {error}"
+        ) from error
+    finally:
+        cursor.close()
+        connection.close()
+
 class QuizAttemptRequest(BaseModel):
     student_id: int
     topic_id: int
@@ -495,7 +931,14 @@ def store_quiz_attempt(request: QuizAttemptRequest):
             request.score
         ))
 
+        
         row = cursor.fetchone()
+
+        if row is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Quiz attempt was created, but no attempt ID was returned."
+            )
 
         connection.commit()
 
@@ -504,6 +947,7 @@ def store_quiz_attempt(request: QuizAttemptRequest):
             "attempt_id": row[0],
             "attempted_at": row[1]
         }
+
 
     except HTTPException:
         connection.rollback()
@@ -520,15 +964,16 @@ def store_quiz_attempt(request: QuizAttemptRequest):
         cursor.close()
         connection.close()
 @app.post("/quiz/attempt/{attempt_id}/complete")
-def complete_quiz_attempt(attempt_id: int):
 
+
+def complete_quiz_attempt(attempt_id: int):
     connection = get_connection()
     cursor = connection.cursor()
 
     try:
-        # Check that the attempt exists
+        # Get the quiz attempt and its topic
         cursor.execute("""
-            SELECT attempt_id, score
+            SELECT attempt_id, student_id, topic_id, score
             FROM quiz_attempts
             WHERE attempt_id = %s;
         """, (attempt_id,))
@@ -541,7 +986,9 @@ def complete_quiz_attempt(attempt_id: int):
                 detail="Quiz attempt not found"
             )
 
-        existing_score = attempt[1]
+        student_id = attempt[1]
+        topic_id = attempt[2]
+        existing_score = attempt[3]
 
         # Prevent completing the same attempt twice
         if existing_score is not None:
@@ -559,7 +1006,15 @@ def complete_quiz_attempt(attempt_id: int):
             WHERE attempt_id = %s;
         """, (attempt_id,))
 
-        total_questions, correct_answers = cursor.fetchone()
+        answer_counts = cursor.fetchone()
+
+        if answer_counts is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No answers found for this quiz attempt"
+            )
+
+        total_questions, correct_answers = answer_counts
 
         if total_questions == 0:
             raise HTTPException(
@@ -570,21 +1025,29 @@ def complete_quiz_attempt(attempt_id: int):
         # Calculate percentage score
         score = round((correct_answers / total_questions) * 100)
 
-        # Save the calculated score
+        # Save the completed quiz score
         cursor.execute("""
             UPDATE quiz_attempts
             SET score = %s
             WHERE attempt_id = %s;
         """, (score, attempt_id))
 
+       
+        # Mastery is updated by BKT when each answer is submitted.
+        # Quiz completion only records the final quiz score.
         connection.commit()
+
 
         return {
             "status": "completed",
             "attempt_id": attempt_id,
+            "student_id": student_id,
+            "topic_id": topic_id,
             "total_questions": total_questions,
             "correct_answers": correct_answers,
-            "score": score
+            "score": score,
+            "previous_mastery": previous_mastery,
+            "mastery_score": round(new_mastery, 4)
         }
 
     except HTTPException:
@@ -601,6 +1064,7 @@ def complete_quiz_attempt(attempt_id: int):
     finally:
         cursor.close()
         connection.close()
+
 class QuizAnswerRequest(BaseModel):
     attempt_id: int
     question_id: int
@@ -614,9 +1078,9 @@ def store_quiz_answer(request: QuizAnswerRequest):
     cursor = connection.cursor()
 
     try:
-        # Check that the quiz attempt exists
+            # Check that the quiz attempt exists and get the student and topic
         cursor.execute("""
-            SELECT attempt_id, score
+            SELECT attempt_id, student_id, topic_id, score
             FROM quiz_attempts
             WHERE attempt_id = %s;
         """, (request.attempt_id,))
@@ -630,12 +1094,31 @@ def store_quiz_answer(request: QuizAnswerRequest):
             )
 
         # Do not allow answers after quiz completion
-        if attempt[1] is not None:
+        student_id = attempt[1]
+        topic_id = attempt[2]
+
+        # Load the topic name required by the learner model.
+        cursor.execute("""
+            SELECT topic_name
+            FROM topics
+            WHERE topic_id = %s;
+        """, (topic_id,))
+        topic_row = cursor.fetchone()
+
+        if topic_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Topic not found"
+            )
+
+        topic_name = topic_row[0]
+
+        # Do not allow answers after quiz completion
+        if attempt[3] is not None:
             raise HTTPException(
                 status_code=400,
                 detail="Quiz attempt is already completed"
-            )
-
+    )
         # Check that the question exists and get its correct answer
         cursor.execute("""
             SELECT correct_answer
@@ -652,6 +1135,9 @@ def store_quiz_answer(request: QuizAnswerRequest):
             )
 
         correct_answer = question[0]
+
+        print("DEBUG correct_answer:", repr(correct_answer))
+        print("DEBUG student_answer:", repr(request.student_answer))
 
         # Make sure the question has a correct answer
         if correct_answer is None:
@@ -702,15 +1188,73 @@ def store_quiz_answer(request: QuizAnswerRequest):
             is_correct
         ))
 
-        answer_id = cursor.fetchone()[0]
+        
+        answer_row = cursor.fetchone()
+        if answer_row is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve the stored answer ID"
+            )
+
+        answer_id = answer_row[0]
+
+        # Load the current topic mastery from the database.
+        cursor.execute("""
+            SELECT mastery_score
+            FROM mastery
+            WHERE student_id = %s AND topic_id = %s;
+        """, (student_id, topic_id))
+
+        mastery_row = cursor.fetchone()
+
+        if mastery_row is None:
+            current_mastery = 0.20
+        else:
+            current_mastery =  min(0.99,max(0.01, float(mastery_row[0])))
+    
+
+        # Initialize BKT with the saved mastery.
+        learner = LearnerState(student_id=student_id)
+        learner.get_topic_state(
+            topic_name,
+            initial_mastery=current_mastery
+        )
+
+        # Update mastery based on this answer.
+        updated_mastery = learner.update_mastery(
+            topic=topic_name,
+            correct=is_correct
+        )
+
+        # Save the updated mastery.
+        if mastery_row is None:
+            cursor.execute("""
+                INSERT INTO mastery (
+                    student_id,
+                    topic_id,
+                    mastery_score,
+                    last_updated
+                )
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP);
+            """, (student_id, topic_id, updated_mastery))
+        else:
+            cursor.execute("""
+                UPDATE mastery
+                SET mastery_score = %s,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE student_id = %s AND topic_id = %s;
+            """, (updated_mastery, student_id, topic_id))
 
         connection.commit()
 
         return {
             "status": "stored",
             "answer_id": answer_id,
-            "is_correct": is_correct
+            "is_correct": is_correct,
+            "topic_id": topic_id,
+            "mastery_score": updated_mastery
         }
+
 
     except HTTPException:
         connection.rollback()
@@ -726,6 +1270,7 @@ def store_quiz_answer(request: QuizAnswerRequest):
     finally:
         cursor.close()
         connection.close()
+
 @app.post("/quiz/attempt/{attempt_id}/update-mastery")
 def update_mastery(attempt_id: int):
 
@@ -1492,7 +2037,14 @@ def create_question(request: QuestionRequest):
             embedding_value
         ))
 
-        question_id = cursor.fetchone()[0]
+        result = cursor.fetchone()
+        if result is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve created question"
+            )
+
+        question_id = result[0]
 
         connection.commit()
 
@@ -2065,6 +2617,15 @@ def record_mastery_history(
 
     history = cursor.fetchone()
 
+    if history is None:
+        connection.rollback()
+        cursor.close()
+        connection.close()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to record mastery history"
+        )
+
     connection.commit()
 
     cursor.close()
@@ -2197,6 +2758,13 @@ def create_chat_session(request: ChatSessionRequest):
 
         session = cursor.fetchone()
 
+        if session is None:
+            connection.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create chat session"
+            )
+
         connection.commit()
 
         return {
@@ -2285,6 +2853,13 @@ def create_chat_message(request: ChatMessageRequest):
         ))
 
         message = cursor.fetchone()
+
+        if message is None:
+            connection.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create chat message"
+            )
 
         connection.commit()
 
@@ -2464,6 +3039,12 @@ def create_learner_event(request: LearnerEventRequest):
 
         event = cursor.fetchone()
 
+        if event is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create learner event"
+            )
+
         connection.commit()
 
         return {
@@ -2537,7 +3118,7 @@ def get_learner_events(
             WHERE le.student_id = %s
         """
 
-        parameters = [student_id]
+        parameters: list[int | str] = [student_id]
 
         # Optional concept filter
         if concept_id is not None:

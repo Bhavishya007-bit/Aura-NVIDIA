@@ -24,12 +24,24 @@ class LearnerState:
     p_slip: float = 0.10
     p_learn: float = 0.20
 
-    def get_topic_state(self, topic: str) -> TopicState:
+    
+    def get_topic_state(
+        self,
+        topic: str,
+        initial_mastery: float | None = None
+    ) -> TopicState:
 
         if topic not in self.topic_states:
-            self.topic_states[topic] = TopicState()
+            mastery = 0.20 if initial_mastery is None else initial_mastery
+
+            mastery = max(0.0, min(1.0, mastery))
+
+            self.topic_states[topic] = TopicState(
+                p_known=mastery
+            )
 
         return self.topic_states[topic]
+
 
     def get_mastery(self, topic: str) -> float:
 
@@ -37,20 +49,16 @@ class LearnerState:
 
         return round(state.p_known, 2)
 
+    
     def update_mastery(
         self,
         topic: str,
         correct: bool
     ) -> float:
-
         state = self.get_topic_state(topic)
-
         p_known = state.p_known
 
-        # -----------------------------------------
-        # STEP 1: Calculate observation probabilities
-        # -----------------------------------------
-
+        # Probability of a correct or incorrect response
         p_correct = (
             p_known * (1 - self.p_slip)
             + (1 - p_known) * self.p_guess
@@ -61,35 +69,23 @@ class LearnerState:
             + (1 - p_known) * (1 - self.p_guess)
         )
 
-        # -----------------------------------------
-        # STEP 2: Bayesian update
-        # -----------------------------------------
-
+        # Bayesian update based on the observed answer
         if correct:
-
             p_known_given_answer = (
                 p_known * (1 - self.p_slip)
             ) / p_correct
-
         else:
-
             p_known_given_answer = (
                 p_known * self.p_slip
             ) / p_incorrect
 
-        # -----------------------------------------
-        # STEP 3: Learning transition
-        # -----------------------------------------
-
+        # Account for learning after the observation
         p_known_after_learning = (
             p_known_given_answer
             + (1 - p_known_given_answer) * self.p_learn
         )
 
-        # -----------------------------------------
-        # STEP 4: Keep value between 0 and 1
-        # -----------------------------------------
-
+        # Keep mastery within [0, 1]
         p_known_after_learning = max(
             0.0,
             min(1.0, p_known_after_learning)
@@ -97,28 +93,29 @@ class LearnerState:
 
         state.p_known = p_known_after_learning
 
-        return round(state.p_known, 2)
+        return round(state.p_known, 4)
 
     def get_difficulty(self, topic: str) -> str:
-
+        """
+        Select question difficulty based on estimated topic mastery.
+        """
         mastery = self.get_mastery(topic)
 
         if mastery < 0.40:
             return "easy"
-
-        if mastery < 0.70:
+        elif mastery < 0.70:
             return "medium"
-
-        return "hard"
+        else:
+            return "hard"
 
     def get_weakest_topic(self) -> str | None:
-
+        """
+        Return the topic with the lowest estimated mastery.
+        """
         if not self.topic_states:
             return None
 
-        weakest_topic = min(
+        return min(
             self.topic_states,
             key=lambda topic: self.topic_states[topic].p_known
         )
-
-        return weakest_topic
