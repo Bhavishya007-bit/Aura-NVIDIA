@@ -1,0 +1,21 @@
+# This deployment serves the frontend only.
+.env*
+work/
+outputs/
+Users/
+dist/
+ingestion/
+backend/
+.venv/
+tests/
+scripts/
+requirements-ingestion.txt
+requirements-api.txt
+INGESTION.md
+tsconfig.tsbuildinfo
+**/__pycache__/
+*.pyc
+.vercel-cli-cache/
+.vercel-cli-home/
+.vercel-cli-local/
+.vercel-cli-roaming/
