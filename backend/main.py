@@ -14,7 +14,7 @@ from backend.ai.question_grounding import QuestionGrounding
 from backend.ai.question_duplicate import QuestionDuplicateDetector
 from backend.ai.assessment_session import AssessmentSession
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import psycopg2
@@ -24,6 +24,10 @@ from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
 from pgvector import Vector
 from pathlib import Path
+
+import pymupdf
+from pathlib import Path
+import shutil
 
 env_path = Path(__file__).parent / ".env"
 load_dotenv(env_path)
@@ -514,6 +518,116 @@ def get_topics(course_id: int):
         "topics": topics
     }
 
+@app.post("/courses/{course_id}/sources")
+async def upload_course_source(
+    course_id: int,
+    file: UploadFile = File(...)
+):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a PDF file"
+        )
+
+    connection = get_connection()
+    cursor = connection.cursor()
+    saved_path = None
+
+    try:
+        cursor.execute(
+            "SELECT course_id FROM courses WHERE course_id = %s",
+            (course_id,)
+        )
+
+        if cursor.fetchone() is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Course not found"
+            )
+
+        upload_dir = Path(__file__).parent / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        saved_path = upload_dir / file.filename
+
+        with saved_path.open("wb") as output_file:
+            shutil.copyfileobj(file.file, output_file)
+
+        with pymupdf.open(str(saved_path)) as pdf:
+            page_count = len(pdf)
+            extracted_pages: list[str] = []
+
+            for page in pdf:
+                page_text = str(page.get_text("text"))
+                extracted_pages.append(page_text)
+
+            extracted_text: str = "\n".join(extracted_pages).strip()
+
+        if not extracted_text:
+            status = "empty"
+        else:
+            status = "success"
+
+        cursor.execute(
+            """
+            INSERT INTO sources (
+                course_id,
+                source_name,
+                source_type,
+                file_path,
+                status
+            )
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING source_id
+            """,
+            (
+                course_id,
+                file.filename,
+                "pdf",
+                str(saved_path),
+                status
+            )
+        )
+
+        row = cursor.fetchone()
+
+        if row is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create source record"
+            )
+
+        source_id = row[0]
+        connection.commit()
+
+
+        return {
+            "source_id": source_id,
+            "course_id": course_id,
+            "source_name": file.filename,
+            "source_type": "pdf",
+            "status": status,
+            "page_count": page_count,
+            "extracted_characters": len(extracted_text),
+            "message": "PDF uploaded and text extraction completed"
+        }
+
+    except HTTPException:
+        connection.rollback()
+        raise
+
+    except Exception as exc:
+        connection.rollback()
+        print("PDF UPLOAD ERROR:", repr(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF upload failed: {str(exc)}"
+        )
+
+    finally:
+        cursor.close()
+        connection.close()
+        await file.close()
 
 @app.get("/sources/{course_id}")
 def get_sources(course_id: int):
@@ -708,7 +822,7 @@ def chat(request: ChatRequest):
 
     
 @app.get("/students/{student_id}/mastery")
-def get_student_mastery(student_id: int):
+def get_student_mastery(student_id: int, course_id: int | None = None):
 
     connection = get_connection()
     cursor = connection.cursor()
@@ -727,20 +841,49 @@ def get_student_mastery(student_id: int):
                 detail="Student not found"
             )
 
-        # Get current topic-level mastery
-        cursor.execute("""
-            SELECT
-                m.student_id,
-                m.topic_id,
-                t.topic_name,
-                m.mastery_score,
-                m.last_updated
-            FROM mastery m
-            JOIN topics t
-                ON m.topic_id = t.topic_id
-            WHERE m.student_id = %s
-            ORDER BY m.topic_id;
-        """, (student_id,))
+        # Get current topic-level mastery, optionally filtered by course.
+        if course_id is None:
+            cursor.execute("""
+                SELECT
+                    m.student_id,
+                    m.topic_id,
+                    t.topic_name,
+                    m.mastery_score,
+                    m.last_updated
+                FROM mastery m
+                JOIN topics t
+                    ON m.topic_id = t.topic_id
+                WHERE m.student_id = %s
+                ORDER BY m.topic_id;
+            """, (student_id,))
+        else:
+            # Verify that the requested course exists.
+            cursor.execute("""
+                SELECT course_id
+                FROM courses
+                WHERE course_id = %s;
+            """, (course_id,))
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+            cursor.execute("""
+                SELECT
+                    m.student_id,
+                    m.topic_id,
+                    t.topic_name,
+                    m.mastery_score,
+                    m.last_updated
+                FROM mastery m
+                JOIN topics t
+                    ON m.topic_id = t.topic_id
+                WHERE m.student_id = %s
+                  AND t.course_id = %s
+                ORDER BY m.topic_id;
+            """, (student_id, course_id))
 
         rows = cursor.fetchall()
 
@@ -989,6 +1132,18 @@ def complete_quiz_attempt(attempt_id: int):
         student_id = attempt[1]
         topic_id = attempt[2]
         existing_score = attempt[3]
+
+        # Mastery is updated by BKT when each answer is submitted.
+        cursor.execute("""
+            SELECT mastery_score
+            FROM mastery
+            WHERE student_id = %s AND topic_id = %s;
+        """, (student_id, topic_id))
+        mastery_row = cursor.fetchone()
+        previous_mastery = (
+            float(mastery_row[0]) if mastery_row is not None else 0.20
+        )
+        new_mastery = previous_mastery
 
         # Prevent completing the same attempt twice
         if existing_score is not None:

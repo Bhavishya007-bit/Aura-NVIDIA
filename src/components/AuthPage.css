@@ -1,0 +1,160 @@
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 18px;
+  background: #f7f6ec;
+}
+
+.auth-card {
+  width: min(100%, 440px);
+  padding: 36px;
+  border: 1px solid #d8dfd2;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(38, 59, 47, .09);
+}
+
+.auth-brand {
+  padding: 0;
+  margin-bottom: 32px;
+  color: #29352f;
+}
+
+.auth-eyebrow {
+  margin: 0 0 8px;
+  color: #527361;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+}
+
+.auth-card h1 {
+  margin: 0;
+  color: #29352f;
+  font: 700 27px/1.25 Manrope, "Segoe UI", sans-serif;
+  letter-spacing: -.6px;
+}
+
+.auth-description {
+  margin: 9px 0 24px;
+  color: #61766a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.auth-form {
+  display: grid;
+  gap: 15px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 7px;
+  color: #35483e;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.auth-form input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #d8dfd2;
+  border-radius: 6px;
+  outline: none;
+  background: #fbfcf8;
+  color: #29352f;
+  font-size: 14px;
+}
+
+.auth-form input:focus {
+  border-color: #61816c;
+  box-shadow: 0 0 0 3px rgba(97, 129, 108, .15);
+}
+
+.auth-error {
+  margin: 0;
+  color: #a43434;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.auth-submit {
+  min-height: 43px;
+  margin-top: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: #365c4b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: #244638;
+}
+
+.auth-submit:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
+.auth-switch {
+  margin: 20px 0 0;
+  color: #61766a;
+  text-align: center;
+  font-size: 12px;
+}
+
+.auth-switch button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #365c4b;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #f7f6ec;
+  color: #527361;
+  font: 500 14px 'DM Sans', sans-serif;
+}
+
+.app-shell[data-theme="dark"].auth-page {
+  background: #091615;
+}
+
+.app-shell[data-theme="dark"] .auth-card {
+  border-color: #243530;
+  background: #101d1c;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .24);
+}
+
+.app-shell[data-theme="dark"] .auth-brand,
+.app-shell[data-theme="dark"] .auth-card h1,
+.app-shell[data-theme="dark"] .auth-form label {
+  color: #ecf5f1;
+}
+
+.app-shell[data-theme="dark"] .auth-description,
+.app-shell[data-theme="dark"] .auth-switch {
+  color: #a4b7b0;
+}
+
+.app-shell[data-theme="dark"] .auth-form input {
+  border-color: #2d403b;
+  background: #0b1716;
+  color: #ecf5f1;
+}
+
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 28px 22px;
+  }
+}

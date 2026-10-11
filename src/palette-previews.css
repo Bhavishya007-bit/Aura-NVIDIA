@@ -1,0 +1,183 @@
+/* Temporary palette previews. The current Fieldnote theme remains the default. */
+.app-shell[data-palette="golden"] {
+  --ink: #292b24;
+  --muted: #5e6256;
+  --green: #ccd6ae;
+  --green-dark: #454b37;
+  --green-light: #e6ebcb;
+  --line: #e3dabe;
+  --paper: #fff;
+  --cream: #f9eecf;
+  --gold: #d5a06c;
+  color: var(--ink);
+  background: #fffbe6;
+}
+.app-shell[data-palette="autumn"] {
+  --ink: #30231d;
+  --muted: #62534a;
+  --green: #7b1e22;
+  --green-dark: #42271b;
+  --green-light: #ffe6a3;
+  --line: #e8d8bc;
+  --paper: #fff;
+  --cream: #fff3d4;
+  --gold: #b99050;
+  color: var(--ink);
+  background: #fff8ea;
+}
+.app-shell[data-palette="golden"] .main-area { background: #fffbe6; }
+.app-shell[data-palette="autumn"] .main-area { background: #fff8ea; }
+.app-shell[data-palette="golden"] .sidebar { background: #f9eecf; border-color: #e3dabe; }
+.app-shell[data-palette="autumn"] .sidebar { background: #fff3d4; border-color: #e8d8bc; }
+.app-shell[data-palette="golden"] .topbar { background: #fffbe6; border-color: #e3dabe; }
+.app-shell[data-palette="autumn"] .topbar { background: #fff8ea; border-color: #e8d8bc; }
+
+.app-shell[data-palette="golden"] .hero-study,
+.app-shell[data-palette="golden"] .brand-mark,
+.app-shell[data-palette="golden"] .chat-avatar,
+.app-shell[data-palette="golden"] .chat-composer button { background: #ccd6ae; color: #292b24; }
+.app-shell[data-palette="autumn"] .hero-study,
+.app-shell[data-palette="autumn"] .brand-mark,
+.app-shell[data-palette="autumn"] .chat-avatar,
+.app-shell[data-palette="autumn"] .chat-composer button { background: #7b1e22; color: #fff; }
+.app-shell[data-palette="golden"] .hero-copy,
+.app-shell[data-palette="golden"] .hero-copy h2 { color: #292b24; }
+.app-shell[data-palette="golden"] .hero-kicker,
+.app-shell[data-palette="golden"] .hero-copy > p,
+.app-shell[data-palette="golden"] .progress-meta { color: #41483a; }
+.app-shell[data-palette="autumn"] .hero-kicker,
+.app-shell[data-palette="autumn"] .hero-copy > p,
+.app-shell[data-palette="autumn"] .progress-meta,
+.app-shell[data-palette="autumn"] .art-caption { color: #fff7e8; }
+.app-shell[data-palette="golden"] .hero-art { background: #e6ebcb; }
+.app-shell[data-palette="autumn"] .hero-art { background: #9c5429; }
+.app-shell[data-palette="golden"] .hero-art:before,
+.app-shell[data-palette="golden"] .hero-art:after,
+.app-shell[data-palette="golden"] .cell,
+.app-shell[data-palette="golden"] .cell:after { border-color: #737a5e; }
+.app-shell[data-palette="autumn"] .hero-art:before,
+.app-shell[data-palette="autumn"] .hero-art:after,
+.app-shell[data-palette="autumn"] .cell,
+.app-shell[data-palette="autumn"] .cell:after { border-color: #e9c58a; }
+.app-shell[data-palette="golden"] .cell-nucleus,
+.app-shell[data-palette="autumn"] .cell-nucleus { background: var(--gold); }
+
+.app-shell[data-palette="golden"] .nav-item.active,
+.app-shell[data-palette="golden"] .subject-mark.green,
+.app-shell[data-palette="golden"] .session-symbol,
+.app-shell[data-palette="golden"] .nav-new { background: #e6ebcb; color: #454b37; }
+.app-shell[data-palette="autumn"] .nav-item.active,
+.app-shell[data-palette="autumn"] .subject-mark.green,
+.app-shell[data-palette="autumn"] .session-symbol,
+.app-shell[data-palette="autumn"] .nav-new { background: #ffe6a3; color: #42271b; }
+.app-shell[data-palette="golden"] .study-card,
+.app-shell[data-palette="golden"] .tutor-panel,
+.app-shell[data-palette="golden"] .quiz-card,
+.app-shell[data-palette="golden"] .stat-card,
+.app-shell[data-palette="golden"] .progress-detail,
+.app-shell[data-palette="golden"] .chapter-progress,
+.app-shell[data-palette="golden"] .upload-side { background: #fff; border-color: #e3dabe; }
+.app-shell[data-palette="autumn"] .study-card,
+.app-shell[data-palette="autumn"] .tutor-panel,
+.app-shell[data-palette="autumn"] .quiz-card,
+.app-shell[data-palette="autumn"] .stat-card,
+.app-shell[data-palette="autumn"] .progress-detail,
+.app-shell[data-palette="autumn"] .chapter-progress,
+.app-shell[data-palette="autumn"] .upload-side { background: #fff; border-color: #e8d8bc; }
+.app-shell[data-palette="golden"] .welcome-row h1,
+.app-shell[data-palette="golden"] .page-heading h1,
+.app-shell[data-palette="golden"] .section-heading h2,
+.app-shell[data-palette="golden"] .study-card h3,
+.app-shell[data-palette="golden"] .course-row-title h2,
+.app-shell[data-palette="golden"] .quiz-card h2,
+.app-shell[data-palette="golden"] .chapter-progress h2 { color: #292b24; }
+.app-shell[data-palette="autumn"] .welcome-row h1,
+.app-shell[data-palette="autumn"] .page-heading h1,
+.app-shell[data-palette="autumn"] .section-heading h2,
+.app-shell[data-palette="autumn"] .study-card h3,
+.app-shell[data-palette="autumn"] .course-row-title h2,
+.app-shell[data-palette="autumn"] .quiz-card h2,
+.app-shell[data-palette="autumn"] .chapter-progress h2 { color: #30231d; }
+.app-shell[data-palette="golden"] .welcome-sub,
+.app-shell[data-palette="golden"] .page-heading p,
+.app-shell[data-palette="golden"] .study-card p,
+.app-shell[data-palette="golden"] .course-row-info p,
+.app-shell[data-palette="golden"] .session-info span,
+.app-shell[data-palette="golden"] .muted-small,
+.app-shell[data-palette="golden"] .recent-time { color: #5e6256; }
+.app-shell[data-palette="autumn"] .welcome-sub,
+.app-shell[data-palette="autumn"] .page-heading p,
+.app-shell[data-palette="autumn"] .study-card p,
+.app-shell[data-palette="autumn"] .course-row-info p,
+.app-shell[data-palette="autumn"] .session-info span,
+.app-shell[data-palette="autumn"] .muted-small,
+.app-shell[data-palette="autumn"] .recent-time { color: #62534a; }
+.app-shell[data-palette="golden"] .text-button,
+.app-shell[data-palette="golden"] .add-course-button,
+.app-shell[data-palette="golden"] .tutor-spark,
+.app-shell[data-palette="golden"] .upload-icon { color: #454b37; }
+.app-shell[data-palette="autumn"] .text-button,
+.app-shell[data-palette="autumn"] .add-course-button,
+.app-shell[data-palette="autumn"] .tutor-spark,
+.app-shell[data-palette="autumn"] .upload-icon { color: #42271b; }
+.app-shell[data-palette="golden"] .button-light,
+.app-shell[data-palette="golden"] .add-course-button { background: #e6ebcb; color: #454b37; border-color: #e3dabe; }
+.app-shell[data-palette="autumn"] .button-light,
+.app-shell[data-palette="autumn"] .add-course-button { background: #ffe6a3; color: #42271b; border-color: #e8d8bc; }
+.app-shell[data-palette="golden"] .course-swatch,
+.app-shell[data-palette="golden"] .tiny-progress span,
+.app-shell[data-palette="golden"] .milestone-track span,
+.app-shell[data-palette="golden"] .quiz-progress span,
+.app-shell[data-palette="golden"] .legend-dot { background: #d5a06c; }
+.app-shell[data-palette="autumn"] .course-swatch,
+.app-shell[data-palette="autumn"] .tiny-progress span,
+.app-shell[data-palette="autumn"] .milestone-track span,
+.app-shell[data-palette="autumn"] .quiz-progress span,
+.app-shell[data-palette="autumn"] .legend-dot { background: #b99050; }
+.app-shell[data-palette="golden"] .progress-line { background: #aeb995; }
+.app-shell[data-palette="golden"] .progress-line span { background: #d5a06c; }
+.app-shell[data-palette="autumn"] .progress-line { background: #a45746; }
+.app-shell[data-palette="autumn"] .progress-line span { background: #b99050; }
+.app-shell[data-palette="golden"] .bar,
+.app-shell[data-palette="golden"] .large-bar { background: #e6ebcb; }
+.app-shell[data-palette="golden"] .bar-today,
+.app-shell[data-palette="golden"] .large-bar-col .bar-today { background: #d5a06c; }
+.app-shell[data-palette="autumn"] .bar,
+.app-shell[data-palette="autumn"] .large-bar { background: #e8d8bc; }
+.app-shell[data-palette="autumn"] .bar-today,
+.app-shell[data-palette="autumn"] .large-bar-col .bar-today { background: #7b1e22; }
+.app-shell[data-palette="golden"] .week-pill,
+.app-shell[data-palette="golden"] .dropzone,
+.app-shell[data-palette="golden"] .pipeline-status { background: #f9eecf; border-color: #e3dabe; }
+.app-shell[data-palette="autumn"] .week-pill,
+.app-shell[data-palette="autumn"] .dropzone,
+.app-shell[data-palette="autumn"] .pipeline-status { background: #fff9ed; border-color: #e8d8bc; }
+.app-shell[data-palette="golden"] .nav-item,
+.app-shell[data-palette="golden"] .sidebar-user strong,
+.app-shell[data-palette="golden"] .streak-card strong { color: #292b24; }
+.app-shell[data-palette="autumn"] .nav-item,
+.app-shell[data-palette="autumn"] .sidebar-user strong,
+.app-shell[data-palette="autumn"] .streak-card strong { color: #30231d; }
+.app-shell[data-palette="golden"] .demo-tag { background: #f9eecf; border-color: #d5a06c; color: #604329; }
+.app-shell[data-palette="autumn"] .demo-tag { background: #ffe6a3; border-color: #b99050; color: #42271b; }
+.app-shell[data-palette="golden"] .wave,
+.app-shell[data-palette="golden"] .streak-icon { color: #94663e; }
+.app-shell[data-palette="autumn"] .wave,
+.app-shell[data-palette="autumn"] .streak-icon { color: #8c642f; }
+.app-shell[data-palette="golden"] .dropzone,
+.app-shell[data-palette="autumn"] .dropzone { color: var(--ink); }
+.app-shell[data-palette="golden"] .uploaded-file,
+.app-shell[data-palette="autumn"] .uploaded-file { border-color: var(--line); }
+
+.palette-preview-tools { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin: -12px 0 16px; color: #626b64; font-size: 12px; }
+.palette-preview-label { display: flex; align-items: baseline; gap: 8px; }
+.palette-preview-label strong { color: var(--ink); font-size: 13px; font-weight: 600; }
+.palette-preview-label span { color: #777f77; font-size: 12px; }
+.palette-preview-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.palette-preview-tools button { min-height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
+.palette-preview-tools button:hover { border-color: var(--green); }
+.palette-preview-tools button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.palette-preview-tools button.selected { background: var(--green-dark); color: #fff; border-color: var(--green-dark); }
+.app-shell[data-palette="golden"] .palette-preview-tools button.selected { background: #ccd6ae; color: #292b24; border-color: #aab693; }
+.app-shell[data-palette="autumn"] .palette-preview-tools button.selected { background: #7b1e22; color: #fff; border-color: #7b1e22; }
+
