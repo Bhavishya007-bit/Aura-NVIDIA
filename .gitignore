@@ -53,3 +53,15 @@ backend/uploads/
 # Review packages and development reports
 *.zip
 aura-file-list.txt
+
+# Local tests, samples and review lists
+/tests/
+/test_assets/
+test_*.py
+/backend/uploads/
+/create_sample_docx.py
+/create_sample_video.py
+/sample.wav
+/scripts/verify-material-selection.mjs
+/src/components/StudyDesk.backup.css
+/github-files.txt

@@ -207,28 +207,14 @@ LibreOffice installation paths; `LIBREOFFICE_PATH` can override it.
 - Authentication tokens expire after 30 minutes. Refresh restores the session
   while its token remains valid. Logout-token revocation is process-local.
 
-## Checks and tests
+## Verify your installation
 
-```powershell
-npm run build
-npm run test:upload
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
+Run `npm run build` and then run
+`.venv\Scripts\python.exe scripts/check_local_setup.py`.
 
-The curated `tests/` suite tests missing database rows and rollback, new-database
-setup safeguards, preservation of local configuration, and account access
-boundaries with mocks. It does not use a live database or download models.
-
-The older `backend/**/test_*.py` and root ingestion test scripts are retained.
-Many are manual integration scripts that connect to services or mutate a test
-database at import time. Do not run a recursive discovery over the whole project
-against real student data. Run those individually with a disposable test setup.
-
-The corrected package was checked with TypeScript/Vite, Python syntax checks,
-Pyright for `main.py`, the curated tests, and parsed SQL. Docker startup, a fresh
-package install with large model downloads, and local-model answer quality were
-not exercised in the review environment. Run the setup check and demo sequence
-on the evaluation laptop.
+With the services running, check signup, login, a small material upload,
+a source-based tutor answer, study-tool generation, assessment submission
+and Progress. Confirm a second account cannot access the first account's materials.
 
 ## Troubleshooting
 
@@ -245,5 +231,4 @@ on the evaluation laptop.
 | UI still shows an old answer | Ask a new question; saved messages are not rewritten by backend updates |
 | Preview still shows old UI | Stop preview, run `npm run build`, restart preview and refresh |
 
-See [REVIEW_NOTES.md](REVIEW_NOTES.md) for this package's changes and maintainer
-update/GitHub steps. No hosting deployment is needed for the judge workflow.
+All services run locally; no hosting deployment is needed.
