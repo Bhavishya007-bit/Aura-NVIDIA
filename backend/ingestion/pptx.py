@@ -1,6 +1,7 @@
+from backend.preparation_progress import report
 import io
 from pptx import Presentation
-from .ocr import extract_image_text
+from .ocr import extract_images_text
 from .utils import generate_unit_id, has_zip_signature
 from .ppt_convert import convert_ppt_to_pptx, PptConversionError
 
@@ -28,6 +29,7 @@ def ingest_pptx(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
     except Exception as error:
         return [], [f'Failed to open PPTX: {error}']
     units, warnings = [], []
+    report("reading_slides", 0, len(presentation.slides))
     for slide_number, slide in enumerate(presentation.slides, start=1):
         text_parts, images = [], []
         for shape in _shapes(slide.shapes):
@@ -52,8 +54,9 @@ def ingest_pptx(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
                           'source_location': {'kind': 'slide', 'slide_number': slide_number},
                           'extraction_status': 'extracted', 'warnings': []})
         before = len(units)
-        for image_number, (blob, shape) in enumerate(images, start=1):
-            text, metadata, image_warnings = extract_image_text(blob)
+        recognized = extract_images_text([blob for blob, _ in images])
+        for image_number, ((blob, shape), recognition) in enumerate(zip(images, recognized), start=1):
+            text, metadata, image_warnings = recognition
             warnings.extend(f'Slide {slide_number}, image {image_number}: {warning}' for warning in image_warnings)
             if not text:
                 continue
@@ -66,4 +69,5 @@ def ingest_pptx(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
                           'source_location': location, 'extraction_status': 'ocr', 'warnings': image_warnings})
         if not native and len(units) == before:
             warnings.append(f'Slide {slide_number} contains no recognized text.')
+        report("reading_slides", slide_number, len(presentation.slides))
     return units, list(dict.fromkeys(warnings))

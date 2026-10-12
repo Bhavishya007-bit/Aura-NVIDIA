@@ -5,15 +5,37 @@ from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
 import psycopg2
 
-from backend.ai.embeddings import EmbeddingModel
+from backend.ai.embeddings import EmbeddingModel, get_embedding_model, LEGACY_MODEL
 from backend.ai.models import Chunk, RetrievedChunk
 
 load_dotenv("backend/.env")
 
 
 class PostgresRetriever:
-    def __init__(self, embedding_model: EmbeddingModel):
-        self.embedding_model = embedding_model
+    def __init__(self, embedding_model: EmbeddingModel | None = None):
+        self._embedding_model = embedding_model
+
+    @property
+    def embedding_model(self):
+        return self._embedding_model or get_embedding_model(LEGACY_MODEL)
+
+    def _model_cohorts(self, cursor, course_id, source_id, owner_student_id, topic):
+        sql = """SELECT DISTINCT COALESCE(sources.metadata->>'embedding_model', %s)
+                 FROM sources JOIN chunks ON chunks.source_id=sources.source_id
+                 LEFT JOIN topics ON topics.topic_id=chunks.topic_id
+                 WHERE chunks.embedding IS NOT NULL"""
+        params = [LEGACY_MODEL]
+        for column, value in [
+            ("sources.course_id", course_id),
+            ("sources.source_id", source_id),
+            ("sources.owner_student_id", owner_student_id),
+            ("topics.topic_name", topic),
+        ]:
+            if value is not None:
+                sql += f" AND {column} = %s"
+                params.append(value)
+        cursor.execute(sql, params)
+        return [row[0] for row in cursor.fetchall()]
 
     def _get_connection(self):
         connection = psycopg2.connect(
@@ -35,83 +57,106 @@ class PostgresRetriever:
         source_id: int | None = None,
         owner_student_id: int | None = None,
     ) -> list[RetrievedChunk]:
-        query_embedding = self.embedding_model.embed_query(query)
         connection = self._get_connection()
         try:
             with connection.cursor() as cursor:
-                sql = r"""
-                    WITH unique_passages AS (
-                    SELECT chunks.chunk_id, chunks.source_id,
-                           sources.source_name, sources.source_type, chunks.content,
-                           chunks.page_number, chunks.slide_number,
-                           chunks.timestamp_seconds, chunks.timestamp_end,
-                           topics.topic_name, 1 - (chunks.embedding <=> %s) AS similarity,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY md5(regexp_replace(lower(chunks.content), '\s+', ' ', 'g'))
-                               ORDER BY CASE WHEN chunks.page_number IS NOT NULL
-                                   OR chunks.slide_number IS NOT NULL
-                                   OR chunks.timestamp_seconds IS NOT NULL THEN 0 ELSE 1 END,
-                                   chunks.source_id DESC, chunks.chunk_id DESC
-                           ) AS copy_rank
-                    FROM chunks
-                    JOIN sources ON chunks.source_id = sources.source_id
-                    LEFT JOIN topics ON chunks.topic_id = topics.topic_id
-                    WHERE chunks.embedding IS NOT NULL AND chunks.content IS NOT NULL
-                      AND btrim(chunks.content) <> ''
-                """
-                params: list[Any] = [query_embedding]
-                if course_id is not None:
-                    sql += " AND sources.course_id = %s"
-                    params.append(course_id)
-                if source_id is not None:
-                    sql += " AND chunks.source_id = %s"
-                    params.append(source_id)
-                if owner_student_id is not None:
-                    sql += " AND sources.owner_student_id = %s"
-                    params.append(owner_student_id)
-                if topic is not None:
-                    sql += " AND topics.topic_name = %s"
-                    params.append(topic)
-                # Filter the scope before deduplication, and deduplicate before
-                # LIMIT. Repeated uploads cannot consume the context window.
-                sql += """
-                    ) SELECT chunk_id, source_id, source_name, source_type, content,
-                             page_number, slide_number, timestamp_seconds, timestamp_end,
-                             topic_name, similarity
-                      FROM unique_passages WHERE copy_rank = 1
-                      ORDER BY similarity DESC, source_id DESC, chunk_id DESC LIMIT %s
-                """
-                params.append(top_k)
-                cursor.execute(sql, params)
-                rows = cursor.fetchall()
+                cohorts = self._model_cohorts(
+                    cursor, course_id, source_id, owner_student_id, topic
+                )
+                ranked_rows: list[list[tuple[Any, ...]]] = []
+                for model_name in sorted(cohorts):
+                    model = self._embedding_model or get_embedding_model(model_name)
+                    if getattr(model, "model_name", model_name) != model_name:
+                        raise ValueError(
+                            "Query encoder does not match this material's stored vectors."
+                        )
+                    query_embedding = model.embed_query(query)
+                    sql = r"""
+                        WITH unique_passages AS (
+                        SELECT chunks.chunk_id, chunks.source_id,
+                               sources.source_name, sources.source_type, chunks.content,
+                               chunks.page_number, chunks.slide_number,
+                               chunks.timestamp_seconds, chunks.timestamp_end,
+                               topics.topic_name, 1 - (chunks.embedding <=> %s) AS similarity,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY md5(regexp_replace(lower(chunks.content), '\s+', ' ', 'g'))
+                                   ORDER BY CASE WHEN chunks.page_number IS NOT NULL
+                                       OR chunks.slide_number IS NOT NULL
+                                       OR chunks.timestamp_seconds IS NOT NULL THEN 0 ELSE 1 END,
+                                       chunks.source_id DESC, chunks.chunk_id DESC
+                               ) AS copy_rank
+                        FROM chunks
+                        JOIN sources ON chunks.source_id = sources.source_id
+                        LEFT JOIN topics ON chunks.topic_id = topics.topic_id
+                        WHERE chunks.embedding IS NOT NULL AND chunks.content IS NOT NULL
+                          AND btrim(chunks.content) <> ''
+                    """
+                    params: list[Any] = [query_embedding]
+                    if course_id is not None:
+                        sql += " AND sources.course_id = %s"
+                        params.append(course_id)
+                    if source_id is not None:
+                        sql += " AND chunks.source_id = %s"
+                        params.append(source_id)
+                    if owner_student_id is not None:
+                        sql += " AND sources.owner_student_id = %s"
+                        params.append(owner_student_id)
+                    if topic is not None:
+                        sql += " AND topics.topic_name = %s"
+                        params.append(topic)
+                    sql += (
+                        " AND COALESCE(sources.metadata->>'embedding_model', %s) = %s"
+                    )
+                    params.extend([LEGACY_MODEL, model_name])
+                    # Filter the scope before deduplication, and deduplicate before
+                    # LIMIT. Repeated uploads cannot consume the context window.
+                    sql += """
+                        ) SELECT chunk_id, source_id, source_name, source_type, content,
+                                 page_number, slide_number, timestamp_seconds, timestamp_end,
+                                 topic_name, similarity
+                          FROM unique_passages WHERE copy_rank = 1
+                          ORDER BY similarity DESC, source_id DESC, chunk_id DESC LIMIT %s
+                    """
+                    params.append(top_k)
+                    cursor.execute(sql, params)
+                    ranked_rows.append(cursor.fetchall())
+            # Searches over one selected material use its actual cosine score.
+            # A course with mixed encoders uses rank fusion, not incompatible
+            # cross-model cosine comparisons.
+            if len(ranked_rows) <= 1:
+                rows = ranked_rows[0] if ranked_rows else []
+            else:
+                fused: list[tuple[Any, ...]] = [
+                    (tuple(row[:-1]) + (1.0 / (60 + rank),))
+                    for group in ranked_rows
+                    for rank, row in enumerate(group, 1)
+                ]
+                rows = []
+                seen = set()
+                for candidate in sorted(
+                    fused, key=lambda row: (-row[-1], -row[1], str(row[0]))
+                ):
+                    key = " ".join(candidate[4].casefold().split())
+                    if key not in seen:
+                        seen.add(key)
+                        rows.append(candidate)
+                    if len(rows) >= top_k:
+                        break
             results = []
             for row in rows:
-                (
-                    chunk_id,
-                    result_source_id,
-                    source_name,
-                    source_type,
-                    content,
-                    page,
-                    slide,
-                    timestamp_start,
-                    timestamp_end,
-                    topic_name,
-                    similarity,
-                ) = row
                 chunk = Chunk(
-                    chunk_id=str(chunk_id),
-                    source_id=result_source_id,
-                    source_type=source_type,
-                    source_name=source_name,
-                    content=content,
-                    page=page,
-                    slide=slide,
-                    timestamp_start=timestamp_start,
-                    timestamp_end=timestamp_end,
-                    topic=topic_name,
+                    chunk_id=str(row[0]),
+                    source_id=row[1],
+                    source_name=row[2],
+                    source_type=row[3],
+                    content=row[4],
+                    page=row[5],
+                    slide=row[6],
+                    timestamp_start=row[7],
+                    timestamp_end=row[8],
+                    topic=row[9],
                 )
-                results.append(RetrievedChunk(chunk=chunk, score=float(similarity)))
+                results.append(RetrievedChunk(chunk=chunk, score=float(row[10])))
             return results
         finally:
             connection.close()

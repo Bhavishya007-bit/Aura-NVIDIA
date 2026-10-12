@@ -1,6 +1,7 @@
 from functools import lru_cache
+import time
 
-from backend.ai.embeddings import EmbeddingModel
+from backend.ai.embeddings import EmbeddingModel, get_embedding_model, configured_model, LEGACY_MODEL
 from backend.ai.pg_retrieval import PostgresRetriever
 
 from backend.ai.rag import RAG
@@ -14,13 +15,14 @@ from backend.ai.question_grounding import QuestionGrounding
 from backend.ai.question_duplicate import QuestionDuplicateDetector
 from backend.ai.assessment_session import AssessmentSession
 from backend.ingestion.ingest import ingest_file
+from backend.preparation_progress import report, embedding_span
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Literal
 import psycopg2
-from psycopg2.extras import Json
+from psycopg2.extras import Json, execute_values
 import os
 from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
@@ -154,8 +156,7 @@ def get_connection():
 
 @lru_cache(maxsize=1)
 def get_retriever():
-    embedding_model = EmbeddingModel()
-    return PostgresRetriever(embedding_model)
+    return PostgresRetriever()
 
 
 @lru_cache(maxsize=1)
@@ -689,33 +690,14 @@ async def upload_course_source(
 
                 start = end - overlap
 
-        # 6. Insert all chunks once, without embeddings.
-        for chunk in chunks_to_insert:
-            cursor.execute(
-                """
-                INSERT INTO chunks (
-                    source_id,
-                    content,
-                    page_number,
-                    slide_number,
-                    timestamp_seconds,
-                    timestamp_end,
-                    metadata,
-                    embedding
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    chunk[0],  # source_id
-                    chunk[1],  # content
-                    chunk[2],  # page_number
-                    chunk[3],  # slide_number
-                    chunk[4],  # timestamp_seconds
-                    chunk[5],  # timestamp_end
-                    chunk[6],  # metadata
-                    None,      # embedding generated separately
-                )
-            )
+        # Keep the original locations/OCR provenance and write in bulk.
+        report("saving")
+        if chunks_to_insert:
+            execute_values(cursor, """
+                INSERT INTO chunks (source_id,content,page_number,slide_number,
+                    timestamp_seconds,timestamp_end,metadata,embedding)
+                VALUES %s
+            """, [(*chunk, None) for chunk in chunks_to_insert], page_size=128)
 
         # 7. Commit the database transaction.
         connection.commit()
@@ -2251,17 +2233,20 @@ def update_chunk_embedding(
 
 @app.post("/sources/{source_id}/generate-embeddings")
 def generate_source_embeddings(source_id: int):
+    started = time.perf_counter()
     connection = get_connection()
     cursor = connection.cursor()
 
     try:
-        # Verify that the source exists.
+        # Serialize preparation of this source so duplicate requests do not
+        # spend CPU on the same file simultaneously.
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", (9134, source_id))
         cursor.execute(
-            "SELECT source_id FROM sources WHERE source_id = %s",
-            (source_id,)
+            """SELECT metadata, EXISTS(SELECT 1 FROM chunks WHERE source_id=%s AND embedding IS NOT NULL)
+               FROM sources WHERE source_id=%s FOR UPDATE""", (source_id, source_id)
         )
-
-        if cursor.fetchone() is None:
+        source_row = cursor.fetchone()
+        if source_row is None:
             raise HTTPException(
                 status_code=404,
                 detail="Source not found"
@@ -2290,10 +2275,14 @@ def generate_source_embeddings(source_id: int):
                 "message": "No chunks need embeddings"
             }
 
-        # Reuse Aura's existing Qwen3 embedding model.
-        embedding_model = get_retriever().embedding_model
+        # Untagged existing vectors were produced by Qwen. New empty sources
+        # use configured Qwen; never mix two vector spaces within a source.
+        metadata = source_row[0] or {}
+        model_name = metadata.get("embedding_model") or (LEGACY_MODEL if source_row[1] else configured_model())
+        report("loading_model")
+        embedding_model = get_embedding_model(model_name)
 
-        batch_size = 16
+        batch_size = 64
         embedded_count = 0
 
         for start in range(0, len(rows), batch_size):
@@ -2302,36 +2291,42 @@ def generate_source_embeddings(source_id: int):
             chunk_ids = [row[0] for row in batch]
             texts = [row[1] for row in batch]
 
-            vectors = embedding_model.embed_documents(texts)
+            with embedding_span(start, len(rows)):
+                vectors = embedding_model.embed_documents(texts)
 
             if len(vectors) != len(batch):
                 raise ValueError(
                     "Embedding count does not match chunk count"
                 )
 
+            updates = []
             for chunk_id, vector in zip(chunk_ids, vectors):
                 vector_list = vector.tolist()
-
                 if len(vector_list) != 1024:
-                    raise ValueError(
-                        f"Chunk {chunk_id} produced "
-                        f"{len(vector_list)} dimensions; expected 1024"
-                    )
+                    raise ValueError(f"Chunk {chunk_id} has an invalid embedding dimension.")
+                updates.append((chunk_id, int(source_id), Vector(vector_list)))
+            changed = execute_values(cursor, """
+                UPDATE chunks AS c SET embedding = incoming.embedding
+                FROM (VALUES %s) AS incoming(chunk_id,source_id,embedding)
+                WHERE c.chunk_id = incoming.chunk_id AND c.source_id = incoming.source_id
+                  AND c.embedding IS NULL
+                RETURNING c.chunk_id
+            """,
+                updates, template="(%s,%s,%s::vector)", page_size=128, fetch=True)
+            if changed is None:
+                raise RuntimeError("The database returned no bulk update result.")
+            embedded_count += len(changed)
+            report("indexing", start + len(batch), len(rows))
 
-                cursor.execute(
-                    """
-                    UPDATE chunks
-                    SET embedding = %s
-                    WHERE chunk_id = %s
-                      AND embedding IS NULL
-                    """,
-                    (Vector(vector_list), chunk_id)
-                )
-
-                embedded_count += cursor.rowcount
-
+        cursor.execute(
+            "UPDATE sources SET metadata=COALESCE(metadata,'{}'::jsonb) || %s::jsonb WHERE source_id=%s",
+            (Json({"embedding_model": model_name, "embedding_dimensions": embedding_model.dimensions,
+                   "embedding_storage_dimensions": 1024}), source_id)
+        )
         connection.commit()
 
+        elapsed = time.perf_counter() - started
+        print(f"[Preparation] Indexed {embedded_count} chunks with {model_name} in {elapsed:.1f} seconds.", flush=True)
         return {
             "status": "completed",
             "source_id": source_id,

@@ -1,6 +1,8 @@
 """Account-scoped API for the existing local models and extraction pipeline."""
 
 import json
+import asyncio
+import time
 from contextlib import contextmanager
 
 from fastapi import FastAPI, Depends, File, HTTPException, Request, UploadFile
@@ -181,7 +183,11 @@ def create_private_app(legacy):
             with connection.cursor() as cursor:
                 require_course(cursor, course_id, student["student_id"])
                 cursor.execute(
-                    """SELECT s.source_id,s.source_name,s.source_type,s.status,COALESCE(p.archived,FALSE)
+                    """SELECT s.source_id,s.source_name,s.source_type,
+                    CASE WHEN EXISTS(SELECT 1 FROM aura_preparation_jobs j WHERE j.source_id=s.source_id
+                        AND j.state IN ('queued','processing')) THEN 'processing'
+                    WHEN EXISTS(SELECT 1 FROM aura_preparation_jobs j WHERE j.source_id=s.source_id
+                        AND j.state='failed') THEN 'error' ELSE s.status END,COALESCE(p.archived,FALSE)
                     FROM sources s LEFT JOIN aura_material_preferences p ON p.source_id=s.source_id AND p.student_id=%s
                     WHERE s.course_id=%s AND s.owner_student_id=%s ORDER BY s.source_id""",
                     (student["student_id"], course_id, student["student_id"]),
@@ -211,9 +217,23 @@ def create_private_app(legacy):
                     require_course(cursor, course_id, student["student_id"])
 
         await run_in_threadpool(check)
-        return await legacy.upload_course_source(
-            course_id, file, owner_student_id=student["student_id"]
+
+        # The legacy coroutine performs synchronous OCR/database work after
+        # reading the file. Run it off the shared web event loop.
+        def prepare():
+            return asyncio.run(
+                legacy.upload_course_source(
+                    course_id, file, owner_student_id=student["student_id"]
+                )
+            )
+
+        started = time.perf_counter()
+        result = await run_in_threadpool(prepare)
+        print(
+            f"[Preparation] Read/extracted material in {time.perf_counter() - started:.1f} seconds.",
+            flush=True,
         )
+        return result
 
     @app.post("/sources/{source_id}/generate-embeddings")
     def embeddings(source_id: int, student=Depends(get_current_student)):
@@ -291,4 +311,6 @@ def create_private_app(legacy):
             ) from error
 
     app.include_router(study_router, dependencies=[Depends(protect_study_scope)])
+    from backend.preparation_jobs import install_preparation_jobs
+    install_preparation_jobs(app, legacy, database, require_course, require_source)
     return app

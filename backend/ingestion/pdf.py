@@ -1,3 +1,4 @@
+from backend.preparation_progress import report
 import pymupdf
 from .ocr import extract_image_text
 from .utils import generate_unit_id, has_pdf_signature
@@ -12,12 +13,17 @@ def ingest_pdf(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
         return [], [f'Failed to open PDF: {error}']
     units, warnings = [], []
     try:
-        for index, page in enumerate(document):
+        report("reading_pages", 0, len(document))
+        for index in range(len(document)):
+            page = document.load_page(index)
             number = index + 1
             source = {'filename': filename, 'file_type': 'pdf'}
             before = len(units)
             try:
-                text = page.get_text('text').strip()
+                native_text = page.get_text('text')
+                if not isinstance(native_text, str):
+                    raise ValueError('PDF text extraction returned an unexpected value.')
+                text = native_text.strip()
                 if text:
                     units.append({'unit_id': generate_unit_id(filename, 'page', str(number)),
                                   'source': source, 'text': text,
@@ -37,6 +43,7 @@ def ingest_pdf(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
                 warnings.append(f'Page {number}: extraction failed ({type(error).__name__}).')
             if len(units) == before:
                 warnings.append(f'Page {number} contains no recognized text.')
+            report("reading_pages", number, len(document))
     finally:
         document.close()
     return units, list(dict.fromkeys(warnings))
