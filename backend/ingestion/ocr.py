@@ -50,7 +50,7 @@ def _recognize(data: bytes) -> tuple[str, tuple, str | None]:
                            'height': max(ys) - min(ys)})
         return _reading_rows(blocks), tuple(blocks), None
     except Exception as error:
-        message = 'Image OCR unavailable. Install requirements-multimodal.txt and retry the upload.'
+        message = 'Image OCR unavailable. Install requirements.txt and retry the upload.'
         logger.warning('%s (%s)', message, type(error).__name__)
         raise RuntimeError(message) from error
 

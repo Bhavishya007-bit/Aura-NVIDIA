@@ -82,7 +82,7 @@ Keep Ollama running. The desktop application normally starts its service; if
 needed, run `ollama serve` in a separate terminal. If it reports the port is
 already occupied, the service may already be running.
 
-Install the **root `requirements.txt`**, not only `requirements-api.txt`. It
+Install all backend dependencies using the single **`requirements.txt`**. It
 includes authentication, embedding, OCR and audio packages used by the active
 application. Qwen3 embeddings require Transformers 4.51 or later; the requirement
 file includes that constraint. Model: [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B).
