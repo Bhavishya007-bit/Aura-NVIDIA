@@ -1,0 +1,67 @@
+import { useEffect, useRef, useState } from 'react'
+import { listPreparation, preparationLabels, retryPreparation } from '../services/preparationApi'
+import type { PreparationJob } from '../services/preparationApi'
+import './PreparationStatus.css'
+
+type Props = { courseId: string; refreshKey: number; pendingId?: string; onReady: (job: PreparationJob) => void; onFailed?: (job: PreparationJob) => void }
+
+export default function PreparationStatus({ courseId, refreshKey, pendingId, onReady, onFailed }: Props) {
+  const [jobs, setJobs] = useState<PreparationJob[]>([])
+  const [error, setError] = useState('')
+  const [retrying, setRetrying] = useState('')
+  const [dismissed, setDismissed] = useState<string[]>([])
+  const observed = useRef<Map<string, string>>(new Map())
+  const readyCallback = useRef(onReady)
+  const failedCallback = useRef(onFailed)
+  const pending = useRef(pendingId)
+  pending.current = pendingId
+  readyCallback.current = onReady
+  failedCallback.current = onFailed
+  useEffect(() => {
+    observed.current.clear()
+    setJobs([]); setDismissed([])
+  }, [courseId])
+  useEffect(() => {
+    if (!courseId) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
+    async function poll() {
+      try {
+        const values = await listPreparation(courseId)
+        if (cancelled) return
+        setJobs(values); setError('')
+        for (const job of values) {
+          const previous = observed.current.get(job.id)
+          observed.current.set(job.id, job.state)
+          if ((previous || pending.current === job.id) && previous !== 'ready' && job.state === 'ready') readyCallback.current(job)
+          if ((previous || pending.current === job.id) && previous !== 'failed' && job.state === 'failed') failedCallback.current?.(job)
+        }
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not check preparation. Retrying…')
+      }
+      if (!cancelled) timer = setTimeout(() => void poll(), 2000)
+    }
+    void poll()
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [courseId, refreshKey])
+
+  async function retry(id: string) {
+    setRetrying(id); setError('')
+    try {
+      const job = await retryPreparation(id)
+      observed.current.set(job.id, 'queued')
+      setJobs(current => current.map(item => item.id === id ? job : item))
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not retry preparation.') }
+    finally { setRetrying('') }
+  }
+  const visible = jobs.filter(job => job.state !== 'ready' && !dismissed.includes(job.id)).slice(0, 5)
+  if (!visible.length && !error) return null
+  return <section className="aura-preparation" aria-label="Material preparation">
+    {error && <p className="aura-preparation-error" role="alert">{error}</p>}
+    {visible.map(job => <div key={job.id} className="aura-preparation-item">
+      <div><strong>{job.filename}</strong><span role="status">{preparationLabels[job.stage] ?? 'Preparing material'}{job.percentage !== null && job.state === 'processing' ? ` · ${job.percentage}% of this step` : ''}</span></div>
+      {job.state === 'processing' && <progress max={100} value={job.percentage ?? undefined} aria-label={preparationLabels[job.stage] ?? 'Preparing material'} />}
+      {job.state === 'failed' && <><p>{job.error}</p><button type="button" disabled={retrying === job.id} onClick={() => void retry(job.id)}>{retrying === job.id ? 'Retrying…' : 'Retry preparation'}</button><button type="button" onClick={() => setDismissed(current => [...current, job.id])}>Dismiss</button></>}
+    </div>)}
+  </section>
+}

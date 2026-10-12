@@ -1,0 +1,7 @@
+.aura-preparation{margin:12px 0;max-width:100%;font-size:12px;flex-shrink:0}
+.aura-preparation-item{padding:10px 12px;border:1px solid var(--sw-line,#8885);border-radius:8px;margin:6px 0}
+.aura-preparation-item strong{display:block;overflow-wrap:anywhere;font-weight:500}
+.aura-preparation-item span{display:block;opacity:.75;margin-top:4px}
+.aura-preparation-item progress{width:100%;height:5px;margin-top:10px;accent-color:var(--sw-accent,#9b8068)}
+.aura-preparation-item p,.aura-preparation-error{margin:8px 0;overflow-wrap:anywhere}
+.aura-preparation-item button{border:1px solid #8885;background:transparent;color:inherit;border-radius:5px;padding:5px 9px;margin-right:7px;cursor:pointer}

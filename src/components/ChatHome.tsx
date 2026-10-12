@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
-import { askTutor, generateSourceEmbeddings, uploadCourseSource } from '../services/studyApi'
+import { askTutor, generateSourceEmbeddings } from '../services/studyApi'
+import { startPreparation } from '../services/preparationApi'
+import type { PreparationJob } from '../services/preparationApi'
+import PreparationStatus from './PreparationStatus'
 import type { SourceUploadResult } from '../services/studyApi'
 import type { ChatMessage, Citation, Course, SourceLocation } from '../types/study'
 import './ChatHome.css'
@@ -45,7 +48,7 @@ export default function ChatHome({
 }: Props) {
   const storageKey = `aura.chat.v1:${workspaceKey}:${courseId}`
   const [saved] = useState(() => {
-    const value = readWorkspace<Partial<{ question: string; entries: Entry[]; uploaded: SourceUploadResult; uploadStage: UploadStage; fileNames: Record<string, string> }>>(storageKey, {})
+    const value = readWorkspace<Partial<{ question: string; entries: Entry[]; uploaded: SourceUploadResult; uploadStage: UploadStage; fileNames: Record<string, string>; preparationId: string; pendingFilename: string }>>(storageKey, {})
     const source = value.uploaded
     if (!source || source.courseId !== courseId || !/^\d+$/.test(source.sourceId) || typeof source.filename !== 'string') delete value.uploaded
     value.entries = Array.isArray(value.entries) ? value.entries.filter(entry =>
@@ -64,11 +67,13 @@ export default function ChatHome({
   const [sending, setSending] = useState(false)
   const [chatError, setChatError] = useState('')
   const [failedQuestion, setFailedQuestion] = useState('')
-  const [uploadStage, setUploadStage] = useState<UploadStage>(saved.uploaded ? saved.uploadStage === 'ready' ? 'ready' : 'failed' : 'idle')
+  const [uploadStage, setUploadStage] = useState<UploadStage>(saved.preparationId ? 'embedding' : saved.uploaded ? saved.uploadStage === 'ready' ? 'ready' : 'failed' : 'idle')
   const [uploaded, setUploaded] = useState<SourceUploadResult | null>(saved.uploaded ?? null)
   const [uploadError, setUploadError] = useState(saved.uploaded && saved.uploadStage !== 'ready' ? 'File processing was interrupted. Retry to finish loading your file.' : '')
   const [uploadMenu, setUploadMenu] = useState(false)
-  const [pendingFilename, setPendingFilename] = useState('')
+  const [pendingFilename, setPendingFilename] = useState(saved.pendingFilename ?? '')
+  const [preparationId, setPreparationId] = useState(saved.preparationId ?? '')
+  const [preparationRefresh, setPreparationRefresh] = useState(0)
   const [fileNames, setFileNames] = useState<Record<string, string>>(() => Object.fromEntries(
     Object.entries(saved.fileNames && typeof saved.fileNames === 'object' ? saved.fileNames : {}).filter(([, value]) => typeof value === 'string')
   ))
@@ -88,8 +93,8 @@ export default function ChatHome({
   const readySource = uploadStage === 'ready' ? uploaded : null
   const chatScope = `${courseId}:${readySource?.sourceId ?? ''}`
   useEffect(() => {
-    if (courseId) saveWorkspace(storageKey, { question, entries, uploaded, uploadStage, fileNames })
-  }, [storageKey, courseId, question, entries, uploaded, uploadStage, fileNames])
+    if (courseId) saveWorkspace(storageKey, { question, entries, uploaded, uploadStage, fileNames, preparationId, pendingFilename })
+  }, [storageKey, courseId, question, entries, uploaded, uploadStage, fileNames, preparationId, pendingFilename])
 
   useEffect(() => {
     mounted.current = true
@@ -120,6 +125,7 @@ export default function ChatHome({
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file || !courseId || busyRef.current) return
+    if (!studentName) { onSignIn(); return }
     busyRef.current = true
     setUploaded(null)
     setPendingFilename(file.name)
@@ -129,16 +135,11 @@ export default function ChatHome({
     setUploadStage('uploading')
     setUploadMenu(false)
     try {
-      const source = await uploadCourseSource(courseId, file)
+      const job = await startPreparation(courseId, file)
       if (!mounted.current) return
-      setUploaded(source)
-      setFileNames(current => ({ ...current, [source.sourceId]: source.filename }))
-      if (source.courseId !== courseId) throw new Error('This upload belongs to a different course.')
-      if ((source.processingStatus !== 'success' && source.processingStatus !== 'partial') ||
-          source.contentUnitCount <= 0) {
-        throw new Error('No searchable content was extracted. Remove this attachment and try another file.')
-      }
-      await prepareSource(source)
+      setPreparationId(job.id)
+      setPreparationRefresh(value => value + 1)
+      setUploadStage('embedding')
     } catch (error) {
       if (mounted.current) {
         setUploadStage('failed')
@@ -149,6 +150,23 @@ export default function ChatHome({
     }
   }
 
+  function preparationReady(job: PreparationJob) {
+    if (job.id !== preparationId || !job.result || !job.source_id) return
+    const result = job.result
+    const source: SourceUploadResult = {
+      sourceId: String(job.source_id), courseId: String(job.course_id), filename: result.source_name,
+      fileType: result.source_type, uploadStatus: 'uploaded', processingStatus: result.status,
+      contentUnitCount: result.content_units, warnings: [], createdAt: new Date().toISOString(),
+    }
+    setUploaded(source); setUploadStage('ready'); setPreparationId('')
+    setFileNames(current => ({ ...current, [source.sourceId]: source.filename }))
+    composer.current?.focus()
+  }
+  function preparationFailed(job: PreparationJob) {
+    if (job.id === preparationId) {
+      setUploadStage('failed'); setUploadError(job.error ?? 'Preparation did not finish.')
+    }
+  }
   async function retryEmbeddings() {
     if (!uploaded || !canEmbed || uploaded.courseId !== courseId || busyRef.current) return
     busyRef.current = true
@@ -223,6 +241,7 @@ export default function ChatHome({
     }
   }
   function removeAttachment() {
+    setPreparationId('')
     if (busy) return
     setUploaded(null)
     setUploadStage('idle')
@@ -247,11 +266,11 @@ export default function ChatHome({
           <span className="aura-home__mark" aria-hidden="true">✦</span>Aura
         </button>
         <nav className="aura-home__nav" aria-label="Aura navigation">
-          <button type="button" onClick={onOpenWorkspace} disabled={busy}>Study tools</button>
+          <button type="button" onClick={onOpenWorkspace} disabled={sending}>Study tools</button>
           {hasConversation && <button type="button" onClick={newConversation} disabled={busy}>New chat</button>}
           {studentName
             ? <><span className="aura-home__account">{studentName}</span>
-                {onSignOut && <button type="button" onClick={onSignOut} disabled={busy || signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>}</>
+                {onSignOut && <button type="button" onClick={onSignOut} disabled={sending || signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>}</>
             : <button type="button" className="aura-home__signin" onClick={onSignIn} disabled={busy}>Sign in</button>}
         </nav>
       </header>
@@ -285,6 +304,7 @@ export default function ChatHome({
         </section>}
 
         <div className="aura-home__composer-area">
+          {studentName && <PreparationStatus courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={preparationFailed} />}
           {coursesError && <div className="aura-home__error" role="alert">Aura couldn't connect. Please refresh and try again.</div>}
           {coursesLoading && <p className="aura-home__loading" role="status">Getting Aura ready…</p>}
           {!coursesLoading && !coursesError && !courseId && <p className="aura-home__loading" role="status">Aura isn't ready yet. Please try again shortly.</p>}
@@ -313,7 +333,7 @@ export default function ChatHome({
             <label className="aura-home__sr-only" htmlFor="aura-question">Ask Aura a question</label>
             <textarea ref={composer} id="aura-question" value={question} rows={1} maxLength={12000}
               onChange={event => setQuestion(event.target.value)} onKeyDown={handleKey}
-              placeholder={hasConversation ? 'Ask another question…' : 'Ask Aura about your materials…'} disabled={busy} />
+              placeholder={hasConversation ? 'Ask another question…' : 'Ask Aura about your materials…'} disabled={sending || uploadStage === 'uploading'} />
             <div className="aura-home__composer-controls">
               <div className="aura-home__upload-control" onKeyDown={event => { if (event.key === 'Escape') setUploadMenu(false) }}>
                 <button type="button" className="aura-home__plus" aria-label="Add study material"

@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Course } from '../types/study'
 import type { AuthUser } from '../services/authApi'
-import { askTutor, generateSourceEmbeddings, uploadCourseSource } from '../services/studyApi'
+import { askTutor } from '../services/studyApi'
+import { startPreparation } from '../services/preparationApi'
+import type { PreparationJob } from '../services/preparationApi'
+import PreparationStatus from './PreparationStatus'
 import { generateTool, getPracticeProgress, listArtifacts, listMaterials, setMaterialArchived, submitAssessment } from '../services/studyToolsApi'
 import type { Artifact, Material, PracticeProgress, ToolCitation, ToolKind } from '../services/studyToolsApi'
 import { readWorkspace, saveWorkspace } from '../services/workspaceStorage'
@@ -14,7 +17,7 @@ const iconPaths = ['M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z', 'M4 
 function WorkspaceIcon({ path }: { path: string }) { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path} /></svg> }
 const kinds: Partial<Record<Tab, ToolKind>> = { Notes: 'notes', Summary: 'summary', Flashcards: 'flashcards', Assessment: 'assessment' }
 type ChatEntry = { role: 'user' | 'assistant'; text: string; grounded?: boolean; citations?: ToolCitation[] }
-type Saved = { sourceId?: string; tab?: Tab; selectedArtifact?: string; question?: string; chats?: Record<string, ChatEntry[]>; answers?: Record<string, Record<string, string>> }
+type Saved = { preparationId?: string; sourceId?: string; tab?: Tab; selectedArtifact?: string; question?: string; chats?: Record<string, ChatEntry[]>; answers?: Record<string, Record<string, string>> }
 type Props = { user: AuthUser; courses: Course[]; courseId: string; coursesLoading: boolean; coursesError: string; theme: 'light' | 'dark'; onCourseChange: (id: string) => void; onThemeChange: () => void; onChatHome: () => void; onSignOut: () => void; signingOut: boolean; sessionNotice: string }
 const explainError = (error: unknown) => error instanceof Error ? error.message : 'Could not complete this request. Please retry.'
 
@@ -47,6 +50,8 @@ export default function StudyWorkspace(props: Props) {
   const [difficulty, setDifficulty] = useState('beginner')
   const [questionType, setQuestionType] = useState('mcq')
   const [busy, setBusy] = useState('')
+  const [preparationRefresh, setPreparationRefresh] = useState(0)
+  const [preparationId, setPreparationId] = useState(saved.preparationId ?? '')
   const [error, setError] = useState('')
   const [materialsError, setMaterialsError] = useState('')
   const [artifactsError, setArtifactsError] = useState('')
@@ -65,6 +70,7 @@ export default function StudyWorkspace(props: Props) {
   const archivedCount = materials.filter(item => item.archived).length
   const visibleMaterials = materials.filter(item => Boolean(item.archived) === showArchived && item.title.toLocaleLowerCase().includes(materialSearch.trim().toLocaleLowerCase()))
   const material = activeMaterials.find(item => item.id === sourceId)
+  const sourceReady = Boolean(sourceId) && !['processing', 'error', 'empty', 'not_configured'].includes(material?.status ?? '')
   const kind = kinds[tab]
   const available = artifacts.filter(item => item.kind === kind)
   const active = available.find(item => item.id === selectedArtifact) ?? available[0]
@@ -73,8 +79,8 @@ export default function StudyWorkspace(props: Props) {
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => {
-    saveWorkspace(storageKey, { sourceId, tab, selectedArtifact, question, chats, answers })
-  }, [storageKey, sourceId, tab, selectedArtifact, question, chats, answers])
+    saveWorkspace(storageKey, { sourceId, tab, selectedArtifact, question, chats, answers, preparationId })
+  }, [storageKey, sourceId, tab, selectedArtifact, question, chats, answers, preparationId])
   useEffect(() => {
     let cancelled = false
     if (!courseId) { setMaterialsLoading(false); return }
@@ -142,20 +148,23 @@ export default function StudyWorkspace(props: Props) {
   async function upload(file?: File) {
     if (!file || !courseId || !begin('Uploading and reading your material…')) return
     try {
-      const result = await uploadCourseSource(courseId, file)
+      const job = await startPreparation(courseId, file)
       if (!mounted.current) return
-      if (!['success', 'partial'].includes(result.processingStatus) || result.contentUnitCount < 1) throw new Error('No readable content was found. Try another file.')
-      setShowArchived(false); setMaterialSearch(''); setMaterialNotice('')
-      setSourceId(result.sourceId)
-      setMaterials(current => [...current, { id: result.sourceId, title: result.filename, type: result.fileType, status: result.processingStatus }])
-      setBusy('Indexing your material for the tutor…')
-      await generateSourceEmbeddings(result.sourceId)
-      if (mounted.current) { setReload(value => value + 1); setTab('Tutor') }
+      setPreparationId(job.id)
+      setPreparationRefresh(value => value + 1)
+      setMaterialNotice('File uploaded. You can keep studying while it is prepared.')
     } catch (cause) { if (mounted.current) setError(explainError(cause)) }
     finally { end(); if (fileInput.current) fileInput.current.value = '' }
   }
+  function preparationReady(job: PreparationJob) {
+    setReload(value => value + 1)
+    if (job.id === preparationId && job.source_id) {
+      setSourceId(String(job.source_id)); setTab('Tutor'); setPreparationId('')
+      setMaterialNotice(`${job.filename} is ready.`)
+    }
+  }
   async function generate() {
-    if (!kind || !sourceId || !begin('Creating and checking your study material…')) return
+    if (!kind || !sourceId || material?.status === 'processing' || material?.status === 'error' || !begin('Creating and checking your study material…')) return
     try {
       const generated = await generateTool(courseId, sourceId, kind, { count, focus, difficulty, questionType })
       if (mounted.current) { setArtifacts(current => [generated, ...current]); setSelectedArtifact(generated.id); setFlipped({}) }
@@ -164,7 +173,7 @@ export default function StudyWorkspace(props: Props) {
   }
   async function send() {
     const text = question.trim()
-    if (!text || !sourceId || !begin('Aura is thinking…')) return
+    if (!text || !sourceId || material?.status === 'processing' || material?.status === 'error' || !begin('Aura is thinking…')) return
     setQuestion('')
     setChats(current => ({ ...current, [sourceId]: [...entries, { role: 'user', text }] }))
     try {
@@ -219,7 +228,7 @@ export default function StudyWorkspace(props: Props) {
           <label className="sw-material-search"><span className="sw-sr-only">Search materials</span><input type="search" placeholder="Search materials" value={materialSearch} onChange={event => setMaterialSearch(event.target.value)} /></label>
           <div className="sw-material-tabs"><button type="button" aria-pressed={!showArchived} onClick={() => setShowArchived(false)}>Active <span>{activeMaterials.length}</span></button><button type="button" aria-pressed={showArchived} onClick={() => setShowArchived(true)}>Archived <span>{archivedCount}</span></button></div>
           <div className="sw-material-list">{visibleMaterials.map(item => <div key={item.id} className={`sw-material-row ${!showArchived && item.id === sourceId ? 'is-selected' : ''}`}>
-            {showArchived ? <div className="sw-archived-title"><strong>{item.title}</strong><small>{item.type.toUpperCase()}</small></div> : <button className="sw-material-select" type="button" disabled={!!busy} aria-current={item.id === sourceId ? 'true' : undefined} onClick={() => { setSourceId(item.id); setSelectedArtifact(''); setError(''); setFlipped({}); setFocus('') }}><span className="sw-file-icon"><WorkspaceIcon path="M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6" /></span><span><strong>{item.title}</strong><small>{item.type.toUpperCase()}{['empty', 'error', 'not_configured'].includes(item.status) ? ' · Needs attention' : ''}</small></span></button>}
+            {showArchived ? <div className="sw-archived-title"><strong>{item.title}</strong><small>{item.type.toUpperCase()}</small></div> : <button className="sw-material-select" type="button" disabled={!!busy || item.status === 'processing'} aria-current={item.id === sourceId ? 'true' : undefined} onClick={() => { setSourceId(item.id); setSelectedArtifact(''); setError(''); setFlipped({}); setFocus('') }}><span className="sw-file-icon"><WorkspaceIcon path="M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6" /></span><span><strong>{item.title}</strong><small>{item.type.toUpperCase()}{item.status === 'processing' ? ' · Preparing' : ''}{['empty', 'error', 'not_configured'].includes(item.status) ? ' · Needs attention' : ''}</small></span></button>}
             <button className="sw-material-action" type="button" disabled={!!busy} aria-label={`${showArchived ? 'Restore' : 'Archive'} ${item.title}`} title={showArchived ? 'Restore to active materials' : 'Archive material; saved work is kept'} onClick={() => void archiveMaterial(item, !showArchived)}><WorkspaceIcon path={showArchived ? 'M5 9a8 8 0 111 9 M5 4v5h5' : 'M3 4h18v4H3z M5 8v12h14V8 M9 12h6'} /></button>
           </div>)}</div>
           {!materialsLoading && !visibleMaterials.length && !materialsError && <p className="sw-material-empty">{materialSearch ? 'No matching materials.' : showArchived ? 'No archived materials.' : 'Add a file or restore an archived material.'}</p>}
@@ -229,6 +238,7 @@ export default function StudyWorkspace(props: Props) {
         <main className="sw-main">
           <div className="sw-heading"><div><p className="sw-eyebrow">{tab === 'Progress' ? 'All materials in this course' : material?.title ?? 'Your study materials'}</p><h1>{tab === 'Overview' ? 'Overview' : tab === 'Tutor' ? 'Ask Aura' : tab}</h1></div>{tab !== 'Overview' && tab !== 'Progress' && <span className="sw-source-badge">{material ? 'Selected material' : 'Choose a material'}</span>}</div>
           {error && <p className="sw-error" role="alert">{error}</p>}
+          <PreparationStatus courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={() => setReload(value => value + 1)} />
           {busy && <div className="sw-status" role="status"><span className="sw-spinner" aria-hidden="true" />{busy}</div>}
           {tab === 'Overview' && <>
             <section className="sw-start"><span className="sw-eyebrow">CONTINUE WITH</span><h2>{material?.title ?? 'Your first study material'}</h2><p>{material ? 'Ask a question, build revision material, or check what you know.' : 'Upload a lecture, textbook, or presentation to get started.'}</p><button className="sw-primary" type="button" disabled={!material} onClick={() => selectTab('Tutor')}>Open tutor →</button></section>
@@ -241,9 +251,9 @@ export default function StudyWorkspace(props: Props) {
                 event.preventDefault()
                 void send()
               }
-            }} value={question} disabled={!sourceId || !!busy} onChange={event => setQuestion(event.target.value)} placeholder={sourceId ? 'Ask a question about this material…' : 'Select or add a material first'} /><button className="sw-primary" type="submit" disabled={!sourceId || !question.trim() || !!busy}>Send ↑</button></form></section>}
+            }} value={question} disabled={!sourceId || !!busy} onChange={event => setQuestion(event.target.value)} placeholder={sourceId ? 'Ask a question about this material…' : 'Select or add a material first'} /><button className="sw-primary" type="submit" disabled={!sourceReady || !question.trim() || !!busy}>Send ↑</button></form></section>}
           {kind && <>
-            <form className="sw-generation" onSubmit={event => { event.preventDefault(); void generate() }}><label className="sw-focus">Focus <span>(optional)</span><input value={focus} maxLength={180} onChange={event => setFocus(event.target.value)} placeholder="e.g. cytoskeleton functions" disabled={!!busy} /></label>{kind !== 'summary' && <label>{kind === 'assessment' ? 'Questions' : 'Items'}<select value={count} disabled={!!busy} onChange={event => setCount(Number(event.target.value))}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}{kind === 'assessment' && <><label>Format<select value={questionType} disabled={!!busy} onChange={event => setQuestionType(event.target.value)}><option value="mcq">Multiple choice</option><option value="short_answer">Short answer</option></select></label><label>Difficulty<select value={difficulty} disabled={!!busy} onChange={event => setDifficulty(event.target.value)}>{['beginner', 'intermediate', 'advanced'].map(value => <option key={value} value={value}>{value}</option>)}</select></label></>}<button className="sw-primary" disabled={!sourceId || !!busy || artifactsLoading || !!artifactsError} type="submit">{active ? 'Generate new' : 'Generate'}</button></form>
+            <form className="sw-generation" onSubmit={event => { event.preventDefault(); void generate() }}><label className="sw-focus">Focus <span>(optional)</span><input value={focus} maxLength={180} onChange={event => setFocus(event.target.value)} placeholder="e.g. cytoskeleton functions" disabled={!!busy} /></label>{kind !== 'summary' && <label>{kind === 'assessment' ? 'Questions' : 'Items'}<select value={count} disabled={!!busy} onChange={event => setCount(Number(event.target.value))}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}{kind === 'assessment' && <><label>Format<select value={questionType} disabled={!!busy} onChange={event => setQuestionType(event.target.value)}><option value="mcq">Multiple choice</option><option value="short_answer">Short answer</option></select></label><label>Difficulty<select value={difficulty} disabled={!!busy} onChange={event => setDifficulty(event.target.value)}>{['beginner', 'intermediate', 'advanced'].map(value => <option key={value} value={value}>{value}</option>)}</select></label></>}<button className="sw-primary" disabled={!sourceReady || !!busy || artifactsLoading || !!artifactsError} type="submit">{active ? 'Generate new' : 'Generate'}</button></form>
             {artifactsError && <p className="sw-error" role="alert">{artifactsError} <button type="button" onClick={() => setReload(value => value + 1)}>Retry</button></p>}
             {artifactsLoading ? <p className="sw-muted" role="status">Loading saved work…</p> : !active ? <div className="sw-empty"><span>{tab === 'Assessment' ? '✓' : '▤'}</span><h2>{sourceId ? `Create your first ${tab.toLowerCase()}` : 'Choose a material first'}</h2><p>{sourceId ? 'Aura will generate content from selected passages and check its sources before saving.' : 'Select a file from the materials list or upload one.'}</p></div> : <>
               <div className="sw-output-toolbar"><label>Saved version<select aria-label="Saved version" value={active.id} disabled={!!busy} onChange={event => { setSelectedArtifact(event.target.value); setFlipped({}) }}>{available.map(item => <option key={item.id} value={item.id}>{new Date(item.created_at).toLocaleString()}{item.payload.focus ? ` · ${item.payload.focus}` : ''}</option>)}</select></label>{kind !== 'assessment' && <button type="button" onClick={exportTool}>Export text ↓</button>}</div>
