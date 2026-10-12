@@ -60,7 +60,7 @@ export default function StudyWorkspace(props: Props) {
   const citationDialog = useRef<HTMLDialogElement>(null)
   const busyRef = useRef(false)
   const mounted = useRef(true)
-  const chatEnd = useRef<HTMLDivElement>(null)
+  const transcript = useRef<HTMLDivElement>(null)
   const activeMaterials = materials.filter(item => !item.archived)
   const archivedCount = materials.filter(item => item.archived).length
   const visibleMaterials = materials.filter(item => Boolean(item.archived) === showArchived && item.title.toLocaleLowerCase().includes(materialSearch.trim().toLocaleLowerCase()))
@@ -116,7 +116,9 @@ export default function StudyWorkspace(props: Props) {
     if (openCitation) citationDialog.current?.showModal()
     else citationDialog.current?.close()
   }, [openCitation])
-  useEffect(() => { if (tab === 'Tutor') chatEnd.current?.scrollIntoView({ block: 'nearest' }) }, [chats, tab, busy])
+  useEffect(() => {
+    if (tab === 'Tutor' && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight
+  }, [chats, tab, busy])
 
   function selectTab(next: Tab) { setTab(next); setError(''); setOpenCitation(null) }
   function begin(label: string) { if (busyRef.current) return false; busyRef.current = true; setBusy(label); setError(''); return true }
@@ -160,8 +162,7 @@ export default function StudyWorkspace(props: Props) {
     } catch (cause) { if (mounted.current) setError(explainError(cause)) }
     finally { end() }
   }
-  async function send(event: FormEvent) {
-    event.preventDefault()
+  async function send() {
     const text = question.trim()
     if (!text || !sourceId || !begin('Aura is thinking…')) return
     setQuestion('')
@@ -197,7 +198,7 @@ export default function StudyWorkspace(props: Props) {
   }
   const weakTopics = progress?.topics.filter(item => item.score < 65) ?? []
 
-  return <div className="aura-study" data-theme={theme}>
+  return <div className="aura-study" data-theme={theme} data-tab={tab}>
     <aside className="sw-rail">
       <button className="sw-brand" onClick={props.onChatHome} disabled={!!busy} type="button"><span>A.</span>Aura</button>
       <p className="sw-rail-label">YOUR WORKSPACE</p>
@@ -235,7 +236,12 @@ export default function StudyWorkspace(props: Props) {
             <section className="sw-section"><h2>Recent study material</h2>{artifactsLoading ? <p className="sw-muted">Loading your saved work…</p> : artifactsError ? <p className="sw-error">{artifactsError}</p> : artifacts.length ? <div className="sw-recent">{artifacts.slice(0, 5).map(item => <button key={item.id} type="button" onClick={() => { setSelectedArtifact(item.id); selectTab(item.kind === 'assessment' ? 'Assessment' : item.kind === 'notes' ? 'Notes' : item.kind === 'summary' ? 'Summary' : 'Flashcards') }}><span>{item.kind.charAt(0).toUpperCase() + item.kind.slice(1)}</span><small>{new Date(item.created_at).toLocaleDateString()} · {item.payload.items.length} {item.kind === 'assessment' ? 'questions' : 'items'}</small><span>→</span></button>)}</div> : <p className="sw-muted">Your generated notes, cards, and assessments will appear here.</p>}</section>
             {weakTopics.length > 0 && <section className="sw-section"><h2>Suggested review</h2><p className="sw-muted">Based on your completed practice.</p>{weakTopics.slice(0, 3).map(item => <button className="sw-review" key={item.topic} type="button" onClick={() => { setFocus(item.topic); selectTab('Flashcards') }}>{item.topic}<span>Create review cards →</span></button>)}</section>}
           </>}
-          {tab === 'Tutor' && <section className="sw-tutor"><div className="sw-transcript" aria-live="polite">{!entries.length && <div className="sw-chat-empty"><span>✦</span><h2>What would you like to understand?</h2><p>Ask about {material?.title ?? 'a material you select'}.</p><div>{['Explain the main ideas', 'Help me revise this material'].map(prompt => <button key={prompt} type="button" onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div>}{entries.map((entry, index) => <article key={index} className={`sw-chat-entry ${entry.role}`}><strong>{entry.role === 'user' ? 'You' : '✦ Aura'}</strong><p>{entry.text}</p>{entry.role === 'assistant' && <><span className="sw-grounding">{entry.grounded ? 'Source checked' : 'Contains unverified content — see answer label'}</span>{entry.citations?.length ? <SourceButtons ids={entry.citations.map(c => c.id)} citations={entry.citations} onOpen={setOpenCitation} /> : null}</>}</article>)}<div ref={chatEnd} /></div><form className="sw-composer" onSubmit={event => void send(event)}><label className="sw-sr-only" htmlFor="sw-question">Ask Aura a question</label><textarea id="sw-question" rows={2} value={question} disabled={!sourceId || !!busy} onChange={event => setQuestion(event.target.value)} placeholder={sourceId ? 'Ask a question about this material…' : 'Select or add a material first'} /><button className="sw-primary" type="submit" disabled={!sourceId || !question.trim() || !!busy}>Send ↑</button></form></section>}
+          {tab === 'Tutor' && <section className="sw-tutor"><div className="sw-transcript" ref={transcript} aria-live="polite">{!entries.length && <div className="sw-chat-empty"><span>✦</span><h2>What would you like to understand?</h2><p>Ask about {material?.title ?? 'a material you select'}.</p><div>{['What is this material about?', 'Explain the main ideas'].map(prompt => <button key={prompt} type="button" onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div>}{entries.map((entry, index) => <article key={index} className={`sw-chat-entry ${entry.role}`}><strong>{entry.role === 'user' ? 'You' : '✦ Aura'}</strong><p>{entry.text}</p>{entry.role === 'assistant' && <><span className="sw-grounding">{entry.grounded ? 'Source checked' : 'Contains unverified content — see answer label'}</span>{entry.citations?.length ? <SourceButtons ids={entry.citations.map(c => c.id)} citations={entry.citations} onOpen={setOpenCitation} /> : null}</>}</article>)}</div><form className="sw-composer" onSubmit={event => { event.preventDefault(); void send() }}><label className="sw-sr-only" htmlFor="sw-question">Ask Aura a question</label><textarea id="sw-question" rows={2} onKeyDown={event => {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+                event.preventDefault()
+                void send()
+              }
+            }} value={question} disabled={!sourceId || !!busy} onChange={event => setQuestion(event.target.value)} placeholder={sourceId ? 'Ask a question about this material…' : 'Select or add a material first'} /><button className="sw-primary" type="submit" disabled={!sourceId || !question.trim() || !!busy}>Send ↑</button></form></section>}
           {kind && <>
             <form className="sw-generation" onSubmit={event => { event.preventDefault(); void generate() }}><label className="sw-focus">Focus <span>(optional)</span><input value={focus} maxLength={180} onChange={event => setFocus(event.target.value)} placeholder="e.g. cytoskeleton functions" disabled={!!busy} /></label>{kind !== 'summary' && <label>{kind === 'assessment' ? 'Questions' : 'Items'}<select value={count} disabled={!!busy} onChange={event => setCount(Number(event.target.value))}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}{kind === 'assessment' && <><label>Format<select value={questionType} disabled={!!busy} onChange={event => setQuestionType(event.target.value)}><option value="mcq">Multiple choice</option><option value="short_answer">Short answer</option></select></label><label>Difficulty<select value={difficulty} disabled={!!busy} onChange={event => setDifficulty(event.target.value)}>{['beginner', 'intermediate', 'advanced'].map(value => <option key={value} value={value}>{value}</option>)}</select></label></>}<button className="sw-primary" disabled={!sourceId || !!busy || artifactsLoading || !!artifactsError} type="submit">{active ? 'Generate new' : 'Generate'}</button></form>
             {artifactsError && <p className="sw-error" role="alert">{artifactsError} <button type="button" onClick={() => setReload(value => value + 1)}>Retry</button></p>}

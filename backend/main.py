@@ -30,6 +30,7 @@ from pathlib import Path
 import pymupdf
 from pathlib import Path
 import shutil
+from uuid import uuid4
 
 env_path = Path(__file__).parent / ".env"
 load_dotenv(env_path)
@@ -543,7 +544,8 @@ def get_topics(course_id: int):
 @app.post("/courses/{course_id}/sources")
 async def upload_course_source(
     course_id: int,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    owner_student_id: int | None = None,
 ):
     if not file.filename:
         raise HTTPException(
@@ -551,7 +553,7 @@ async def upload_course_source(
             detail="Please select a file"
         )
 
-    filename = Path(file.filename).name
+    filename = Path(file.filename.replace("\\", "/")).name
 
     connection = get_connection()
     cursor = connection.cursor()
@@ -605,7 +607,7 @@ async def upload_course_source(
         upload_dir = Path(__file__).parent / "uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
 
-        saved_path = upload_dir / filename
+        saved_path = upload_dir / f"{uuid4().hex}{Path(filename).suffix.lower()}"
         saved_path.write_bytes(file_data)
 
         # 4. Create the source record.
@@ -616,9 +618,10 @@ async def upload_course_source(
                 source_name,
                 source_type,
                 file_path,
-                status
+                status,
+                owner_student_id
             )
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING source_id
             """,
             (
@@ -627,6 +630,7 @@ async def upload_course_source(
                 source_type,
                 str(saved_path),
                 result["status"],
+                owner_student_id,
             )
         )
 
@@ -1801,148 +1805,188 @@ def create_student(request: StudentRequest):
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        INSERT INTO students (name, email)
-        VALUES (%s, %s)
-        RETURNING student_id, name, email;
-    """, (
-        request.name,
-        request.email
-    ))
+    try:
 
-    student = cursor.fetchone()
+        cursor.execute("""
+            INSERT INTO students (name, email)
+            VALUES (%s, %s)
+            RETURNING student_id, name, email;
+        """, (
+            request.name,
+            request.email
+        ))
 
-    connection.commit()
+        student = cursor.fetchone()
+        if student is None:
+            raise HTTPException(status_code=500, detail="Database returned no student after insertion.")
 
-    cursor.close()
-    connection.close()
+        connection.commit()
 
-    return {
-        "status": "created",
-        "student_id": student[0],
-        "name": student[1],
-        "email": student[2]
-    }
+
+        return {
+            "status": "created",
+            "student_id": student[0],
+            "name": student[1],
+            "email": student[2]
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+        connection.close()
 @app.post("/courses")
 def create_course(request: CourseRequest):
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        INSERT INTO courses (course_name)
-        VALUES (%s)
-        RETURNING course_id, course_name;
-    """, (
-        request.course_name,
-    ))
+    try:
 
-    course = cursor.fetchone()
+        cursor.execute("""
+            INSERT INTO courses (course_name)
+            VALUES (%s)
+            RETURNING course_id, course_name;
+        """, (
+            request.course_name,
+        ))
 
-    connection.commit()
+        course = cursor.fetchone()
+        if course is None:
+            raise HTTPException(status_code=500, detail="Database returned no course after insertion.")
 
-    cursor.close()
-    connection.close()
+        connection.commit()
 
-    return {
-        "status": "created",
-        "course_id": course[0],
-        "course_name": course[1]
-    }
+
+        return {
+            "status": "created",
+            "course_id": course[0],
+            "course_name": course[1]
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+        connection.close()
 @app.post("/topics")
 def create_topic(request: TopicRequest):
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        INSERT INTO topics (course_id, topic_name)
-        VALUES (%s, %s)
-        RETURNING topic_id, course_id, topic_name;
-    """, (
-        request.course_id,
-        request.topic_name
-    ))
+    try:
 
-    topic = cursor.fetchone()
+        cursor.execute("""
+            INSERT INTO topics (course_id, topic_name)
+            VALUES (%s, %s)
+            RETURNING topic_id, course_id, topic_name;
+        """, (
+            request.course_id,
+            request.topic_name
+        ))
 
-    connection.commit()
+        topic = cursor.fetchone()
+        if topic is None:
+            raise HTTPException(status_code=500, detail="Database returned no topic after insertion.")
 
-    cursor.close()
-    connection.close()
+        connection.commit()
 
-    return {
-        "status": "created",
-        "topic_id": topic[0],
-        "course_id": topic[1],
-        "topic_name": topic[2]
-    }
+
+        return {
+            "status": "created",
+            "topic_id": topic[0],
+            "course_id": topic[1],
+            "topic_name": topic[2]
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+        connection.close()
 @app.post("/concepts")
 def create_concept(request: ConceptRequest):
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        INSERT INTO concepts (topic_id, concept_name)
-        VALUES (%s, %s)
-        RETURNING concept_id, topic_id, concept_name;
-    """, (
-        request.topic_id,
-        request.concept_name
-    ))
+    try:
 
-    concept = cursor.fetchone()
+        cursor.execute("""
+            INSERT INTO concepts (topic_id, concept_name)
+            VALUES (%s, %s)
+            RETURNING concept_id, topic_id, concept_name;
+        """, (
+            request.topic_id,
+            request.concept_name
+        ))
 
-    connection.commit()
+        concept = cursor.fetchone()
+        if concept is None:
+            raise HTTPException(status_code=500, detail="Database returned no concept after insertion.")
 
-    cursor.close()
-    connection.close()
+        connection.commit()
 
-    return {
-        "status": "created",
-        "concept_id": concept[0],
-        "topic_id": concept[1],
-        "concept_name": concept[2]
-    }
+
+        return {
+            "status": "created",
+            "concept_id": concept[0],
+            "topic_id": concept[1],
+            "concept_name": concept[2]
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+        connection.close()
 @app.post("/sources")
 def create_source(request: SourceRequest):
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        INSERT INTO sources (
-            course_id,
-            source_name,
-            source_type,
-            file_path
-        )
-        VALUES (%s, %s, %s, %s)
-        RETURNING source_id, course_id, source_name, source_type, file_path, status;
-    """, (
-        request.course_id,
-        request.source_name,
-        request.source_type,
-        request.file_path
-    ))
+    try:
 
-    source = cursor.fetchone()
+        cursor.execute("""
+            INSERT INTO sources (
+                course_id,
+                source_name,
+                source_type,
+                file_path
+            )
+            VALUES (%s, %s, %s, %s)
+            RETURNING source_id, course_id, source_name, source_type, file_path, status;
+        """, (
+            request.course_id,
+            request.source_name,
+            request.source_type,
+            request.file_path
+        ))
 
-    connection.commit()
+        source = cursor.fetchone()
+        if source is None:
+            raise HTTPException(status_code=500, detail="Database returned no source after insertion.")
 
-    cursor.close()
-    connection.close()
+        connection.commit()
 
-    return {
-        "status": "created",
-        "source_id": source[0],
-        "course_id": source[1],
-        "source_name": source[2],
-        "source_type": source[3],
-        "file_path": source[4],
-        "source_status": source[5]
-    }
+
+        return {
+            "status": "created",
+            "source_id": source[0],
+            "course_id": source[1],
+            "source_name": source[2],
+            "source_type": source[3],
+            "file_path": source[4],
+            "source_status": source[5]
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+        connection.close()
 @app.put("/sources/{source_id}/status")
 def update_source_status(source_id: int, request: SourceStatusRequest):
 
@@ -2038,7 +2082,10 @@ def store_chunk(request: ChunkEmbeddingRequest):
             embedding_value
         ))
 
-        chunk_id = cursor.fetchone()[0]
+        chunk_row = cursor.fetchone()
+        if chunk_row is None:
+            raise RuntimeError("Database returned no chunk after insertion.")
+        chunk_id = chunk_row[0]
 
         connection.commit()
 
@@ -2111,7 +2158,10 @@ def create_chunks_batch(request: BatchChunksRequest):
                 embedding_value
             ))
 
-            chunk_id = cursor.fetchone()[0]
+            chunk_row = cursor.fetchone()
+            if chunk_row is None:
+                raise RuntimeError("Database returned no chunk after insertion.")
+            chunk_id = chunk_row[0]
             inserted_chunks.append(chunk_id)
 
         connection.commit()
@@ -3568,3 +3618,10 @@ def get_learner_events(
     finally:
         cursor.close()
         connection.close()
+
+
+# Export only the account-scoped API. The legacy function implementations above
+# remain available internally for local extraction/models, not as public routes.
+import sys as _private_sys
+from backend.private_app import create_private_app
+app = create_private_app(_private_sys.modules[__name__])

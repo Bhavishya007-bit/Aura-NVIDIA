@@ -1,23 +1,12 @@
+# Complete local Aura backend (Python 3.12 recommended).
+-r requirements-api.txt
+-r requirements-auth.txt
+-r requirements-multimodal.txt
 
-# FastAPI backend
-fastapi
-uvicorn[standard]
-pydantic
-python-multipart
-
-# Database and vector search
-psycopg2-binary
-pgvector
-python-dotenv
-
-# Document ingestion
-PyMuPDF
-python-docx
-python-pptx
-
-# Embeddings
-sentence-transformers
-
-# Audio transcription
+pgvector>=0.3,<1
+requests>=2.32,<3
+sentence-transformers>=4,<6
+transformers>=4.51,<5
+torch>=2.2,<3
 faster-whisper==1.2.1
 av>=11,<19

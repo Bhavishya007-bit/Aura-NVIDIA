@@ -34,6 +34,7 @@ export default function App() {
     setPath(next)
   }
   function restoreNavigation(account: AuthUser) {
+    setCoursesLoading(true); setCourses([])
     const saved = readWorkspace<{ homeOpen?: boolean; courseId?: string }>(navigationKey(account.id), {})
     if (typeof saved.homeOpen === 'boolean') setHomeOpen(saved.homeOpen)
     if (typeof saved.courseId === 'string') setCourseId(saved.courseId)
@@ -44,6 +45,7 @@ export default function App() {
   }
   useEffect(() => {
     let cancelled = false
+    setCoursesLoading(true); setCoursesError(''); setCourses([])
     listCourses().then(items => {
       if (cancelled) return
       setCourses(items)
@@ -51,7 +53,7 @@ export default function App() {
     }).catch(cause => { if (!cancelled) setCoursesError(cause instanceof Error ? cause.message : 'Could not load courses.') })
       .finally(() => { if (!cancelled) setCoursesLoading(false) })
     return () => { cancelled = true }
-  }, [])
+  }, [user?.id])
   // A saved course is checked after both authentication and course loading finish.
   useEffect(() => {
     if (!authChecking && !coursesLoading && courses.length && !courses.some(item => item.id === courseId)) setCourseId(courses[0].id)
@@ -97,7 +99,7 @@ export default function App() {
     catch { setSessionNotice('Could not sign out. Please retry.') }
     finally { setSigningOut(false) }
   }
-  if (authChecking || restoreError) return <main className="aura-auth" data-theme={theme}><section className="auth-card" aria-live="polite"><h1>{authChecking ? 'Signing you in…' : 'Connection interrupted'}</h1>{restoreError && <><p role="alert">{restoreError}</p><button type="button" onClick={() => setRestoreAttempt(value => value + 1)}>Retry</button><button type="button" onClick={() => { clearAuthToken(); setRestoreError(''); setUser(null); setHomeOpen(true); navigate('/', true) }}>Continue as guest</button></>}</section></main>
+  if (authChecking || restoreError || (user && coursesLoading)) return <main className="aura-auth" data-theme={theme}><section className="auth-card" aria-live="polite"><h1>{authChecking ? 'Signing you in…' : coursesLoading ? 'Loading your workspace…' : 'Connection interrupted'}</h1>{restoreError && <><p role="alert">{restoreError}</p><button type="button" onClick={() => setRestoreAttempt(value => value + 1)}>Retry</button><button type="button" onClick={() => { clearAuthToken(); setRestoreError(''); setUser(null); setHomeOpen(true); navigate('/', true) }}>Continue as guest</button></>}</section></main>
   if (path === '/login' || path === '/signup') return <AuthPage key={path} mode={path === '/signup' ? 'signup' : 'login'} theme={theme} initialError={authError} onNavigate={next => { setAuthError(''); if (next === '/') { setHomeOpen(true); setPendingWorkspace(false) }; navigate(next) }} onSuccess={account => {
     setUser(account); setAuthError(''); restoreNavigation(account)
     if (pendingWorkspace) { setHomeOpen(false); setPendingWorkspace(false) }
