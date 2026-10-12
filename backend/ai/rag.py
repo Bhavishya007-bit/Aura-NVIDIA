@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 from backend.ai.pg_retrieval import PostgresRetriever
 from backend.ai.llm import LLM
@@ -18,7 +19,9 @@ UNAVAILABLE_MESSAGE = (
 
 
 class RAG:
-    def __init__(self, retriever: PostgresRetriever, llm: LLM):
+    def __init__(self, retriever: Any, llm: LLM):
+        # The public API injects an account-scoped adapter which supplies owner
+        # IDs itself; its overview signature differs from the raw DB retriever.
         self.retriever = retriever
         self.llm = llm
         self.citation_validator = CitationValidator()
@@ -260,6 +263,9 @@ CORRECTED ANSWER:
         self, question: str, sources: list[dict], checks: list[dict]
     ) -> dict | None:
         """Provide explicitly ungrounded background when file-based answering fails."""
+        # Outside knowledge cannot establish what a particular file contains.
+        if re.search(r"\b(?:pdf|pptx?|presentation|slides?|document|uploaded|selected|file)\b", question, re.I):
+            return None
         try:
             background = self.llm.generate(
                 f"""You are a study tutor giving GENERAL BACKGROUND.
@@ -354,6 +360,41 @@ Return JSON only: {{"excerpts": [{{"citation": 1, "text": "Exact complete senten
                 return None
             sentences.append(f"“{text.strip()}” [{number}].")
         return " ".join(sentences)
+
+    @classmethod
+    def _resolve_material_correction(cls, question: str, history: list[dict]) -> str:
+        """Resolve a file-type correction from user turns, never a failed answer.
+
+        The selected source ID remains authoritative. Preserve a previous
+        concept question rather than turning every correction into an overview.
+        """
+        document = r"(?:pdf|pptx?|powerpoint(?: presentation)?|presentation|slides?|slide deck|document|file|material)"
+        correction = (
+            r"\s*(?:(?:sorry|no|actually|oops)[,!]?\s*)*"
+            r"(?:i\s+(?:meant|mean|was talking about|am talking about|was referring to)|"
+            r"it(?:'s| is)|this(?:'s| is))\s+"
+            r"(?:(?:the|this|my|a|an|uploaded|selected)\s+)*" + document
+            + r"(?:\s*,?\s*not\s+(?:(?:a|an|the)\s+)?" + document + r")?[\s.!?]*"
+        )
+        if not re.fullmatch(correction, question, re.I):
+            return question
+        formatting = []
+        for turn in reversed(history[-8:]):
+            previous = turn.get("content", "")
+            if turn.get("role") != "user" or not isinstance(previous, str) or not previous.strip():
+                continue
+            if re.fullmatch(correction, previous, re.I):
+                continue
+            if re.fullmatch(r"\s*(?:please\s+)?(?:give|write|put|make|rewrite|explain)\b.{0,100}\bparagraph(?:\s+form)?[.!?]*\s*", previous, re.I):
+                formatting.append(previous)
+                continue
+            # Only amend an earlier file-scoped request. Do not inherit an
+            # unrelated question from earlier in the conversation.
+            if cls._is_material_overview(previous) or re.search(r"\b" + document + r"\b", previous, re.I):
+                resolved = re.sub(r"\b" + document + r"\b", "selected material", previous, flags=re.I)
+                return resolved + ("\nAnswer format requested now: " + formatting[0] if formatting else "")
+            break
+        return "Explain the selected material."
 
     def _resolve_followup(self, question: str, history: list[dict]) -> str:
         """Resolve references for retrieval; history is never source evidence."""
@@ -451,6 +492,13 @@ Return JSON only: {{"question": "standalone question"}}"""
         )
         if re.fullmatch(informal_overview, text):
             return True
+        # Importance questions concern the document as a whole, not the
+        # generic meaning of a PDF. Keep named concept requests out of this.
+        if re.search(
+            r"\b(?:(?:most\s+)?important (?:parts?|points?|topics?|concepts?)|key (?:points?|ideas|takeaways|concepts))"
+            r"\s+(?:of|in|from|about)\s+" + reference, text
+        ):
+            return True
         overview = (
             r"(?:summari[sz]e\s+|(?:summary|overview)\s+(?:of|for)\s+)"
             + reference
@@ -487,6 +535,81 @@ Return JSON only: {{"question": "standalone question"}}"""
             )
         )
 
+    def _overview_evidence_fallback(self, sources: list[dict], checks: list[dict]) -> dict:
+        """Show literal readable evidence when generation or checking fails.
+
+        This is explicitly an extractive response, never a model summary labelled
+        verified. Every excerpt is copied from the corresponding scoped passage.
+        """
+        for check in reversed(checks):
+            verified = []
+            seen_claims = set()
+            for item in check.get("grounding_validation", {}).get("results", []):
+                numbers = item.get("citations") or [item.get("citation")]
+                claim = item.get("claim")
+                if (item.get("supported") is True and isinstance(claim, str)
+                        and claim not in seen_claims and numbers
+                        and all(type(n) is int and 1 <= n <= len(sources) for n in numbers)):
+                    verified.append((claim, numbers))
+                    seen_claims.add(claim)
+            if len(verified) >= 3:
+                answer = " ".join(
+                    claim + " " + "".join(f"[{n}]" for n in numbers) + "."
+                    for claim, numbers in verified
+                )
+                return self._response(answer, sources, {
+                    "valid": True, "stage": "overview_supported_sentences",
+                    "retrieval_mode": "material_overview", "attempts": checks,
+                    "grounding_validation": {"valid": True, "results": [
+                        item for item in check["grounding_validation"]["results"]
+                        if item.get("supported") is True
+                    ]},
+                })
+        excerpts = []
+        seen = set()
+        for number, source in enumerate(sources, 1):
+            text = source.get("content", "")
+            if not isinstance(text, str):
+                continue
+            added = 0
+            for candidate in re.split(r"\n+|(?<=[.!?])\s+", text):
+                candidate = candidate.strip()
+                key = " ".join(candidate.casefold().split())
+                if (len(candidate.split()) < 6 or len(candidate) > 900
+                        or key in seen or not re.search(r"[A-Za-z]", candidate)):
+                    continue
+                seen.add(key)
+                excerpts.append((number, candidate))
+                added += 1
+                if added == 3 or len(excerpts) == 12:
+                    break
+            if len(excerpts) == 12:
+                break
+        if not excerpts:
+            return self._response(
+                "This file's extracted text is too limited for an explanation. "
+                "Open its cited pages to check whether they contain readable text.",
+                sources,
+                {"valid": False, "stage": "overview_no_readable_excerpts", "attempts": checks},
+            )
+        answer = "From the selected material — quoted excerpts:\n\n" + "\n\n".join(
+            f'“{text}” [{number}]' for number, text in excerpts
+        )
+        # The support proof here is exact source membership, not an LLM vote.
+        assert all(text in sources[number - 1]["content"] for number, text in excerpts)
+        return self._response(answer, sources, {
+            "valid": True,
+            "stage": "overview_source_excerpts",
+            "retrieval_mode": "material_overview",
+            "response_mode": "extractive",
+            "attempts": checks,
+            "grounding_validation": {"valid": True, "results": [
+                {"claim": text, "citation": number, "supported": True,
+                 "reason": "Literal text copied from the cited source passage."}
+                for number, text in excerpts
+            ]},
+        })
+
     def _answer_overview(
         self, question: str, course_id: int | None, source_id: int
     ) -> dict:
@@ -506,15 +629,29 @@ Return JSON only: {{"question": "standalone question"}}"""
                 [],
                 {"valid": False, "stage": "retrieval"},
             )
+        brief = bool(re.search(r"\b(?:brief|short|quick|summary|summari[sz]e|overview)\b", question, re.I))
+        detail = (
+            "Give a brief, useful overview in one connected paragraph of 4 to 6 sentences"
+            if brief else
+            "Explain the material in 6 to 12 useful sentences, arranged in 2 to 4 connected paragraphs"
+        )
+        if re.search(r"\bparagraph(?: form)?\b", question, re.I):
+            detail += "; use one connected paragraph as requested"
         prompt = f"""You are Aura, a helpful source-grounded study tutor.
-The student is asking what their selected uploaded file is about.
+The student wants to understand their selected uploaded file.
 SELECTED FILE: {sources[0]['source_name']}
 STUDENT REQUEST: {question}
 
-Give a brief, useful overview in one connected paragraph of 4 to 6 sentences
+{detail}
 when the evidence supports it. Start directly with the main subject of the
 material. Then describe its major themes and how they connect. Explain the
-content rather than listing disconnected headings. Use the actual selected
+content rather than listing disconnected headings. Explain important terms,
+requirements, processes and examples that the passages actually describe.
+For a specification or assignment, explain its goal, requested features,
+constraints and evaluation criteria where those appear in the evidence.
+For lecture material, explain its concepts and their relationships.
+Do not describe an assignment as though it were a biology lecture or vice versa.
+Use the actual selected
 file even if the student calls a presentation a PDF. Do not ask which file
 they mean: the file and its passages are supplied below.
 These are sampled passages from different source locations, not the entire
@@ -529,7 +666,7 @@ Prefer fewer supported details if the extracted material is limited.
 BEGIN STUDY PASSAGES
 {self._build_context(results, sources)}
 END STUDY PASSAGES
-BRIEF OVERVIEW:
+EXPLANATION:
 """
         checks = []
         for attempt in range(2):
@@ -537,15 +674,8 @@ BRIEF OVERVIEW:
                 answer = self._normalize_citations(self.llm.generate(prompt))
                 validation = self._validate_answer(answer, sources)
             except Exception:
-                return self._response(
-                    UNAVAILABLE_MESSAGE,
-                    sources,
-                    {
-                        "valid": False,
-                        "stage": "overview_unavailable",
-                        "attempts": checks,
-                    },
-                )
+                checks.append({"valid": False, "stage": "overview_unavailable"})
+                return self._overview_evidence_fallback(sources, checks)
             checks.append(validation)
             if validation["valid"]:
                 return self._response(
@@ -560,24 +690,15 @@ BRIEF OVERVIEW:
             if validation["stage"] == "verification_unavailable":
                 break
             prompt += f"""
-The previous draft failed source checking. Write a corrected brief overview.
-Omit unsupported claims, preserve the paragraph format, and cite each sentence.
+The previous draft failed source checking. Write a corrected explanation.
+Omit unsupported claims, preserve the requested format and detail, and cite each sentence.
 Previous draft (not evidence): {answer}
 Checking feedback (not evidence): {validation}
 CORRECTED OVERVIEW:
 """
         # Outside knowledge cannot identify what an uploaded file contains.
         # Never substitute a generic background answer for a failed overview.
-        return self._response(
-            "I found this file, but couldn't verify a reliable summary of its extracted text yet. "
-            "You can open the source excerpts below or ask about a specific topic.",
-            sources,
-            {
-                "valid": False,
-                "stage": "overview_verification_failed",
-                "attempts": checks,
-            },
-        )
+        return self._overview_evidence_fallback(sources, checks)
 
     def answer(
         self,
@@ -598,6 +719,20 @@ CORRECTED OVERVIEW:
                 },
             )
         question = question.strip()
+        if source_id is not None:
+            resolved_history = []
+            for turn in (history or [])[-8:]:
+                content = turn.get("content")
+                if turn.get("role") == "user" and isinstance(content, str):
+                    turn = {**turn, "content": self._resolve_material_correction(content, resolved_history)}
+                resolved_history.append(turn)
+            history = resolved_history
+            corrected = self._resolve_material_correction(question, history)
+            if corrected != question:
+                # The correction has already been resolved without using the
+                # assistant's potentially incorrect earlier answer.
+                question = corrected
+                history = []
         if source_id is not None and self._is_material_overview(question):
             return self._answer_overview(question, course_id, source_id)
         question = self._resolve_followup(question, history or [])
