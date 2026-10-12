@@ -65,3 +65,11 @@ test_*.py
 /scripts/verify-material-selection.mjs
 /src/components/StudyDesk.backup.css
 /github-files.txt
+
+# Superseded dependency files and prototype documentation
+/requirements-api.txt
+/requirements-auth.txt
+/requirements-ingestion.txt
+/requirements-multimodal.txt
+/CONTRIBUTING.md
+/INGESTION.md

@@ -1,4 +1,0 @@
-rapidocr-onnxruntime==1.4.4
-onnxruntime>=1.18,<2
-numpy>=2,<2.8
-opencv-python>=4.8,<4.12
