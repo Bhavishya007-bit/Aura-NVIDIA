@@ -1,123 +1,249 @@
-# Aura
+# Aura — a source-based study tutor
 
-Aura is a React + TypeScript + Vite study companion. Its upload page can send PDF, PPTX, DOCX, and MP4 files to a small FastAPI prototype. The API stores the original in local disk storage and calls the existing `ingestion` package.
+Aura runs on the evaluator's own laptop. No hosted website, paid API key, or
+cloud database is required. The frontend is React/TypeScript, the API is FastAPI,
+the database is PostgreSQL with pgvector, and generation runs through local
+Ollama. Internet is needed initially to install software and download models.
 
-## Run the frontend
+## What to try
 
-In one terminal, from the project root:
+1. Create an account and sign in. A new account starts with its own materials.
+2. Open the study workspace and upload a small text-based PDF or PPTX.
+3. Wait until it is ready. Ask **“What is this material about?”** for an overview,
+   then ask a specific question supported by the document.
+4. Use Notes, Summary, Flashcards, or Assessment on the selected material.
+5. Submit an assessment and open Progress to see scores, topic counts and history.
+6. Refresh to check saved work. Create another account to check material isolation.
 
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
+In Tutor, **Enter sends** and **Shift+Enter adds a line**. Messages scroll above
+the composer. Guest access supports general questions; uploaded material and
+study tools require an account. Source-backed claims show citations and source
+excerpts with page, slide or timestamp metadata. General background is explicitly
+labelled as unverified against the uploaded material.
 
-On Windows PowerShell, use `Copy-Item .env.example .env.local` instead of `cp`. The frontend defaults to `http://127.0.0.1:8000` when `VITE_API_BASE_URL` is not set.
+## Prerequisites
 
-## Run the API
+Install these before starting:
 
-Use Python 3.10 or newer. In a second terminal at the project root:
+| Software | Use |
+| --- | --- |
+| [Python 3.12](https://www.python.org/downloads/) | Backend and local AI packages |
+| [Node.js 22 LTS](https://nodejs.org/en/download) | Frontend; Node 22.18+ recommended for the test command |
+| [Git](https://git-scm.com/downloads) | Clone the repository |
+| [Ollama](https://ollama.com/download) | Run the local tutor model |
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) or an existing PostgreSQL + pgvector installation | Database |
+| [LibreOffice](https://www.libreoffice.org/download/download-libreoffice/) — optional | Convert legacy `.ppt`; not needed for `.pptx` |
 
-```bash
-python -m venv .venv
-```
+A practical demo laptop should have about **16 GB RAM** and several GB of free
+disk space for models, dependencies and Docker. This is a planning estimate,
+not a measured minimum. A GPU is optional. CPU processing can take several
+minutes for a large presentation; use a short material for the first demo.
 
-Activate the environment:
+The instructions below use **Windows PowerShell** from the repository root.
 
-```powershell
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
-```
-
-```bash
-# macOS/Linux
-source .venv/bin/activate
-```
-
-Install the API, upload, and extraction dependencies, then start FastAPI:
-
-```bash
-python -m pip install -r requirements-api.txt
-uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-The API health check is `http://127.0.0.1:8000/health`; interactive endpoint docs are at `http://127.0.0.1:8000/docs`.
-
-Optional API environment variables:
+## 1. Get the code
 
 ```powershell
-$env:FIELDNOTE_STORAGE_DIR = 'backend/.local_storage'
-$env:FIELDNOTE_CORS_ORIGINS = 'http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4173,http://localhost:4173'
+git clone https://github.com/Bhavishya007-bit/aura.git
+cd aura
+py -3.12 -m venv .venv
 ```
 
-`FIELDNOTE_CORS_ORIGINS` is a comma-separated exact-origin allowlist. Set it in the API host to include the deployed frontend origin. Set `VITE_API_BASE_URL` to the separately hosted API URL before building/deploying the frontend. Vercel currently hosts only the frontend; it does not host this FastAPI service.
+If you received a ZIP, extract it and open a terminal in the folder containing
+`package.json` and `backend`, then create `.venv` there. The repository must
+contain this revised package before the clone instructions reproduce it.
 
-## Upload API contract
+Use the virtual environment's executable directly; activation is optional.
 
-`POST /courses/{course_id}/sources` accepts `multipart/form-data` with one field named `file`. The route validates the filename extension, the 100 MiB size cap, and the file container signature. It stores the original file under a generated ID (the client's filename is metadata only), creates a source record through a repository interface, and passes the bytes to `ingestion.ingest_file`.
+## 2. Create local configuration
 
-Successful source creation returns HTTP `201` with a JSON response like:
-
-```json
-{
-  "source_id": "a generated UUID",
-  "course_id": "foundations-of-biology",
-  "filename": "chapter-4.pdf",
-  "file_type": "pdf",
-  "upload_status": "uploaded",
-  "processing_status": "success",
-  "content_unit_count": 12,
-  "warnings": [],
-  "created_at": "2026-10-02T00:00:00Z"
-}
+```powershell
+.\.venv\Scripts\python.exe scripts/create_local_config.py
 ```
 
-`processing_status` mirrors the existing extraction result: `success`, `partial`, `empty`, `not_configured`, or `error`. A supported file can be stored even if its extraction fails; in that case the response is still `201`, has `processing_status: "error"`, and includes warnings. Invalid extensions return `415`, files over the cap return `413`, and invalid/corrupt container signatures return `422`, each with FastAPI's JSON `detail` message. Storage failures return `500`.
+This creates `backend/.env` with a random local database password and JWT secret,
+and `.env.local` with `VITE_API_BASE_URL=/api`. Existing configuration files are
+preserved. Real `.env` files are ignored by Git; the `.env.example` files contain
+placeholders only. Do not commit the generated credentials.
 
-The upload runs synchronously in this prototype. The response includes the number of extracted content units and warnings, not the extracted text. The content units are currently transient; no database or durable extraction-result store has been selected.
+## 3. Install dependencies and download the tutor model
 
-## Frontend API integration boundary
-
-The frontend authentication API contract, for when it is connected, is:
-
-- `POST /auth/register` with `{ "full_name": "...", "email": "...", "password": "..." }`; return a JSON object on success.
-- `POST /auth/login` with `{ "email": "...", "password": "..." }`; return `{ "access_token": "..." }`.
-- `GET /auth/me` with `Authorization: Bearer <access_token>`; return `{ "id": "...", "full_name": "...", "email": "..." }`.
-
-The current login and sign-up pages are a frontend-only demo: the dashboard remains accessible before sign-in, and either form returns to the dashboard after validating its required fields. Demo sign-in does not verify credentials or call the API; the username is used as the dashboard display name, while passwords are never persisted. The API authentication endpoints still need to be implemented and connected before real accounts or credential verification are available. `src/services/authApi.ts` contains the existing API client functions for that integration.
-
-React components call service functions in `src/services/`; HTTP transport, the `VITE_API_BASE_URL`, bearer-token injection, HTTP errors, and response decoding are centralized in `src/services/apiClient.ts` and `src/services/studyApi.ts`. The current FastAPI contract only implements source upload, so course/material reads, tutor, notes, summaries, flashcards, quiz generation/submission, and learner insights have typed service interfaces but intentionally make no requests until their endpoint contracts are agreed. Add endpoint paths and wire-format mappers in the service layer only; do not add database or AI-service access to the frontend.
-
-The upload path and snake_case response mapper are implemented against the documented FastAPI route. UI code receives a camelCase result. The authentication client can supply the existing `setApiAuthTokenProvider` hook from an access token held in `sessionStorage` when real authentication is connected; passwords are never persisted. Existing study samples stay in the demo data adapter. Tutor fallback copy is explicitly marked demo, contains no generated answer, and carries no fabricated citation.
-
-The main Quizzes navigation opens the assessment center, separate from contextual practice in AI Tutor. `studyApi.ts` exports typed `generateQuiz` and `submitQuizAnswers` service contracts with assessment scope, material/topic IDs, answer submissions, overall results, and topic performance. These calls intentionally remain unconfigured until FastAPI endpoint paths and payloads are agreed. The assessment page only uses the existing static sample question as a one-question demo when it matches the selected scope; it does not generate questions or fabricate assessment coverage/results.
-
-## Tests
-
-After installing `requirements-api.txt`, run all extraction and API tests from the project root:
-
-```bash
-python -m unittest discover -s tests -v
+```powershell
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install "torch>=2.2,<3" --index-url https://download.pytorch.org/whl/cpu
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+npm ci
+ollama pull qwen2.5:3b
 ```
 
-The existing `npm run test:upload` checks browser-side file selection and limits. `npm run build` checks the frontend TypeScript and production bundle.
+The PyTorch command uses the [official CPU wheel index](https://pytorch.org/get-started/previous-versions/). For a GPU installation, use the official PyTorch selector instead. On macOS, install `torch` from PyPI without the CPU index flag.
 
-## What is implemented and what remains
+Keep Ollama running. The desktop application normally starts its service; if
+needed, run `ollama serve` in a separate terminal. If it reports the port is
+already occupied, the service may already be running.
 
-- **Implemented prototype:** FastAPI health route and upload route; PDF/PPTX/DOCX/MP4 extension, size, and signature validation; generated source IDs; local original-file storage; replaceable repository and storage interfaces; synchronous invocation of the existing ingestion package; frontend uploading/result/error states. The frontend prevents another batch submission while one is in progress.
-- **PDF/PPTX/DOCX:** Uses the existing page/slide/paragraph extraction and shared content-unit schema. Extracted text is not persisted yet.
-- **MP4:** The existing pipeline returns `not_configured` without a selected transcription adapter; no transcript is fabricated.
-- **Images:** Not accepted by the current upload endpoint. `ingestion/extractors/image.py` only defines an adapter protocol; OCR/image understanding is not implemented.
-- **Temporary:** Source metadata uses an in-memory repository and disappears when the API restarts. Original files stay on local disk under `FIELDNOTE_STORAGE_DIR`. The API has no authentication, authorization, malware scanning, background job system, or production-grade storage.
-- **Not included:** PostgreSQL/pgvector, RAG, embeddings, quiz generation, learner modeling, or OCR.
+Install the **root `requirements.txt`**, not only `requirements-api.txt`. It
+includes authentication, embedding, OCR and audio packages used by the active
+application. Qwen3 embeddings require Transformers 4.51 or later; the requirement
+file includes that constraint. Model: [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B).
 
-## Team decisions before production integration
+## 4. Start a fresh database — choose ONE option
 
-1. Member 2 should provide the agreed course/source schema, ownership/auth rules, repository transaction behavior, and durable file-storage choice. Replace `InMemorySourceRepository` and `LocalFileStorage` without changing the route's service boundary.
-2. Member 3 should confirm the ingestion JSON-to-KnowledgeUnit mapping and whether/where extracted units are stored. The current extraction output remains unchanged.
-3. The team should choose authentication, upload retention/deletion rules, hosted backend URL, allowed CORS origins, maximum request size, and a video transcription provider. Production secrets belong in the hosting provider's environment settings, not frontend code.
-4. Course IDs in the frontend are demo slugs. Replace them with IDs from the agreed course API/schema before connecting real accounts.
+### Option A: Docker database (recommended for a new judge laptop)
 
-## Contributing
+Start Docker Desktop, then:
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the team's suggested branch and pull-request workflow. Keep frontend, API, ingestion, and future database/AI work in their existing modules. Agree on API and data contracts before changing shared response or content-unit shapes.
+```powershell
+docker compose --env-file backend/.env up -d --wait db
+.\.venv\Scripts\python.exe scripts/init_database.py
+```
+
+Only the database is containerized. It uses the official
+[pgvector PostgreSQL image](https://github.com/pgvector/pgvector#docker), binds
+locally, and defaults to host port **5433** to avoid an existing PostgreSQL on
+5432. The named Docker volume keeps database data between restarts.
+
+`init_database.py` creates the base schema plus authentication, private workspace,
+study tool and archive-preference tables in one transaction. It refuses to
+initialize a nonempty database and does not delete existing records.
+
+For later sessions, start the same database container; do not initialize again.
+Do not recreate `backend/.env` with a different password while keeping the
+existing database volume: its stored database password remains unchanged.
+
+### Option B: Existing native PostgreSQL with pgvector
+
+Create a NEW empty database named `aura` in pgAdmin. The pgvector extension
+package must already be installed on that PostgreSQL server; plain PostgreSQL
+alone is insufficient. See the [official installation instructions](https://github.com/pgvector/pgvector#installation).
+
+Edit `backend/.env` to use your actual database name, user, password and port
+(usually 5432), then run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/init_database.py
+```
+
+If updating an existing working Aura installation, **keep its configuration and
+database**. Do not run initialization. Earlier installations already applied
+`auth-migration.sql`, `backend/private_workspaces.sql`, `backend/study_tools.sql`
+and `backend/material_preferences.sql`; only apply a missing migration after
+checking its state. Do not run legacy attribution or seed scripts for a fresh
+judge account. They are manual maintenance tools, not setup requirements.
+
+## 5. Check setup and preload embeddings
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_local_setup.py
+.\.venv\Scripts\python.exe -c "from backend.ai.embeddings import EmbeddingModel; EmbeddingModel()"
+```
+
+The check reports missing Python modules, schema columns or the Ollama model.
+Preloading embeddings downloads/caches the Qwen model before the demonstration.
+The first audio/video upload also downloads Whisper `base`. Subsequent runs use
+cached weights. This does not remove the CPU time required to encode a new file.
+
+The database stores **1024-dimensional** vectors. Keep the supplied embedding
+model for this setup; switching to a model with a different dimension requires
+a separate database/index migration and reindexing.
+
+## 6. Run Aura — two terminals
+
+Terminal 1, from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+Terminal 2, also from the root:
+
+```powershell
+npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
+```
+
+Open **http://127.0.0.1:5173**. The `/api` proxy forwards frontend requests to
+127.0.0.1:8000. API health: http://127.0.0.1:8000/health; API docs:
+http://127.0.0.1:8000/docs. Documentation describes the private API exposed by
+`backend.main:app`, not every older function still present in `main.py`.
+
+For a production frontend build running locally:
+
+```powershell
+npm run build
+npm run preview
+```
+
+Stop the development server before previewing; both use 5173. The backend,
+Ollama and database must remain running while Aura is used.
+
+### macOS/Linux command equivalents
+
+Use `python3.12 -m venv .venv`, then `.venv/bin/python` wherever the Windows
+instructions use `.\.venv\Scripts\python.exe`. Docker and npm commands remain
+the same. LibreOffice must be discoverable as `soffice`/`libreoffice` for `.ppt`.
+The executable has been automatically detected on Windows in the standard
+LibreOffice installation paths; `LIBREOFFICE_PATH` can override it.
+
+## Supported materials and practical limits
+
+- PDF, PPTX and DOCX text is extracted with page/slide/paragraph provenance.
+- Legacy PPT is converted by LibreOffice before extraction.
+- Audio and MP4 speech use local Whisper, retaining segment timestamps.
+- OCR can extract image text in PDFs/slides. It is not full visual reasoning:
+  unlabeled arrows or a diagram's spatial meaning may not be established.
+- Source buttons display cited text and origin metadata. A full original-file
+  viewer opening the exact PDF page/video timestamp is not implemented here.
+- Uploaded files and generated tools are stored locally; this is a laptop demo,
+  not a production hosted service. Chat UI state is restored from browser storage
+  scoped to the account; it is not a cross-device synchronized chat history.
+- Generated content is checked against available passages; requests may return
+  fewer verified items than requested. Local-model checks are fallible.
+- Progress currently reports assessment performance. It is not evidence of
+  measured learning gain or a fully evaluated conversation-driven learner model.
+- Legacy learner-model/adaptive modules remain in the repository, but their
+  presence does not imply the current UI implements all Triad B requirements.
+- No RAGAS/DeepEval/TruLens benchmark results or simulated mastery gains are
+  claimed in this package. Those require a separately executed evaluation set.
+- Authentication tokens expire after 30 minutes. Refresh restores the session
+  while its token remains valid. Logout-token revocation is process-local.
+
+## Checks and tests
+
+```powershell
+npm run build
+npm run test:upload
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+The curated `tests/` suite tests missing database rows and rollback, new-database
+setup safeguards, preservation of local configuration, and account access
+boundaries with mocks. It does not use a live database or download models.
+
+The older `backend/**/test_*.py` and root ingestion test scripts are retained.
+Many are manual integration scripts that connect to services or mutate a test
+database at import time. Do not run a recursive discovery over the whole project
+against real student data. Run those individually with a disposable test setup.
+
+The corrected package was checked with TypeScript/Vite, Python syntax checks,
+Pyright for `main.py`, the curated tests, and parsed SQL. Docker startup, a fresh
+package install with large model downloads, and local-model answer quality were
+not exercised in the review environment. Run the setup check and demo sequence
+on the evaluation laptop.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| `AUTH_JWT_SECRET is missing` | Generate `backend/.env`, then restart the backend |
+| `email_validator` / `jwt` / `pwdlib` missing | Install the root requirements in the interpreter used by uvicorn |
+| `password_hash` / `owner_student_id` / study table missing | Fresh database: initialization; existing installation: missing migration only |
+| `extension vector is not available` | Use the supplied Docker image or install pgvector on native PostgreSQL |
+| Port 5433 occupied | Change `DB_PORT` before starting the new Docker database |
+| `.ppt` conversion unavailable | Install LibreOffice or use `.pptx` |
+| Very slow first upload | Model downloads, OCR and CPU embeddings can take time; preload and use a shorter deck |
+| Summary says it cannot verify | Check that the selected material is ready and its extracted text supports the request |
+| UI still shows an old answer | Ask a new question; saved messages are not rewritten by backend updates |
+| Preview still shows old UI | Stop preview, run `npm run build`, restart preview and refresh |
+
+See [REVIEW_NOTES.md](REVIEW_NOTES.md) for this package's changes and maintainer
+update/GitHub steps. No hosting deployment is needed for the judge workflow.

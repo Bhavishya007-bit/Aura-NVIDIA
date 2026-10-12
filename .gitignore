@@ -50,3 +50,6 @@ __pycache__/
 .env.*
 !.env.example
 backend/uploads/
+# Review packages and development reports
+*.zip
+aura-file-list.txt

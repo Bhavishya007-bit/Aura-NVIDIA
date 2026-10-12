@@ -5,7 +5,6 @@ import time
 import requests
 from dotenv import load_dotenv
 
-
 load_dotenv("backend/.env")
 
 
@@ -26,6 +25,7 @@ class LLM:
             "options": {
                 "temperature": 0 if json_mode else 0.1,
                 "num_predict": 256 if json_mode else 768,
+                "num_ctx": 8192,
             },
         }
         if json_mode:
@@ -49,17 +49,27 @@ class LLM:
                 if not isinstance(content, str) or not content.strip():
                     raise RuntimeError("Ollama returned an empty response.")
                 if data.get("done_reason") == "length":
-                    raise RuntimeError("Ollama reached the output limit before finishing.")
+                    raise RuntimeError(
+                        "Ollama reached the output limit before finishing."
+                    )
                 return content.strip()
             except requests.HTTPError as error:
-                status = error.response.status_code if error.response is not None else None
+                status = (
+                    error.response.status_code if error.response is not None else None
+                )
                 if status not in {429, 502, 503, 504} or attempt == attempts - 1:
-                    raise RuntimeError("Local Ollama request failed. Check the backend log and Ollama model.") from error
+                    raise RuntimeError(
+                        "Local Ollama request failed. Check the backend log and Ollama model."
+                    ) from error
             except (requests.ConnectionError, requests.Timeout) as error:
                 if attempt == attempts - 1:
-                    raise RuntimeError("Local Ollama could not be reached or timed out.") from error
+                    raise RuntimeError(
+                        "Local Ollama could not be reached or timed out."
+                    ) from error
             except (requests.RequestException, ValueError) as error:
-                raise RuntimeError("Local Ollama returned an invalid response.") from error
+                raise RuntimeError(
+                    "Local Ollama returned an invalid response."
+                ) from error
             time.sleep(0.5 * (attempt + 1))
         raise RuntimeError("Local Ollama request failed.")
 
