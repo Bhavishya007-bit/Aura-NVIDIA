@@ -36,7 +36,7 @@ Install these before starting:
 
 A practical demo laptop should have about **16 GB RAM** and several GB of free
 disk space for models, dependencies and Docker. This is a planning estimate,
-not a measured minimum. A GPU is optional. CPU processing can take several
+not a measured minimum. CPU and NVIDIA CUDA embeddings are supported. CPU processing can take several
 minutes for a large presentation; use a short material for the first demo.
 
 The instructions below use **Windows PowerShell** from the repository root.
@@ -66,26 +66,97 @@ and `.env.local` with `VITE_API_BASE_URL=/api`. Existing configuration files are
 preserved. Real `.env` files are ignored by Git; the `.env.example` files contain
 placeholders only. Do not commit the generated credentials.
 
-## 3. Install dependencies and download the tutor model
+## 3. Install dependencies and choose CPU or GPU
+
+A GPU is optional. Both modes use **Qwen/Qwen3-Embedding-0.6B in FP32**.
+CPU mode supports laptops without a compatible NVIDIA GPU. It can take longer;
+this choice does not substitute a smaller embedding model. Floating-point
+results can differ slightly between devices.
+
+First update pip:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
+```
+
+### Option A: CPU — works without an NVIDIA GPU
+
+For a new virtual environment:
+
+```powershell
 .\.venv\Scripts\python.exe -m pip install "torch>=2.2,<3" --index-url https://download.pytorch.org/whl/cpu
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe scripts/configure_embeddings.py --device cpu
+```
+
+### Option B: NVIDIA GPU — CUDA
+
+Install a compatible NVIDIA driver. At the [official PyTorch installation
+selector](https://pytorch.org/get-started/locally/), choose Windows, Pip, Python,
+and a CUDA build compatible with your hardware and driver. Run its command
+using `.\.venv\Scripts\python.exe -m pip` in place of `pip3` or `pip`.
+Aura needs torch; torchvision and torchaudio are not required by this backend.
+Use a torch version satisfying `torch>=2.2,<3`.
+
+If replacing CPU-only PyTorch, stop the backend and reinstall torch from the
+chosen CUDA index with `--upgrade --force-reinstall`. Do not run the CPU
+installation command on an already working GPU environment.
+
+Then:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -c "import torch; print('PyTorch:', torch.__version__); print('CUDA build:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())"
+.\.venv\Scripts\python.exe scripts/configure_embeddings.py --device cuda
+```
+
+`CUDA available` must be `True`. Explicit `cuda` mode reports an error when
+CUDA is unavailable instead of silently choosing CPU.
+
+For a 4 GB GPU, start with batch size 1 before warming up the model:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from dotenv import set_key; set_key('backend/.env', 'AURA_EMBEDDING_BATCH_SIZE', '1')"
+```
+
+Batch size controls how many chunks are encoded together. It does not change
+the model or precision. Available VRAM also depends on other applications;
+full-precision Qwen may not fit on every GPU. If batch size 1 still fails with
+an out-of-memory error, choose CPU or use a GPU with more available memory.
+
+### Auto selection or interactive choice
+
+```powershell
+.\.venv\Scripts\python.exe scripts/configure_embeddings.py
+```
+
+The menu offers Auto, NVIDIA GPU (CUDA), and CPU. Alternatively:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/configure_embeddings.py --device auto
+```
+
+Auto selects CUDA when `torch.cuda.is_available()` is true; otherwise it uses
+CPU. It does not guarantee that the model fits in GPU memory. Restart the
+backend after changing the device. Existing database and authentication
+configuration is preserved. This choice controls embeddings; OCR remains on
+CPU and Ollama manages the tutor model separately.
+
+### Complete the shared setup
+
+```powershell
+.\.venv\Scripts\python.exe -m pip check
 npm ci
 ollama pull qwen2.5:3b
 ```
 
-The PyTorch command uses the [official CPU wheel index](https://pytorch.org/get-started/previous-versions/). For a GPU installation, use the official PyTorch selector instead. On macOS, install `torch` from PyPI without the CPU index flag.
+One root `requirements.txt` contains all backend dependencies. Install the
+selected PyTorch build first; installing requirements without `--upgrade`
+keeps a compatible installed build. On macOS install torch from PyPI and
+select CPU. On Linux use the matching PyTorch selector and `.venv/bin/python`.
 
-Keep Ollama running. The desktop application normally starts its service; if
-needed, run `ollama serve` in a separate terminal. If it reports the port is
-already occupied, the service may already be running.
-
-Install all backend dependencies using the single **`requirements.txt`**. It
-includes authentication, embedding, OCR and audio packages used by the active
-application. Qwen3 embeddings require Transformers 4.51 or later; the requirement
-file includes that constraint. Model: [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B).
+Keep Ollama running. If needed, run `ollama serve` in another terminal. If its
+port is already occupied, the service may already be running.
 
 ## 4. Start a fresh database — choose ONE option
 
@@ -135,13 +206,15 @@ judge account. They are manual maintenance tools, not setup requirements.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/check_local_setup.py
-.\.venv\Scripts\python.exe -c "from backend.ai.embeddings import EmbeddingModel; EmbeddingModel()"
+.\.venv\Scripts\python.exe -c "from backend.ai.embeddings import get_embedding_model; m=get_embedding_model(); v=m.embed_query('Test embeddings'); print('Device:', m.device); print('Dimensions:', v.shape[-1])"
 ```
 
 The check reports missing Python modules, schema columns or the Ollama model.
 Preloading embeddings downloads/caches the Qwen model before the demonstration.
 The first audio/video upload also downloads Whisper `base`. Subsequent runs use
-cached weights. This does not remove the CPU time required to encode a new file.
+cached weights. Expected dimensions: 1024. Device should match your selection. Warm-up verifies
+that the model can load and encode on the selected device. It does not measure
+full-document processing time.
 
 The database stores **1024-dimensional** vectors. Keep the supplied embedding
 model for this setup; switching to a model with a different dimension requires
@@ -209,12 +282,27 @@ LibreOffice installation paths; `LIBREOFFICE_PATH` can override it.
 
 ## Verify your installation
 
-Run `npm run build` and then run
-`.venv\Scripts\python.exe scripts/check_local_setup.py`.
+```powershell
+npm run build
+.\.venv\Scripts\python.exe scripts/check_local_setup.py
+```
 
-With the services running, check signup, login, a small material upload,
-a source-based tutor answer, study-tool generation, assessment submission
-and Progress. Confirm a second account cannot access the first account's materials.
+With services running, check signup, login, a small material upload, a cited
+tutor explanation, study-tool generation, assessment submission and Progress.
+Confirm a second account cannot access the first account's materials.
+
+## Material preparation
+
+The backend accepts uploads and prepares them in the background. The workspace
+shows preparation status and progress; wait for Ready before asking questions
+about a new material. Refreshing restores persisted job progress. Failed or
+interrupted jobs support retry. Keep the backend running during preparation.
+
+Qwen is reused within a backend process and text is encoded in batches.
+Chunks and embeddings use bulk database writes. Repeated images reuse OCR
+results, with bounded OCR workers for slide images. Background processing
+keeps the workspace usable but does not by itself reduce processing time.
+Measure extraction and indexing timings on your own laptop.
 
 ## Troubleshooting
 

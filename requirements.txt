@@ -1,24 +1,17 @@
 # Complete Aura backend — Python 3.12 recommended
+# Install your chosen CPU/CUDA PyTorch build first; see README.md.
+# This file supports both devices and preserves an installed compatible torch build.
 
-# API
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
-pydantic>=2,<3
 python-multipart>=0.0.9,<1
 httpx>=0.27,<3
-
-# Authentication
+pydantic>=2,<3
 email-validator>=2,<3
 PyJWT>=2.8,<3
 pwdlib[argon2]>=0.2,<1
-
-# Database and HTTP
 psycopg2-binary>=2.9,<3
-pgvector>=0.3,<1
 python-dotenv>=1,<2
-requests>=2.32,<3
-
-# Documents and OCR
 PyMuPDF>=1.24,<2.0
 python-pptx>=1.0,<2.0
 python-docx>=1.1,<2.0
@@ -26,12 +19,10 @@ rapidocr-onnxruntime==1.4.4
 onnxruntime>=1.18,<2
 numpy>=2,<2.8
 opencv-python>=4.8,<4.12
-
-# Embeddings
+pgvector>=0.3,<1
+requests>=2.32,<3
 sentence-transformers>=4,<6
 transformers>=4.51,<5
 torch>=2.2,<3
-
-# Audio and video
 faster-whisper==1.2.1
 av>=11,<19
