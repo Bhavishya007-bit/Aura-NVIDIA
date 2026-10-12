@@ -9,6 +9,10 @@ const sharedRoutes: Array<[string, RegExp]> = [
   ['GET', /^\/api\/auth\/me$/],
   ['GET', /^\/api\/courses$/],
   ['POST', /^\/api\/courses\/\d+\/sources$/],
+  ['POST', /^\/api\/courses\/\d+\/preparation-jobs$/],
+  ['GET', /^\/api\/preparation-jobs$/],
+  ['GET', /^\/api\/preparation-jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i],
+  ['POST', /^\/api\/preparation-jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/retry$/i],
   ['GET', /^\/api\/sources\/\d+$/],
   ['POST', /^\/api\/sources\/\d+\/generate-embeddings$/],
   ['POST', /^\/api\/chat$/],
@@ -44,6 +48,9 @@ const proxy = {
 export default defineConfig({
   plugins: [react(), { name: 'aura-temporary-share-filter', configureServer: restrictSharedApi, configurePreviewServer: restrictSharedApi }],
   optimizeDeps: { include: ['react', 'react-dom/client'] },
-  server: { proxy },
+  server: {
+    proxy,
+    watch: { ignored: ['**/.venv/**', '**/venv/**', '**/backend/uploads/**', '**/aura-update-backups/**'] },
+  },
   preview: { host: '127.0.0.1', port: 5173, strictPort: true, proxy },
 })
