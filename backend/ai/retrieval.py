@@ -34,27 +34,32 @@ class Retriever:
 
         self.chunks.extend(chunks)
 
+    
     def search(
         self,
         query: str,
         top_k: int = 3,
-        topic: str | None = None
+        topic: str | None = None,
+        source_id: int | None = None,
     ):
-
         if not self.chunks:
             return []
 
         query_embedding = self.embedding_model.embed_query(query)
-
         scores = self.embeddings @ query_embedding
 
         candidate_indices = []
 
         for index, chunk in enumerate(self.chunks):
+            if topic is not None and chunk.topic != topic:
+                continue
 
-            if topic is not None:
-                if chunk.topic != topic:
-                    continue
+            if source_id is not None and chunk.source_id != source_id:
+                continue
+
+            # Skip chunks that contain only a short title
+            if len(chunk.content.split()) < 5:
+                continue
 
             candidate_indices.append(index)
 
@@ -84,6 +89,7 @@ class Retriever:
             )
 
         return results
+
 
     def is_relevant(
         self,

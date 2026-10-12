@@ -13,10 +13,12 @@ from backend.ai.question_validator import QuestionValidator
 from backend.ai.question_grounding import QuestionGrounding
 from backend.ai.question_duplicate import QuestionDuplicateDetector
 from backend.ai.assessment_session import AssessmentSession
+from backend.ingestion.ingest import ingest_file
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
 import psycopg2
 from psycopg2.extras import Json
 import os
@@ -31,7 +33,13 @@ import shutil
 
 env_path = Path(__file__).parent / ".env"
 load_dotenv(env_path)
+from backend.auth_routes import router as auth_router
+from backend.study_tools import router as study_tools_router
+from backend.study_access import require_study_access
 app = FastAPI()
+app.include_router(auth_router)
+app.include_router(study_tools_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -54,13 +62,24 @@ class ChunkEmbeddingRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
+    source_id: int | None = None
     course_id: int | None = None
     topic_id: int | None = None
     concept_id: int | None = None
 
+
+class ConversationMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=12000)
+
+
 class ChatRequest(BaseModel):
     question: str
     top_k: int = 3
+    course_id: int | None = None
+    source_id: int | None = None
+    history: list[ConversationMessage] = Field(default_factory=list, max_length=8)
+
 
 class AdaptiveQuestionRequest(BaseModel):
     student_id: int
@@ -161,7 +180,7 @@ def get_assessment_components():
     }
 
 
-@app.post("/adaptive/question")
+@app.post("/adaptive/question", dependencies=[Depends(require_study_access)])
 def generate_adaptive_question(request: AdaptiveQuestionRequest):
     # 1. Retrieve the topic and verify the student exists.
     connection = get_connection()
@@ -518,22 +537,27 @@ def get_topics(course_id: int):
         "topics": topics
     }
 
+
+
+
 @app.post("/courses/{course_id}/sources")
 async def upload_course_source(
     course_id: int,
     file: UploadFile = File(...)
 ):
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
+    if not file.filename:
         raise HTTPException(
             status_code=400,
-            detail="Please upload a PDF file"
+            detail="Please select a file"
         )
+
+    filename = Path(file.filename).name
 
     connection = get_connection()
     cursor = connection.cursor()
-    saved_path = None
 
     try:
+        # 1. Confirm that the course exists.
         cursor.execute(
             "SELECT course_id FROM courses WHERE course_id = %s",
             (course_id,)
@@ -545,29 +569,46 @@ async def upload_course_source(
                 detail="Course not found"
             )
 
+        # 2. Read and ingest the uploaded file.
+        file_data = await file.read()
+
+        from backend.ingestion.utils import get_file_type
+
+        print("Uploaded filename:", repr(file.filename))
+        print("Normalized filename:", repr(filename))
+        print("Detected file type:", get_file_type(filename))
+
+        result = ingest_file(
+            file=file_data,
+            filename=filename,
+        )
+
+        if result["status"] == "unsupported":
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported file type"
+            )
+
+        if result["status"] == "error":
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "File ingestion failed",
+                    "warnings": result["warnings"],
+                }
+            )
+
+        source_type = result["source"]["file_type"]
+        content_units = result["content_units"]
+
+        # 3. Save the original uploaded file.
         upload_dir = Path(__file__).parent / "uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
 
-        saved_path = upload_dir / file.filename
+        saved_path = upload_dir / filename
+        saved_path.write_bytes(file_data)
 
-        with saved_path.open("wb") as output_file:
-            shutil.copyfileobj(file.file, output_file)
-
-        with pymupdf.open(str(saved_path)) as pdf:
-            page_count = len(pdf)
-            extracted_pages: list[str] = []
-
-            for page in pdf:
-                page_text = str(page.get_text("text"))
-                extracted_pages.append(page_text)
-
-            extracted_text: str = "\n".join(extracted_pages).strip()
-
-        if not extracted_text:
-            status = "empty"
-        else:
-            status = "success"
-
+        # 4. Create the source record.
         cursor.execute(
             """
             INSERT INTO sources (
@@ -582,10 +623,10 @@ async def upload_course_source(
             """,
             (
                 course_id,
-                file.filename,
-                "pdf",
+                filename,
+                source_type,
                 str(saved_path),
-                status
+                result["status"],
             )
         )
 
@@ -598,18 +639,96 @@ async def upload_course_source(
             )
 
         source_id = row[0]
-        connection.commit()
 
+        # 5. Split content units into overlapping chunks.
+        chunk_size = 1000
+        overlap = 150
+        chunks_to_insert = []
+
+        for unit in content_units:
+            text = unit["text"].strip()
+
+            if not text:
+                continue
+
+            source_location = unit.get("source_location", {})
+            start = 0
+
+            while start < len(text):
+                end = start + chunk_size
+                chunk_content = text[start:end].strip()
+
+                if chunk_content:
+                    metadata = {
+                        "source_name": filename,
+                        "file_type": source_type,
+                        "unit_id": unit["unit_id"],
+                        "source_location": source_location,
+                        "extraction_status": unit.get(
+                            "extraction_status",
+                            "extracted"
+                        ),
+                    }
+
+                    chunks_to_insert.append((
+                        source_id,
+                        chunk_content,
+                        source_location.get("page_number"),
+                        source_location.get("slide_number"),
+                        source_location.get("start_seconds"),
+                        source_location.get("end_seconds"),
+                        Json(metadata),
+                    ))
+
+                if end >= len(text):
+                    break
+
+                start = end - overlap
+
+        # 6. Insert all chunks once, without embeddings.
+        for chunk in chunks_to_insert:
+            cursor.execute(
+                """
+                INSERT INTO chunks (
+                    source_id,
+                    content,
+                    page_number,
+                    slide_number,
+                    timestamp_seconds,
+                    timestamp_end,
+                    metadata,
+                    embedding
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    chunk[0],  # source_id
+                    chunk[1],  # content
+                    chunk[2],  # page_number
+                    chunk[3],  # slide_number
+                    chunk[4],  # timestamp_seconds
+                    chunk[5],  # timestamp_end
+                    chunk[6],  # metadata
+                    None,      # embedding generated separately
+                )
+            )
+
+        # 7. Commit the database transaction.
+        connection.commit()
 
         return {
             "source_id": source_id,
             "course_id": course_id,
-            "source_name": file.filename,
-            "source_type": "pdf",
-            "status": status,
-            "page_count": page_count,
-            "extracted_characters": len(extracted_text),
-            "message": "PDF uploaded and text extraction completed"
+            "source_name": filename,
+            "source_type": source_type,
+            "status": result["status"],
+            "content_units": len(content_units),
+            "chunks_created": len(chunks_to_insert),
+            "warnings": result.get("warnings", []),
+            "message": (
+                "File ingested and chunks stored. "
+                "Generate embeddings before semantic search."
+            ),
         }
 
     except HTTPException:
@@ -618,16 +737,18 @@ async def upload_course_source(
 
     except Exception as exc:
         connection.rollback()
-        print("PDF UPLOAD ERROR:", repr(exc))
+        print("SOURCE UPLOAD ERROR:", repr(exc))
+
         raise HTTPException(
             status_code=500,
-            detail=f"PDF upload failed: {str(exc)}"
+            detail=f"Source upload failed: {str(exc)}"
         )
 
     finally:
         cursor.close()
         connection.close()
         await file.close()
+
 
 @app.get("/sources/{course_id}")
 def get_sources(course_id: int):
@@ -729,6 +850,7 @@ def get_chunks(source_id: int):
     finally:
         cursor.close()
         connection.close()
+        
 @app.post("/search")
 def search_chunks(request: SearchRequest):
 
@@ -750,8 +872,14 @@ def search_chunks(request: SearchRequest):
         results = retriever.search(
             query=request.query,
             top_k=request.top_k,
-            topic=None
+            topic=None,
         )
+
+        if request.source_id is not None:
+            results = [
+                result for result in results
+                if result.chunk.source_id == request.source_id
+            ]
 
         response_results = []
 
@@ -805,7 +933,10 @@ def chat(request: ChatRequest):
 
         result = rag.answer(
             question=request.question,
-            top_k=request.top_k
+            top_k=request.top_k,
+            course_id=request.course_id,
+            source_id=request.source_id,
+            history=[{"role": message.role, "content": message.content} for message in request.history],
         )
 
         return result
@@ -821,7 +952,7 @@ def chat(request: ChatRequest):
         )
 
     
-@app.get("/students/{student_id}/mastery")
+@app.get("/students/{student_id}/mastery", dependencies=[Depends(require_study_access)])
 def get_student_mastery(student_id: int, course_id: int | None = None):
 
     connection = get_connection()
@@ -919,7 +1050,7 @@ def get_student_mastery(student_id: int, course_id: int | None = None):
         connection.close()
 
 
-@app.post("/students/{student_id}/mastery/{topic_id}")
+@app.post("/students/{student_id}/mastery/{topic_id}", dependencies=[Depends(require_study_access)])
 def update_topic_mastery(
     student_id: int,
     topic_id: int,
@@ -1018,7 +1149,7 @@ class QuizAttemptRequest(BaseModel):
     score: int | None = None
 
 
-@app.post("/quiz/attempt")
+@app.post("/quiz/attempt", dependencies=[Depends(require_study_access)])
 def store_quiz_attempt(request: QuizAttemptRequest):
 
     connection = get_connection()
@@ -1106,7 +1237,7 @@ def store_quiz_attempt(request: QuizAttemptRequest):
     finally:
         cursor.close()
         connection.close()
-@app.post("/quiz/attempt/{attempt_id}/complete")
+@app.post("/quiz/attempt/{attempt_id}/complete", dependencies=[Depends(require_study_access)])
 
 
 def complete_quiz_attempt(attempt_id: int):
@@ -1226,7 +1357,7 @@ class QuizAnswerRequest(BaseModel):
     student_answer: str
 
 
-@app.post("/quiz/answer")
+@app.post("/quiz/answer", dependencies=[Depends(require_study_access)])
 def store_quiz_answer(request: QuizAnswerRequest):
 
     connection = get_connection()
@@ -1426,7 +1557,7 @@ def store_quiz_answer(request: QuizAnswerRequest):
         cursor.close()
         connection.close()
 
-@app.post("/quiz/attempt/{attempt_id}/update-mastery")
+@app.post("/quiz/attempt/{attempt_id}/update-mastery", dependencies=[Depends(require_study_access)])
 def update_mastery(attempt_id: int):
 
     connection = get_connection()
@@ -1585,7 +1716,7 @@ def update_mastery(attempt_id: int):
     finally:
         cursor.close()
         connection.close()
-@app.get("/students/{student_id}/weak-topics")
+@app.get("/students/{student_id}/weak-topics", dependencies=[Depends(require_study_access)])
 def get_weak_topics(
     student_id: int,
     threshold: float = 0.5
@@ -2066,7 +2197,115 @@ def update_chunk_embedding(
     finally:
         cursor.close()
         connection.close()
-@app.post("/questions")
+
+
+@app.post("/sources/{source_id}/generate-embeddings")
+def generate_source_embeddings(source_id: int):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+        # Verify that the source exists.
+        cursor.execute(
+            "SELECT source_id FROM sources WHERE source_id = %s",
+            (source_id,)
+        )
+
+        if cursor.fetchone() is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Source not found"
+            )
+
+        # Fetch chunks that do not have embeddings yet.
+        cursor.execute(
+            """
+            SELECT chunk_id, content
+            FROM chunks
+            WHERE source_id = %s
+              AND embedding IS NULL
+            ORDER BY chunk_id
+            """,
+            (source_id,)
+        )
+
+        rows = cursor.fetchall()
+
+        if not rows:
+            connection.commit()
+            return {
+                "status": "completed",
+                "source_id": source_id,
+                "embedded_count": 0,
+                "message": "No chunks need embeddings"
+            }
+
+        # Reuse Aura's existing Qwen3 embedding model.
+        embedding_model = get_retriever().embedding_model
+
+        batch_size = 16
+        embedded_count = 0
+
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start:start + batch_size]
+
+            chunk_ids = [row[0] for row in batch]
+            texts = [row[1] for row in batch]
+
+            vectors = embedding_model.embed_documents(texts)
+
+            if len(vectors) != len(batch):
+                raise ValueError(
+                    "Embedding count does not match chunk count"
+                )
+
+            for chunk_id, vector in zip(chunk_ids, vectors):
+                vector_list = vector.tolist()
+
+                if len(vector_list) != 1024:
+                    raise ValueError(
+                        f"Chunk {chunk_id} produced "
+                        f"{len(vector_list)} dimensions; expected 1024"
+                    )
+
+                cursor.execute(
+                    """
+                    UPDATE chunks
+                    SET embedding = %s
+                    WHERE chunk_id = %s
+                      AND embedding IS NULL
+                    """,
+                    (Vector(vector_list), chunk_id)
+                )
+
+                embedded_count += cursor.rowcount
+
+        connection.commit()
+
+        return {
+            "status": "completed",
+            "source_id": source_id,
+            "embedded_count": embedded_count,
+            "message": "Chunk embeddings generated and stored"
+        }
+
+    except HTTPException:
+        connection.rollback()
+        raise
+
+    except Exception as exc:
+        connection.rollback()
+        print("EMBEDDING ERROR:", repr(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Embedding generation failed: {str(exc)}"
+        )
+
+    finally:
+        cursor.close()
+        connection.close()
+
+@app.post("/questions", dependencies=[Depends(require_study_access)])
 def create_question(request: QuestionRequest):
 
     # Validate difficulty
@@ -2222,7 +2461,7 @@ def create_question(request: QuestionRequest):
     finally:
         cursor.close()
         connection.close()
-@app.get("/questions")
+@app.get("/questions", dependencies=[Depends(require_study_access)])
 def get_questions(
     topic_id: int | None = None,
     concept_id: int | None = None,
@@ -2336,7 +2575,7 @@ def get_questions(
     finally:
         cursor.close()
         connection.close()
-@app.get("/students/{student_id}/question-history")
+@app.get("/students/{student_id}/question-history", dependencies=[Depends(require_study_access)])
 def get_question_history(student_id: int):
 
     connection = get_connection()
@@ -2557,7 +2796,7 @@ def get_concepts():
         }
         for row in concepts
     ]
-@app.get("/students/{student_id}/concept-mastery")
+@app.get("/students/{student_id}/concept-mastery", dependencies=[Depends(require_study_access)])
 def get_concept_mastery(student_id: int):
 
     connection = get_connection()
@@ -2620,7 +2859,8 @@ def get_concept_mastery(student_id: int):
     finally:
         cursor.close()
         connection.close()
-@app.put("/students/{student_id}/concept-mastery")
+
+@app.put("/students/{student_id}/concept-mastery", dependencies=[Depends(require_study_access)])
 def update_concept_mastery(
     student_id: int,
     request: ConceptMasteryRequest
@@ -2747,7 +2987,7 @@ def update_concept_mastery(
     finally:
         cursor.close()
         connection.close()
-@app.post("/students/{student_id}/concept-mastery/history")
+@app.post("/students/{student_id}/concept-mastery/history", dependencies=[Depends(require_study_access)])
 def record_mastery_history(
     student_id: int,
     request: ConceptMasteryRequest
@@ -2794,7 +3034,7 @@ def record_mastery_history(
         "mastery_score": history[3],
         "recorded_at": history[4]
     }
-@app.get("/students/{student_id}/concept-mastery/history")
+@app.get("/students/{student_id}/concept-mastery/history", dependencies=[Depends(require_study_access)])
 def get_concept_mastery_history(student_id: int):
 
     connection = get_connection()
@@ -2861,7 +3101,7 @@ def get_concept_mastery_history(student_id: int):
     finally:
         cursor.close()
         connection.close()
-@app.post("/chat/sessions")
+@app.post("/chat/sessions", dependencies=[Depends(require_study_access)])
 def create_chat_session(request: ChatSessionRequest):
 
     connection = get_connection()
@@ -2944,7 +3184,7 @@ def create_chat_session(request: ChatSessionRequest):
     finally:
         cursor.close()
         connection.close()
-@app.post("/chat/messages")
+@app.post("/chat/messages", dependencies=[Depends(require_study_access)])
 def create_chat_message(request: ChatMessageRequest):
 
     connection = get_connection()
@@ -3042,7 +3282,7 @@ def create_chat_message(request: ChatMessageRequest):
     finally:
         cursor.close()
         connection.close()
-@app.get("/chat/sessions/{session_id}/messages")
+@app.get("/chat/sessions/{session_id}/messages", dependencies=[Depends(require_study_access)])
 def get_chat_messages(session_id: int):
 
     connection = get_connection()
@@ -3109,7 +3349,7 @@ def get_chat_messages(session_id: int):
     finally:
         cursor.close()
         connection.close()
-@app.post("/learner-events")
+@app.post("/learner-events", dependencies=[Depends(require_study_access)])
 def create_learner_event(request: LearnerEventRequest):
 
     connection = get_connection()
@@ -3226,7 +3466,7 @@ def create_learner_event(request: LearnerEventRequest):
     finally:
         cursor.close()
         connection.close()
-@app.get("/students/{student_id}/learner-events")
+@app.get("/students/{student_id}/learner-events", dependencies=[Depends(require_study_access)])
 def get_learner_events(
     student_id: int,
     concept_id: int | None = None,

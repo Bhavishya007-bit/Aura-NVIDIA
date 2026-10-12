@@ -6,43 +6,39 @@ export class ApiUnavailableError extends Error {
     this.name = 'ApiUnavailableError'
   }
 }
-
 export class ApiHttpError extends Error {
   constructor(public readonly status: number, message: string) {
     super(message)
     this.name = 'ApiHttpError'
   }
 }
-
 export class ApiResponseError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'ApiResponseError'
   }
 }
-
-type ApiRequestOptions = Omit<RequestInit, 'headers'> & {
-  headers?: HeadersInit
-}
+type ApiRequestOptions = Omit<RequestInit, 'headers'> & { headers?: HeadersInit }
 type AuthTokenProvider = () => string | null | Promise<string | null>
-
 let authTokenProvider: AuthTokenProvider = () => null
+let unauthorizedHandler: (token: string) => void = () => {}
+export function setApiUnauthorizedHandler(handler: (token: string) => void): void {
+  unauthorizedHandler = handler
+}
 
 /** The host application supplies its auth token; credentials remain centralized here. */
 export function setApiAuthTokenProvider(provider: AuthTokenProvider): void {
   authTokenProvider = provider
 }
-
 export async function requestApi<T>(
   path: string,
   options: ApiRequestOptions,
   decode: (value: unknown) => T,
 ): Promise<T> {
-  const url = `${API_BASE_URL}/${path.replace(/^\/+/, '')}`
+  const url = `${API_BASE_URL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
   const headers = new Headers(options.headers)
   const token = await authTokenProvider()
   if (token) headers.set('Authorization', `Bearer ${token}`)
-
   let response: Response
   try {
     response = await fetch(url, { ...options, headers })
@@ -50,12 +46,12 @@ export async function requestApi<T>(
     if (error instanceof DOMException && error.name === 'AbortError') throw error
     throw new ApiUnavailableError(`Could not reach the Aura API at ${API_BASE_URL}.`)
   }
-
   if (!response.ok) {
-    const message = await readErrorMessage(response)
-    throw new ApiHttpError(response.status, message)
+    if (response.status === 401 && token && !/^\/?auth\/(login|register)$/.test(path)) {
+      unauthorizedHandler(token)
+    }
+    throw new ApiHttpError(response.status, await readErrorMessage(response))
   }
-
   let body: unknown
   try {
     body = await response.json()
@@ -64,14 +60,12 @@ export async function requestApi<T>(
   }
   return decode(body)
 }
-
 export function requireRecord(value: unknown, resource: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new ApiResponseError(`The Aura API returned an invalid ${resource} response.`)
   }
   return value as Record<string, unknown>
 }
-
 async function readErrorMessage(response: Response): Promise<string> {
   let body: unknown
   try {
@@ -83,7 +77,7 @@ async function readErrorMessage(response: Response): Promise<string> {
   const detail = (body as Record<string, unknown>).detail
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail)) {
-    const messages = detail.flatMap((item) => {
+    const messages = detail.flatMap(item => {
       if (typeof item !== 'object' || item === null) return []
       const message = (item as Record<string, unknown>).msg
       return typeof message === 'string' ? [message] : []

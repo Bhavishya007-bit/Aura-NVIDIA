@@ -1,3 +1,4 @@
+
 import hashlib
 from pathlib import Path
 
@@ -7,9 +8,19 @@ MAX_FILE_SIZE = 100 * 1024 * 1024
 
 SUPPORTED_EXTENSIONS = {
     ".pdf",
+    ".ppt",
     ".pptx",
     ".docx",
     ".mp4",
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".ogg",
+    ".flac",
+    ".aac",
+    ".webm",
+    ".mpeg",
+    ".mpga",
 }
 
 
@@ -24,21 +35,30 @@ def normalize_filename(filename: str) -> str:
     return Path(filename).name
 
 
-def get_file_type(filename: str) -> str | None:
-    """
-    Determine the supported file type from the filename.
-    """
 
+def get_file_type(filename: str) -> str | None:
     extension = Path(filename).suffix.lower()
 
     mapping = {
         ".pdf": "pdf",
+        # Converted by ingest_pptx; use the existing presentation source type.
+        ".ppt": "pptx",
         ".pptx": "pptx",
         ".docx": "docx",
         ".mp4": "mp4",
+        ".mp3": "audio",
+        ".wav": "audio",
+        ".m4a": "audio",
+        ".ogg": "audio",
+        ".flac": "audio",
+        ".aac": "audio",
+        ".webm": "webm",
+        ".mpeg": "audio",
+        ".mpga": "audio",
     }
 
     return mapping.get(extension)
+
 
 
 def validate_file_size(data: bytes) -> None:
@@ -47,7 +67,6 @@ def validate_file_size(data: bytes) -> None:
     """
 
     if len(data) > MAX_FILE_SIZE:
-
         raise ValueError(
             "File exceeds the maximum allowed size of 100 MiB."
         )
@@ -56,7 +75,7 @@ def validate_file_size(data: bytes) -> None:
 def generate_unit_id(
     filename: str,
     location_key: str,
-    location_value: str
+    location_value: str,
 ) -> str:
     """
     Generate a deterministic content-unit ID.
@@ -79,6 +98,10 @@ def generate_unit_id(
 
 
 def has_pdf_signature(data: bytes) -> bool:
+    """
+    Check for the PDF file signature.
+    """
+
     return data.startswith(b"%PDF-")
 
 
@@ -100,7 +123,8 @@ def has_mp4_signature(data: bytes) -> bool:
     """
     Basic MP4 container check.
 
-    MP4 files normally contain 'ftyp' at byte offset 4.
+    MP4 files normally contain 'ftyp'
+    at byte offset 4.
     """
 
     return (

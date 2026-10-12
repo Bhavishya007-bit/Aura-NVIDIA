@@ -1,112 +1,42 @@
-import io
-
 import pymupdf
-
-from .utils import (
-    generate_unit_id,
-    has_pdf_signature,
-)
+from .ocr import extract_image_text
+from .utils import generate_unit_id, has_pdf_signature
 
 
-def ingest_pdf(
-    data: bytes,
-    filename: str
-) -> tuple[list[dict], list[str]]:
-
-    warnings: list[str] = []
-    content_units: list[dict] = []
-
+def ingest_pdf(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
     if not has_pdf_signature(data):
-
-        return [], [
-            "File does not have a valid PDF signature."
-        ]
-
+        return [], ['File does not have a valid PDF signature.']
     try:
-
-        document = pymupdf.open(
-            stream=io.BytesIO(data),
-            filetype="pdf"
-        )
-
+        document = pymupdf.open(stream=data, filetype='pdf')
     except Exception as error:
-
-        return [], [
-            f"Failed to open PDF: {error}"
-        ]
-
+        return [], [f'Failed to open PDF: {error}']
+    units, warnings = [], []
     try:
-
-        for page_index in range(len(document)):
-
-            page_number = page_index + 1
-
+        for index, page in enumerate(document):
+            number = index + 1
+            source = {'filename': filename, 'file_type': 'pdf'}
+            before = len(units)
             try:
-
-                page = document.load_page(
-                    page_index
-                )
-
-                raw_text = page.get_text(
-                    "text"
-                )
-
-                if isinstance(raw_text, str):
-
-                    text = raw_text.strip()
-
-                else:
-
-                    text = str(raw_text).strip()
-
+                text = page.get_text('text').strip()
+                if text:
+                    units.append({'unit_id': generate_unit_id(filename, 'page', str(number)),
+                                  'source': source, 'text': text,
+                                  'source_location': {'kind': 'page', 'page_number': number},
+                                  'extraction_status': 'extracted', 'warnings': []})
+                if not text or page.get_images() or page.get_drawings():
+                    image = page.get_pixmap(dpi=150, alpha=False).tobytes('png')
+                    ocr_text, metadata, ocr_warnings = extract_image_text(image)
+                    warnings.extend(f'Page {number}: {warning}' for warning in ocr_warnings)
+                    if ocr_text:
+                        units.append({'unit_id': generate_unit_id(filename, 'page_ocr', str(number)),
+                                      'source': source,
+                                      'text': f'Page {number} recognized text (OCR; diagram relationships are not inferred):\n{ocr_text}',
+                                      'source_location': {'kind': 'page', 'page_number': number, **metadata},
+                                      'extraction_status': 'ocr', 'warnings': ocr_warnings})
             except Exception as error:
-
-                warnings.append(
-                    f"Failed to extract page "
-                    f"{page_number}: {error}"
-                )
-
-                continue
-
-            if not text:
-
-                warnings.append(
-                    f"Page {page_number} "
-                    f"contains no extractable text."
-                )
-
-                continue
-
-            unit_id = generate_unit_id(
-                filename,
-                "page",
-                str(page_number)
-            )
-
-            content_units.append(
-                {
-                    "unit_id": unit_id,
-
-                    "source": {
-                        "filename": filename,
-                        "file_type": "pdf",
-                    },
-
-                    "text": text,
-
-                    "source_location": {
-                        "kind": "page",
-                        "page_number": page_number,
-                    },
-
-                    "extraction_status": "extracted",
-
-                    "warnings": [],
-                }
-            )
-
+                warnings.append(f'Page {number}: extraction failed ({type(error).__name__}).')
+            if len(units) == before:
+                warnings.append(f'Page {number} contains no recognized text.')
     finally:
-
         document.close()
-
-    return content_units, warnings
+    return units, list(dict.fromkeys(warnings))

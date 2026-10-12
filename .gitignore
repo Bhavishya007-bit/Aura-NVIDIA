@@ -40,3 +40,13 @@ Thumbs.db
 *.pem
 *.key
 .vercel
+
+.venv/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+backend/uploads/

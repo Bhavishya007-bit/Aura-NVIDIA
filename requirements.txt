@@ -1,14 +1,23 @@
-pydantic
-sentence-transformers>=2.7.0
-transformers>=4.51.0
-openai
 
+# FastAPI backend
 fastapi
-uvicorn
-psycopg2-binary
-python-dotenv
-pgvector
+uvicorn[standard]
+pydantic
+python-multipart
 
+# Database and vector search
+psycopg2-binary
+pgvector
+python-dotenv
+
+# Document ingestion
 PyMuPDF
-python-pptx
 python-docx
+python-pptx
+
+# Embeddings
+sentence-transformers
+
+# Audio transcription
+faster-whisper==1.2.1
+av>=11,<19

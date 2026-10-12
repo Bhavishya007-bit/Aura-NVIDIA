@@ -4,12 +4,9 @@ import { askTutor, resolveCourseId } from '../services/studyApi'
 import { ApiHttpError, ApiUnavailableError } from '../services/apiClient'
 import type { ChatMessage, SourceLocation, StudyMaterial } from '../types/study'
 import './StudyDesk.css'
-
 type Page = 'Dashboard' | 'My Courses' | 'Upload Materials' | 'AI Tutor' | 'Quizzes' | 'Progress'
 type DeskTab = 'AI Tutor' | 'Original Notes' | 'AI Notes' | 'Flashcards' | 'AI Quizzes'
-
 const tabs: DeskTab[] = ['AI Tutor', 'Original Notes', 'AI Notes', 'Flashcards', 'AI Quizzes']
-
 function formatLocation(location: SourceLocation): string {
   if (location.kind === 'pdf_page' && location.page !== undefined) return `Page ${location.page}`
   if (location.kind === 'slide' && location.slide !== undefined) return `Slide ${location.slide}`
@@ -20,14 +17,12 @@ function formatLocation(location: SourceLocation): string {
   }
   return 'Source location unavailable'
 }
-
 function materialTypeLabel(material: StudyMaterial): string {
   if (material.type === 'pdf') return 'PDF'
   if (material.type === 'slides') return 'SLIDES'
   if (material.type === 'video') return 'VIDEO'
   return 'DOCUMENT'
 }
-
 export default function StudyDesk({
   course,
   courses,
@@ -57,7 +52,6 @@ export default function StudyDesk({
   const topic = workspace.topics.find((item) => item.id === activePath?.topicId)
   const concept = workspace.concepts.find((item) => item.id === activePath?.conceptId)
   const firstName = studentName.trim().split(/\s+/)[0]
-
   async function sendQuestion(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const text = question.trim()
@@ -74,7 +68,11 @@ export default function StudyDesk({
     setChatError('')
     setSending(true)
     try {
-      const response = await askTutor({ courseId: resolveCourseId(course), materialId: material?.id, question: text })
+      const response = await askTutor({
+        courseId: resolveCourseId(course),
+        materialId: material?.status !== 'demo' ? material?.sourceId : undefined,
+        question: text,
+      })
       setMessages((current) => [...current, response.message])
       setExtraCitations((current) => [...current, ...response.citations])
     } catch (error) {
@@ -89,9 +87,7 @@ export default function StudyDesk({
       setSending(false)
     }
   }
-
   const activeCitation = material && workspace.citations.find((citation) => citation.materialId === material.id)
-
   return (
     <div className="study-desk">
       <header className="desk-heading">
@@ -102,7 +98,6 @@ export default function StudyDesk({
         </div>
         <button type="button" className="desk-upload-link" onClick={() => setPage('Upload Materials')}>＋ Add material</button>
       </header>
-
       <div className="desk-selectors">
         <label>
           <span>COURSE</span>
@@ -127,7 +122,6 @@ export default function StudyDesk({
         </label>
         <span className="desk-data-state">{material ? 'Example material · not an uploaded file' : 'No materials connected for this course'}</span>
       </div>
-
       <div className="desk-tabs" role="tablist" aria-label="Study material views">
         {tabs.map((tab) => (
           <button
@@ -142,7 +136,6 @@ export default function StudyDesk({
           </button>
         ))}
       </div>
-
       <div className="desk-workspace single-panel">
         {activeTab === 'Original Notes' && (
           <section className="desk-main-panel desk-resource-panel" aria-label="Original notes workspace">
@@ -153,7 +146,6 @@ export default function StudyDesk({
               </div>
               {material && <span className="material-kind">{materialTypeLabel(material)}</span>}
             </div>
-
             {material ? (
               <>
                 <div className="document-toolbar">
@@ -186,7 +178,6 @@ export default function StudyDesk({
             )}
           </section>
         )}
-
         {activeTab === 'AI Notes' && (
           <section className="desk-main-panel desk-resource-panel" aria-label="AI notes workspace">
             <div className="desk-panel-header">
@@ -196,7 +187,6 @@ export default function StudyDesk({
               </div>
               <span className="material-kind">AI</span>
             </div>
-
             <div className="desk-note-stack">
               <article className="desk-note-card">
                 <h3>Key ideas</h3>
@@ -220,7 +210,6 @@ export default function StudyDesk({
             </div>
           </section>
         )}
-
         {activeTab === 'Flashcards' && (
           <section className="desk-main-panel desk-resource-panel" aria-label="Flashcards workspace">
             <div className="desk-panel-header">
@@ -230,7 +219,6 @@ export default function StudyDesk({
               </div>
               <span className="material-kind">3 CARDS</span>
             </div>
-
             <div className="desk-flashcard-grid">
               {[
                 { front: 'What is ATP?', back: 'It is a short-term energy carrier used to power cellular work.' },
@@ -247,7 +235,6 @@ export default function StudyDesk({
             </div>
           </section>
         )}
-
         {activeTab === 'AI Quizzes' && (
           <section className="desk-main-panel desk-resource-panel" aria-label="AI quizzes workspace">
             <div className="desk-panel-header">
@@ -257,7 +244,6 @@ export default function StudyDesk({
               </div>
               <span className="material-kind">2 Qs</span>
             </div>
-
             <div className="desk-quiz-list">
               <article className="desk-quiz-card">
                 <h3>1. Which molecule acts as the cell’s short-term energy currency?</h3>
@@ -280,7 +266,6 @@ export default function StudyDesk({
             </div>
           </section>
         )}
-
         {activeTab === 'AI Tutor' && (
           <section className="desk-main-panel desk-chat-panel" aria-label="AI Tutor workspace">
             <div className="desk-chat-header">
@@ -290,7 +275,6 @@ export default function StudyDesk({
                 <p>Your personal study companion.</p>
               </div>
             </div>
-
             <div className="desk-chat-messages" aria-live="polite">
               <div className="desk-chat-date">TODAY</div>
               <div className="desk-message tutor">
@@ -300,7 +284,6 @@ export default function StudyDesk({
                   {activeCitation && <span className="desk-citation-chip">↗ {formatLocation(activeCitation.location)} · source</span>}
                 </div>
               </div>
-
               <div className="desk-message tutor">
                 <span className="desk-message-avatar">✦</span>
                 <div className="desk-message-body">
@@ -308,7 +291,6 @@ export default function StudyDesk({
                   <span className="desk-citation-chip">Key takeaway · ATP fuels cellular work</span>
                 </div>
               </div>
-
               {messages.map((message) => (
                 <div className={`desk-message ${message.role}`} key={message.id}>
                   {message.role === 'tutor' && <span className="desk-message-avatar">✦</span>}
@@ -324,7 +306,6 @@ export default function StudyDesk({
                   </div>
                 </div>
               ))}
-
               {messages.length === 0 && (
                 <div className="desk-message student">
                   <div className="desk-message-body">
@@ -333,15 +314,12 @@ export default function StudyDesk({
                 </div>
               )}
             </div>
-
             <div className="desk-suggestions">
               {['Explain this simply', 'Give me key takeaways', 'Quiz me on this', 'What should I study next?'].map((prompt) => (
                 <button type="button" key={prompt} onClick={() => setQuestion(prompt)}>{prompt}</button>
               ))}
             </div>
-
             {chatError && <div className="desk-api-error" role="alert">{chatError}</div>}
-
             <form className="desk-composer" onSubmit={sendQuestion}>
               <label className="visually-hidden" htmlFor="study-desk-question">Ask a question about your materials</label>
               <textarea
