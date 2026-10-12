@@ -1,0 +1,172 @@
+/* Sage and ivory palette used by the dashboard reference. Existing type scales stay intact. */
+.app-shell[data-palette="current"] {
+  --ink: #29352f;
+  --muted: #61766a;
+  --green: #365c4b;
+  --green-dark: #244638;
+  --green-light: #dce5d1;
+  --line: #d8dfd2;
+  --paper: #fff;
+  --cream: #f7f6ec;
+  --gold: #d2b16f;
+  color: var(--ink);
+  background: #f7f6ec;
+}
+.app-shell[data-palette="current"] .main-area,
+.app-shell[data-palette="current"] .topbar { background:#f7f6ec; }
+.app-shell[data-palette="current"] .sidebar { background:#294b3d; border-color:#456555; }
+.app-shell[data-palette="current"] .brand,
+.app-shell[data-palette="current"] .nav-item,
+.app-shell[data-palette="current"] .sidebar-label,
+.app-shell[data-palette="current"] .sidebar-user strong,
+.app-shell[data-palette="current"] .streak-card strong { color:#f5f4e9; }
+.app-shell[data-palette="current"] .sidebar-label,
+.app-shell[data-palette="current"] .sidebar-user small,
+.app-shell[data-palette="current"] .streak-card small,
+.app-shell[data-palette="current"] .demo-note { color:#c3d0c2; }
+.app-shell[data-palette="current"] .nav-item:hover,
+.app-shell[data-palette="current"] .nav-item.active { background:#3b614f; color:#fff; }
+.app-shell[data-palette="current"] .streak-card { background:#315442; border-color:#55705e; }
+.app-shell[data-palette="current"] .sidebar-user { border-color:#54705d; }
+.app-shell[data-palette="current"] .brand-mark { color:#244638; background:#dce5d1; }
+.app-shell[data-palette="current"] .topbar { border-color:#d8dfd2; }
+.app-shell[data-palette="current"] .course-swatch,
+.app-shell[data-palette="current"] .pulse,
+.app-shell[data-palette="current"] .bar-today,
+.app-shell[data-palette="current"] .large-bar-col .bar-today,
+.app-shell[data-palette="current"] .tiny-progress span,
+.app-shell[data-palette="current"] .milestone-track span,
+.app-shell[data-palette="current"] .progress-line span { background:#365c4b; }
+.app-shell[data-palette="current"] .week-pill { background:#eff1e6; border-color:#d8dfd2; }
+.app-shell[data-palette="current"] .week-pill strong { color:#244638; }
+.app-shell[data-palette="current"] .wave,.app-shell[data-palette="current"] .streak-icon { color:#d2b16f; }
+.app-shell[data-palette="current"] .text-button,.app-shell[data-palette="current"] .add-course-button { color:#365c4b; }
+.app-shell[data-palette="current"] .nav-new { color:#244638; background:#dce5d1; }
+.app-shell[data-palette="current"] .topbar-search { min-width:180px; width:min(100%,480px); height:40px; display:flex; align-items:center; gap:10px; margin-right:auto; padding:0 12px; border:1px solid #d8dfd2; border-radius:8px; background:#f8f7ef; color:#365c4b; }
+.app-shell[data-palette="current"] .topbar-search>span { font-size:22px; line-height:1; }
+.app-shell[data-palette="current"] .topbar-search input { min-width:0; width:100%; border:0; outline:0; background:transparent; color:#29352f; font-size:13px; }
+.app-shell[data-palette="current"] .topbar-search input::placeholder { color:#667b70; opacity:1; }
+.app-shell[data-palette="current"] .topbar-date { color:#526c5f; white-space:nowrap; font-size:12px; }
+@media(max-width:760px) {
+  .app-shell[data-palette="current"] .topbar { gap:7px; }
+  .app-shell[data-palette="current"] .topbar-search { min-width:0; flex:1; height:38px; padding:0 8px; }
+  .app-shell[data-palette="current"] .topbar-search input { font-size:12px; }
+  .app-shell[data-palette="current"] .topbar-date { display:none; }
+}
+@media(max-width:390px) {
+  .app-shell[data-palette="current"] .topbar-search input::placeholder { color:transparent; }
+  .app-shell[data-palette="current"] .topbar-right { gap:5px; }
+}
+
+.app-shell[data-theme="dark"] {
+  --ink: #ecf5f1;
+  --muted: #8fa79d;
+  --green: #75c9a1;
+  --green-dark: #cfeedd;
+  --line: #243530;
+  --paper: #091615;
+  --cream: #0d1c1a;
+  color: var(--ink);
+  background: #091615;
+}
+.app-shell[data-theme="dark"] .main-area,
+.app-shell[data-theme="dark"] .topbar { background: #091615; }
+.app-shell[data-theme="dark"] .sidebar { background: #0d1717; border-color: var(--line); }
+.app-shell[data-theme="dark"] .brand,
+.app-shell[data-theme="dark"] .nav-item,
+.app-shell[data-theme="dark"] .sidebar-label,
+.app-shell[data-theme="dark"] .sidebar-user strong,
+.app-shell[data-theme="dark"] .streak-card strong,
+.app-shell[data-theme="dark"] .topbar-date,
+.app-shell[data-theme="dark"] .course-select select,
+.app-shell[data-theme="dark"] .welcome-row h1,
+.app-shell[data-theme="dark"] .page-heading h1,
+.app-shell[data-theme="dark"] .section-heading h2,
+.app-shell[data-theme="dark"] .study-card h3,
+.app-shell[data-theme="dark"] .fieldnote-course-card h3,
+.app-shell[data-theme="dark"] .fieldnote-section-heading h2,
+.app-shell[data-theme="dark"] .recent-title strong,
+.app-shell[data-theme="dark"] .rail-panel h2,
+.app-shell[data-theme="dark"] .quick-actions strong,
+.app-shell[data-theme="dark"] .fieldnote-course-card p,
+.app-shell[data-theme="dark"] .feature-copy h2,
+.app-shell[data-theme="dark"] .feature-copy p,
+.app-shell[data-theme="dark"] .dashboard-welcome p,
+.app-shell[data-theme="dark"] .welcome-sub,
+.app-shell[data-theme="dark"] .page-heading p,
+.app-shell[data-theme="dark"] .card-bottom,
+.app-shell[data-theme="dark"] .fieldnote-card-progress small,
+.app-shell[data-theme="dark"] .fieldnote-recent-row small,
+.app-shell[data-theme="dark"] .fieldnote-card-progress button,
+.app-shell[data-theme="dark"] .theme-toggle,
+.app-shell[data-theme="dark"] .week-pill,
+.app-shell[data-theme="dark"] .week-pill strong { color: var(--ink); }
+.app-shell[data-theme="dark"] .sidebar-label,
+.app-shell[data-theme="dark"] .streak-card small,
+.app-shell[data-theme="dark"] .sidebar-user small,
+.app-shell[data-theme="dark"] .demo-note,
+.app-shell[data-theme="dark"] .text-button,
+.app-shell[data-theme="dark"] .fieldnote-section-heading button,
+.app-shell[data-theme="dark"] .feature-meta,
+.app-shell[data-theme="dark"] .recent-title small,
+.app-shell[data-theme="dark"] .rail-stats small,
+.app-shell[data-theme="dark"] .quick-actions small,
+.app-shell[data-theme="dark"] .encouragement p,
+.app-shell[data-theme="dark"] .welcome-sub,
+.app-shell[data-theme="dark"] .page-heading p,
+.app-shell[data-theme="dark"] .muted-copy,
+.app-shell[data-theme="dark"] .rail-bar-column small { color: var(--muted); }
+.app-shell[data-theme="dark"] .nav-item:hover,
+.app-shell[data-theme="dark"] .nav-item.active,
+.app-shell[data-theme="dark"] .streak-card,
+.app-shell[data-theme="dark"] .week-pill,
+.app-shell[data-theme="dark"] .fieldnote-course-card,
+.app-shell[data-theme="dark"] .fieldnote-recent,
+.app-shell[data-theme="dark"] .rail-panel,
+.app-shell[data-theme="dark"] .quick-actions button,
+.app-shell[data-theme="dark"] .theme-toggle { background: rgba(20, 30, 30, 0.96); border-color: var(--line); }
+.app-shell[data-theme="dark"] .nav-item.active { color: #e7f8ee; background: rgba(117, 201, 161, 0.14); }
+.app-shell[data-theme="dark"] .brand-mark,
+.app-shell[data-theme="dark"] .pulse,
+.app-shell[data-theme="dark"] .course-swatch,
+.app-shell[data-theme="dark"] .tiny-progress span,
+.app-shell[data-theme="dark"] .fieldnote-progress-track i,
+.app-shell[data-theme="dark"] .progress-line span,
+.app-shell[data-theme="dark"] .rail-bar { background: #75c9a1; }
+.app-shell[data-theme="dark"] .streak-card { background: rgba(24,39,38,0.96); }
+.app-shell[data-theme="dark"] .sidebar-user,
+.app-shell[data-theme="dark"] .topbar,
+.app-shell[data-theme="dark"] .fieldnote-recent-row,
+.app-shell[data-theme="dark"] .fieldnote-section-heading { border-color: var(--line); }
+.app-shell[data-theme="dark"] .avatar, .app-shell[data-theme="dark"] .top-avatar { background: #1e312f; color: #ebf4ee; }
+.app-shell[data-theme="dark"] .demo-tag { background: rgba(117, 201, 161, 0.11); color: #d9f7e9; border-color: rgba(117,201,161,.24); }
+.app-shell[data-theme="dark"] .week-pill { background: rgba(20, 33, 33, 0.9); }
+.app-shell[data-theme="dark"] .fieldnote-card-tags span:first-child,
+.app-shell[data-theme="dark"] .fieldnote-card-tags span:last-child,
+.app-shell[data-theme="dark"] .feature-kicker,
+.app-shell[data-theme="dark"] .quick-actions button>span:first-child,
+.app-shell[data-theme="dark"] .recent-leaf { background: rgba(117, 201, 161, 0.14); color: #ebf4ee; }
+.app-shell[data-theme="dark"] .fieldnote-feature { border-color: #2a403d; background:#15312f url('/images/fieldnote-study.svg') center 48%/cover no-repeat; }
+.app-shell[data-theme="dark"] .fieldnote-feature:before { background:linear-gradient(90deg,rgba(13,23,22,.9) 0%,rgba(13,23,22,.85) 42%,rgba(13,23,22,.6) 70%,rgba(13,23,22,.15) 100%); }
+.app-shell[data-theme="dark"] .feature-button { background:#75c9a1; color:#081615; }
+.app-shell[data-theme="dark"] .feature-button:hover { background:#8dd8b4; }
+.app-shell[data-theme="dark"] .fieldnote-course-card p,
+.app-shell[data-theme="dark"] .feature-meta,
+.app-shell[data-theme="dark"] .recent-title small,
+.app-shell[data-theme="dark"] .rail-stats small,
+.app-shell[data-theme="dark"] .quick-actions small,
+.app-shell[data-theme="dark"] .encouragement p,
+.app-shell[data-theme="dark"] .demo-note { color: #a4b7b0; }
+.app-shell[data-theme="dark"] .fieldnote-card-progress button,
+.app-shell[data-theme="dark"] .nav-new,
+.app-shell[data-theme="dark"] .course-select select,
+.app-shell[data-theme="dark"] .hero-copy,
+.app-shell[data-theme="dark"] .button-light { background: rgba(18, 27, 27, 0.9); }
+.app-shell[data-theme="dark"] .nav-new { color: #d9f7e9; }
+.app-shell[data-theme="dark"] .topbar-search { background: rgba(14, 22, 21, 0.9); border-color: var(--line); }
+.app-shell[data-theme="dark"] .topbar-search input { color: var(--ink); }
+.app-shell[data-theme="dark"] .topbar-search input::placeholder { color: var(--muted); }
+.app-shell[data-theme="dark"] .brand { color: #f4f8f5; }
+.app-shell[data-theme="dark"] .dashboard-welcome .week-pill { border-color: rgba(117,201,161,0.2); }
+.app-shell[data-theme="dark"] .fieldnote-course-card:first-child { background: rgba(19,29,29,.92); }
+

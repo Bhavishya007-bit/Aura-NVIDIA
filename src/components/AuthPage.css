@@ -1,0 +1,26 @@
+.aura-auth { min-height:100dvh; display:grid; place-items:center; padding:36px 20px; box-sizing:border-box; background:#f5f3ee; color:#272a29; color-scheme:light; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.aura-auth *, .aura-auth *::before, .aura-auth *::after { box-sizing:border-box; }
+.aura-auth .auth-card { width:100%; max-width:440px; padding:38px; border:1px solid #dedbd3; border-radius:24px; background:#fffefa; box-shadow:0 16px 60px #30291e08; }
+.aura-auth .auth-brand { display:inline-flex; gap:10px; align-items:center; text-decoration:none; color:#272a29; font-size:24px; font-weight:650; margin-bottom:32px; }
+.aura-auth .brand-mark { display:grid; place-items:center; width:36px; height:36px; border-radius:10px; color:#985b40; background:#efe6dc; font-size:22px; }
+.aura-auth .auth-eyebrow { color:#985b40; font-size:10px; font-weight:650; letter-spacing:1.8px; margin:0 0 12px; }
+.aura-auth h1 { font-size:32px; font-weight:550; letter-spacing:-1px; line-height:1.15; margin:0 0 12px; color:#272a29; }
+.aura-auth .auth-description { margin:0 0 28px; color:#6b6964; font-size:14px; line-height:1.6; }
+.aura-auth .auth-form { display:grid; gap:17px; }
+.aura-auth label { display:grid; gap:8px; font-size:13px; font-weight:550; color:#45443f; }
+.aura-auth input { width:100%; padding:12px 14px; border:1px solid #dedbd3; border-radius:10px; background:#fffefa; color:#272a29; font:inherit; min-height:46px; outline:none; }
+.aura-auth input:focus { border-color:#985b40; box-shadow:0 0 0 3px #985b4014; }
+.aura-auth button { font:inherit; cursor:pointer; }
+.aura-auth button:disabled { opacity:.55; cursor:wait; }
+.aura-auth button:focus-visible, .aura-auth a:focus-visible { outline:2px solid #985b40; outline-offset:4px; }
+.aura-auth .auth-submit { width:100%; border:0; background:#2d3230; color:#fffefa; padding:13px 16px; border-radius:11px; font-size:14px; font-weight:550; min-height:46px; }
+.aura-auth .auth-submit:hover:not(:disabled) { background:#454b47; }
+.aura-auth .auth-error { margin:0; padding:10px 12px; border-radius:8px; background:#f8ebe5; color:#863d2c; font-size:13px; line-height:1.5; }
+.aura-auth .auth-switch { text-align:center; margin:24px 0 12px; color:#6b6964; font-size:13px; }
+.aura-auth .auth-switch button { border:0; padding:0 3px; color:#985b40; background:none; font-weight:600; }
+.aura-auth .auth-back { display:block; margin:10px auto 0; padding:8px; border:0; color:#6b6964; background:none; font-size:12px; }
+.aura-auth .auth-dialog { width:calc(100% - 32px); max-width:380px; padding:28px; border:1px solid #dedbd3; border-radius:20px; background:#fffefa; color:#272a29; box-shadow:0 24px 80px #0002; }
+.aura-auth .auth-dialog::backdrop { background:#272a2970; }
+.aura-auth .auth-dialog h2 { margin:0 0 12px; font-size:24px; font-weight:550; }
+.aura-auth .auth-dialog p { font-size:14px; line-height:1.6; color:#6b6964; overflow-wrap:anywhere; }
+@media(max-width:480px) { .aura-auth { padding:20px 14px; } .aura-auth .auth-card { padding:28px 22px; } }
