@@ -17,7 +17,9 @@ const sharedRoutes: Array<[string, RegExp]> = [
   ['POST', /^\/api\/sources\/\d+\/generate-embeddings$/],
   ['POST', /^\/api\/chat$/],
   ['POST', /^\/api\/study\/tools$/],
-  ['GET', /^\/api\/study\/(materials|artifacts|progress)$/],
+  ['GET', /^\/api\/study\/(materials|artifacts|progress|learning)$/],
+  ['GET', /^\/api\/study\/sources\/\d+\/(viewer|preview|media|original)$/],
+  ['POST', /^\/api\/study\/sources\/\d+\/figure$/],
   ['PATCH', /^\/api\/study\/materials\/\d+\/visibility$/],
   ['POST', /^\/api\/study\/assessments\/[0-9a-f-]{36}\/submit$/],
 ]

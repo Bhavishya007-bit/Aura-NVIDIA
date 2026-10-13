@@ -278,3 +278,5 @@
   .aura-home--conversation .aura-home__conversation { padding: 16px 4px 8px; }
   .aura-home__attachment strong { max-width: min(180px, 42vw); }
 }
+
+.aura-home__sources > button.aura-home__citation { display: block; width: 100%; text-align: left; margin: 8px 0; padding: 8px 10px; border: 1px solid #d5d8cf; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }

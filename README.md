@@ -32,7 +32,7 @@ Install these before starting:
 | [Git](https://git-scm.com/downloads) | Clone the repository |
 | [Ollama](https://ollama.com/download) | Run the local tutor model |
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) or an existing PostgreSQL + pgvector installation | Database |
-| [LibreOffice](https://www.libreoffice.org/download/download-libreoffice/) — optional | Convert legacy `.ppt`; not needed for `.pptx` |
+| [LibreOffice](https://www.libreoffice.org/download/download-libreoffice/) | Convert legacy `.ppt` and render original PPT/PPTX slide previews; PDF/media previews work without it |
 
 A practical demo laptop should have about **16 GB RAM** and several GB of free
 disk space for models, dependencies and Docker. This is a planning estimate,
@@ -264,8 +264,13 @@ LibreOffice installation paths; `LIBREOFFICE_PATH` can override it.
 - Audio and MP4 speech use local Whisper, retaining segment timestamps.
 - OCR can extract image text in PDFs/slides. It is not full visual reasoning:
   unlabeled arrows or a diagram's spatial meaning may not be established.
-- Source buttons display cited text and origin metadata. A full original-file
-  viewer opening the exact PDF page/video timestamp is not implemented here.
+- Citation buttons open the original PDF page, rendered presentation slide or
+  recording at the cited timestamp. References to one location are grouped and
+  unrelated retrieved passages are not displayed as answer citations.
+- Slide previews require LibreOffice and are cached after the first conversion.
+  Hidden slides are included to preserve numbering. Fonts/formatting can differ
+  slightly from PowerPoint. Unsupported document locations retain an excerpt
+  and original download instead of claiming an exact page mapping.
 - Uploaded files and generated tools are stored locally; this is a laptop demo,
   not a production hosted service. Chat UI state is restored from browser storage
   scoped to the account; it is not a cross-device synchronized chat history.
@@ -320,3 +325,107 @@ Measure extraction and indexing timings on your own laptop.
 | Preview still shows old UI | Stop preview, run `npm run build`, restart preview and refresh |
 
 All services run locally; no hosting deployment is needed.
+
+## Personalized practice and topic mastery
+
+After a material is ready, Overview offers a short starting-point diagnostic.
+The diagnostic samples supported topics, with up to five verified questions.
+Untested topics remain unknown; this is not a full-course placement exam.
+
+Assessment offers adaptive practice, a diagnostic, or a manually selected
+level. Adaptive practice selects the weakest recorded topic in the selected
+material and uses its estimated mastery to choose a level. An explicit new
+focus starts at beginner instead of borrowing another topic's score.
+
+Tutor includes a collapsible **Check my understanding** section. Its single
+verified short-answer question is graded against the material; the checked
+reply updates mastery. Asking for explanations or simply reading an answer
+does not increase mastery. Normal tutor answers use available topic evidence
+to adjust explanation style while retaining the citation checks.
+
+Overview and Progress show estimated topic mastery, checked-answer counts,
+limited-evidence labels and a practice action. Existing assessment accuracy
+remains separate from mastery; tutor checks are not counted as full quizzes.
+
+On backend startup, the additive learning migration creates its tables and
+imports existing account-owned graded assessments once. Repeated startup and
+submission retries do not double-count evidence. Existing uploads, GPU/CPU
+configuration, authentication and quiz results are preserved. Do not rerun
+fresh-database initialization on an existing database.
+
+See [docs/LEARNER_MODEL.md](docs/LEARNER_MODEL.md) for the learner-model method,
+fixed prototype parameters, evidence boundaries and validation limits.
+
+## Original-source viewer
+
+Click a citation in Tutor, Chat home, Notes, Summary, Flashcards, an assessment
+or its feedback. PDF and slide citations open the cited original location, with
+Previous, Next and Back to citation controls. Video/audio citations open a
+player and seek to the citation's time. Playback requires a browser-supported
+codec. The player currently fetches the authenticated recording as a Blob;
+large files can take time before playback begins.
+
+Source access checks both the student's material ownership and course ownership.
+Original files are restricted to the backend upload directory; no permanent
+public links or access tokens in URLs are created. Missing originals retain
+available extracted excerpts. DOCX paragraph references do not imply an exact
+original page; such locations offer an excerpt and original download.
+
+No database migration or embedding refresh is needed for this feature. The
+backend uses the original files stored at upload time. Existing chat entries
+also use the corrected cited-source display; their answer text is preserved.
+
+## Source-first tutor with related explanations
+
+Tutor combines semantic retrieval with exact topic matches and nearby slides or
+pages in the selected material. It first tries a cited, checked explanation. If
+that paraphrase fails but relevant extracted text exists, it can retain exact
+supporting excerpts instead of discarding useful evidence.
+
+An optional, separately labelled **Additional explanation — outside the uploaded
+material** section expands the same topic. Generation is anchored to the source
+definition; a model consistency check rejects off-topic, contradictory or
+uncertain supplements. This check is not independent factual verification, and
+outside details are never credited to source citations. No fixed percentage of
+extra information or accuracy improvement is promised. Extra generation and
+checking calls may increase response time on CPU and GPU.
+
+Ask "Use only the presentation" or "Keep it to 2–3 sentences" to suppress extra
+background. API clients can set `include_related_background: false` on private
+chat requests. Reading additional context does not update mastery; practice
+grading remains source-based. Existing saved answer text is not rewritten.
+
+This update improves extracted-text retrieval and tutoring. It does not add a
+new vision model for diagrams or establish measured learning gains. See
+[docs/TUTOR_GROUNDING.md](docs/TUTOR_GROUNDING.md) for behavior and live checks.
+
+## Figure interpretation, numerical questions and evaluation
+
+Chat home and Study workspace accept up to five files in one selection (100 MiB
+per file). Transfers create individual preparation jobs, and model processing
+uses the existing queue. Each file has its own status. Failed transfers can be
+retried without uploading the successful files again. If the shared preparation
+queue is full, wait for capacity and retry the failed uploads. Each prepared file
+appears as a separate material in the workspace; choose it to scope your tutor.
+
+The original-source viewer now offers **Explain this figure or diagram** on PDF
+pages and slides. It reads the displayed image with a separately configured
+local vision model (`OLLAMA_VISION_MODEL`), rather than inferring relationships
+from OCR labels. Returned interpretations include limitations and need visual
+review. `gemma3:4b` is an image-capable example; install the model with Ollama
+before configuring it. This is on-demand interpretation, not visual reindexing.
+
+Assessment offers **Numerical (with units)** for material with an explicit
+quantitative relationship. Formula support is model checked; bounded arithmetic
+and unit dimensions determine the hidden server answer key. Feedback can flag
+possible misconceptions, independently of correctness grading. Saved results
+retain the existing ownership, retry and mastery protections.
+
+The `evaluation/` directory contains an annotated demo PDF, live API collector,
+pinned local RAGAS scorer and seeded multi-session student-policy simulations.
+Included simulation results are synthetic; live model metrics require running
+the collector and scorer on your own uploaded material. See
+[docs/FINAL_FEATURES.md](docs/FINAL_FEATURES.md),
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md). The demonstration video still needs
+to be recorded and uploaded.

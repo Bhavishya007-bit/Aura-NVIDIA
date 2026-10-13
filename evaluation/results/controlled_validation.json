@@ -1,0 +1,15 @@
+{
+  "validation_type": "controlled_code_checks_not_live_model_accuracy",
+  "advanced_checks": 17,
+  "source_first_checks": 15,
+  "learning_and_baseline_checks": 75,
+  "private_api_checks": 17,
+  "source_viewer_checks": 12,
+  "frontend": "Figure panel and prior source viewer interaction checks passed; TypeScript/Vite build passed",
+  "python_type_checks": "0 errors, 0 warnings",
+  "ragas": "Pinned 0.2.15 metric imports and Ollama wrapper construction passed; actual metric inference not run here",
+  "live_models": "Not available in this workspace; run the included live collector and RAGAS scorer",
+  "tutor_regression": "Replayed uploaded failure sources; source slide 13 definition retained when full-question verifier rejects it",
+  "simulation": "Seed 42; 60 students per policy, 8 sessions, 5 items/session; actual BKT update with declared synthetic response and learning assumptions",
+  "simulation_sha256": "8fd3a1e8ce6a99d20077b3c90d3155699804dfa8a064d3641bbfefc5063e2719"
+}

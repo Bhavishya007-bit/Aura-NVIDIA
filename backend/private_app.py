@@ -17,6 +17,9 @@ from backend.auth_routes import (
     bearer_scheme,
 )
 from backend.study_tools import router as study_router
+from backend.source_viewer import router as source_viewer_router
+from backend.figure_tools import router as figure_router
+from backend.learning import install_learning, learner_profile, tutor_style
 
 
 @contextmanager
@@ -103,6 +106,7 @@ class ChatMessage(BaseModel):
 class PrivateChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=12000)
     top_k: int = Field(default=3, ge=1, le=10)
+    include_related_background: bool = True
     course_id: int | None = None
     source_id: int | None = None
     history: list[ChatMessage] = Field(default_factory=list, max_length=8)
@@ -275,6 +279,8 @@ def create_private_app(legacy):
                 "citation_validation": {"valid": False},
             }
         student = get_current_student(credentials)
+        if body.course_id is None:
+            raise HTTPException(422, "Choose a study workspace first.")
         with database() as connection:
             with connection.cursor() as cursor:
                 require_course(cursor, body.course_id, student["student_id"])
@@ -283,7 +289,14 @@ def create_private_app(legacy):
                         cursor, body.source_id, student["student_id"], body.course_id
                     )
 
+        with database() as connection:
+            with connection.cursor() as cursor:
+                profile = learner_profile(cursor, student["student_id"], body.course_id, body.source_id)
+
         class OwnedRetriever:
+            def concept_context(self, query, **kwargs):
+                return legacy.get_retriever().concept_context(query, owner_student_id=student["student_id"], **kwargs)
+
             def overview(self, **kwargs):
                 return legacy.get_retriever().overview(
                     owner_student_id=student["student_id"], **kwargs
@@ -295,7 +308,9 @@ def create_private_app(legacy):
                 )
 
         try:
-            tutor = legacy.RAG(retriever=OwnedRetriever(), llm=legacy.LLM())
+            tutor = legacy.RAG(retriever=OwnedRetriever(), llm=legacy.LLM(),
+                               learning_style=tutor_style(profile, body.question),
+                               include_related_background=body.include_related_background, source_first_mode=True)
             return tutor.answer(
                 question=body.question,
                 top_k=body.top_k,
@@ -311,6 +326,9 @@ def create_private_app(legacy):
             ) from error
 
     app.include_router(study_router, dependencies=[Depends(protect_study_scope)])
+    app.include_router(source_viewer_router, dependencies=[Depends(protect_study_scope)])
+    app.include_router(figure_router, dependencies=[Depends(protect_study_scope)])
+    install_learning(app, database)
     from backend.preparation_jobs import install_preparation_jobs
     install_preparation_jobs(app, legacy, database, require_course, require_source)
     return app

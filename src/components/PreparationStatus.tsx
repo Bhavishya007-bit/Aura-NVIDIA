@@ -3,9 +3,9 @@ import { listPreparation, preparationLabels, retryPreparation } from '../service
 import type { PreparationJob } from '../services/preparationApi'
 import './PreparationStatus.css'
 
-type Props = { courseId: string; refreshKey: number; pendingId?: string; onReady: (job: PreparationJob) => void; onFailed?: (job: PreparationJob) => void }
+type Props = { courseId: string; refreshKey: number; pendingId?: string; pendingIds?: string[]; onReady: (job: PreparationJob) => void; onFailed?: (job: PreparationJob) => void }
 
-export default function PreparationStatus({ courseId, refreshKey, pendingId, onReady, onFailed }: Props) {
+export default function PreparationStatus({ courseId, refreshKey, pendingId, pendingIds, onReady, onFailed }: Props) {
   const [jobs, setJobs] = useState<PreparationJob[]>([])
   const [error, setError] = useState('')
   const [retrying, setRetrying] = useState('')
@@ -14,6 +14,8 @@ export default function PreparationStatus({ courseId, refreshKey, pendingId, onR
   const readyCallback = useRef(onReady)
   const failedCallback = useRef(onFailed)
   const pending = useRef(pendingId)
+  const batchPending = useRef<string[]>([])
+  batchPending.current = pendingIds ?? []
   pending.current = pendingId
   readyCallback.current = onReady
   failedCallback.current = onFailed
@@ -33,8 +35,9 @@ export default function PreparationStatus({ courseId, refreshKey, pendingId, onR
         for (const job of values) {
           const previous = observed.current.get(job.id)
           observed.current.set(job.id, job.state)
-          if ((previous || pending.current === job.id) && previous !== 'ready' && job.state === 'ready') readyCallback.current(job)
-          if ((previous || pending.current === job.id) && previous !== 'failed' && job.state === 'failed') failedCallback.current?.(job)
+          const tracked = previous || pending.current === job.id || batchPending.current.includes(job.id)
+          if (tracked && previous !== 'ready' && job.state === 'ready') readyCallback.current(job)
+          if (tracked && previous !== 'failed' && job.state === 'failed') failedCallback.current?.(job)
         }
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not check preparation. Retrying…')

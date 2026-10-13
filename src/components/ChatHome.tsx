@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { askTutor, generateSourceEmbeddings } from '../services/studyApi'
-import { startPreparation } from '../services/preparationApi'
-import type { PreparationJob } from '../services/preparationApi'
+import { queueMaterials } from '../services/preparationApi'
+import type { PreparationJob, UploadEntry } from '../services/preparationApi'
 import PreparationStatus from './PreparationStatus'
+import UploadBatchStatus from './UploadBatchStatus'
+import SourceViewer from './SourceViewer'
+import { chatCitationGroups } from '../services/citationDisplay'
+import type { ToolCitation } from '../services/studyToolsApi'
 import type { SourceUploadResult } from '../services/studyApi'
-import type { ChatMessage, Citation, Course, SourceLocation } from '../types/study'
+import type { ChatMessage, Citation, Course } from '../types/study'
 import './ChatHome.css'
 import { readWorkspace, saveWorkspace } from '../services/workspaceStorage'
 
@@ -27,17 +31,11 @@ type Entry = {
   message: ChatMessage
   citations: Citation[]
   grounded?: boolean
+  answerMode?: 'source' | 'source_plus_background' | 'general_background'
   scope?: string
 }
 type UploadStage = 'idle' | 'uploading' | 'embedding' | 'ready' | 'failed'
 
-function locationLabel(location: SourceLocation): string {
-  if (location.kind === 'pdf_page') return location.page > 0 ? `Page ${location.page}` : 'Location unavailable'
-  if (location.kind === 'slide') return `Slide ${location.slide}`
-  const minutes = Math.floor(location.seconds / 60)
-  const seconds = Math.floor(location.seconds % 60).toString().padStart(2, '0')
-  return `Timestamp ${minutes}:${seconds}`
-}
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.'
 }
@@ -47,8 +45,9 @@ export default function ChatHome({
   onSignIn, onSignOut, signingOut, sessionNotice, workspaceKey = 'guest', onOpenWorkspace,
 }: Props) {
   const storageKey = `aura.chat.v1:${workspaceKey}:${courseId}`
+  const [openCitation, setOpenCitation] = useState<ToolCitation | null>(null)
   const [saved] = useState(() => {
-    const value = readWorkspace<Partial<{ question: string; entries: Entry[]; uploaded: SourceUploadResult; uploadStage: UploadStage; fileNames: Record<string, string>; preparationId: string; pendingFilename: string }>>(storageKey, {})
+    const value = readWorkspace<Partial<{ question: string; entries: Entry[]; uploaded: SourceUploadResult; uploadStage: UploadStage; fileNames: Record<string, string>; preparationIds: string[]; preparationId: string; pendingFilename: string }>>(storageKey, {})
     const source = value.uploaded
     if (!source || source.courseId !== courseId || !/^\d+$/.test(source.sourceId) || typeof source.filename !== 'string') delete value.uploaded
     value.entries = Array.isArray(value.entries) ? value.entries.filter(entry =>
@@ -73,6 +72,9 @@ export default function ChatHome({
   const [uploadMenu, setUploadMenu] = useState(false)
   const [pendingFilename, setPendingFilename] = useState(saved.pendingFilename ?? '')
   const [preparationId, setPreparationId] = useState(saved.preparationId ?? '')
+  const [uploadEntries, setUploadEntries] = useState<UploadEntry[]>([])
+  const [preparationIds, setPreparationIds] = useState<string[]>(Array.isArray(saved.preparationIds) ? saved.preparationIds.filter(id => typeof id === 'string') : [])
+  const uploadController = useRef<AbortController | null>(null)
   const [preparationRefresh, setPreparationRefresh] = useState(0)
   const [fileNames, setFileNames] = useState<Record<string, string>>(() => Object.fromEntries(
     Object.entries(saved.fileNames && typeof saved.fileNames === 'object' ? saved.fileNames : {}).filter(([, value]) => typeof value === 'string')
@@ -84,7 +86,7 @@ export default function ChatHome({
   const mounted = useRef(true)
   const hasConversation = entries.length > 0
   const preparing = uploadStage === 'uploading' || uploadStage === 'embedding'
-  const busy = sending || preparing
+  const busy = sending || preparing || uploadEntries.some(entry => entry.state === 'waiting' || entry.state === 'uploading')
   const canEmbed = uploaded &&
     (uploaded.processingStatus === 'success' || uploaded.processingStatus === 'partial') &&
     uploaded.contentUnitCount > 0
@@ -93,9 +95,10 @@ export default function ChatHome({
   const readySource = uploadStage === 'ready' ? uploaded : null
   const chatScope = `${courseId}:${readySource?.sourceId ?? ''}`
   useEffect(() => {
-    if (courseId) saveWorkspace(storageKey, { question, entries, uploaded, uploadStage, fileNames, preparationId, pendingFilename })
-  }, [storageKey, courseId, question, entries, uploaded, uploadStage, fileNames, preparationId, pendingFilename])
+    if (courseId) saveWorkspace(storageKey, { question, entries, uploaded, uploadStage, fileNames, preparationId, preparationIds, pendingFilename })
+  }, [storageKey, courseId, question, entries, uploaded, uploadStage, fileNames, preparationId, preparationIds, pendingFilename])
 
+  useEffect(() => { setUploadEntries([]); return () => uploadController.current?.abort() }, [courseId])
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false }
@@ -122,35 +125,34 @@ export default function ChatHome({
   }
 
   async function uploadFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
+    const files = Array.from(event.target.files ?? [])
     event.target.value = ''
-    if (!file || !courseId || busyRef.current) return
+    await uploadFiles(files)
+  }
+  async function uploadFiles(files: File[]) {
+    if (!files.length || !courseId || busyRef.current) return
     if (!studentName) { onSignIn(); return }
     busyRef.current = true
-    setUploaded(null)
-    setPendingFilename(file.name)
-    setUploadError('')
-    setChatError('')
-    setFailedQuestion('')
-    setUploadStage('uploading')
-    setUploadMenu(false)
+    const controller = new AbortController()
+    uploadController.current = controller
+    setUploaded(null); setPendingFilename(files[0].name)
+    setUploadError(''); setChatError(''); setFailedQuestion('')
+    setUploadStage('uploading'); setUploadMenu(false)
     try {
-      const job = await startPreparation(courseId, file)
-      if (!mounted.current) return
-      setPreparationId(job.id)
-      setPreparationRefresh(value => value + 1)
-      setUploadStage('embedding')
+      const entries = await queueMaterials(courseId, files, setUploadEntries, (job, first) => {
+        setPreparationIds(current => [...current, job.id])
+        if (first) { setPreparationId(job.id); setPendingFilename(job.filename); setUploadStage('embedding') }
+        setPreparationRefresh(value => value + 1)
+      }, controller.signal)
+      if (!controller.signal.aborted && mounted.current && !entries.some(entry => entry.state === 'queued')) setUploadStage('failed')
     } catch (error) {
-      if (mounted.current) {
-        setUploadStage('failed')
-        setUploadError(errorMessage(error))
-      }
-    } finally {
-      busyRef.current = false
-    }
+      if (!controller.signal.aborted && mounted.current) { setUploadStage('failed'); setUploadError(errorMessage(error)) }
+    } finally { busyRef.current = false; uploadController.current = null }
   }
 
   function preparationReady(job: PreparationJob) {
+    if (String(job.course_id) !== courseId) return
+    setPreparationIds(current => current.filter(id => id !== job.id))
     if (job.id !== preparationId || !job.result || !job.source_id) return
     const result = job.result
     const source: SourceUploadResult = {
@@ -163,6 +165,8 @@ export default function ChatHome({
     composer.current?.focus()
   }
   function preparationFailed(job: PreparationJob) {
+    if (String(job.course_id) !== courseId) return
+    setPreparationIds(current => current.filter(id => id !== job.id))
     if (job.id === preparationId) {
       setUploadStage('failed'); setUploadError(job.error ?? 'Preparation did not finish.')
     }
@@ -212,7 +216,7 @@ export default function ChatHome({
       if (mounted.current) {
         setEntries(current => [...current, {
           message: response.message, citations: response.citations,
-          grounded: response.groundingStatus === 'grounded',
+          grounded: response.groundingStatus === 'grounded', answerMode: response.answerMode,
           scope: chatScope,
         }])
       }
@@ -287,12 +291,10 @@ export default function ChatHome({
           {entries.map(entry => <article key={entry.message.id} className={`aura-home__message aura-home__message--${entry.message.role}`}>
             <div className="aura-home__speaker">{entry.message.role === 'student' ? 'You' : '✦ Aura'}</div>
             <div className="aura-home__message-text">{entry.message.content}</div>
-            {entry.citations.length > 0 && <details className="aura-home__sources">
+            {entry.message.role === 'tutor' && entry.answerMode && <small>{entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : 'Source checked'}</small>}
+            {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).length > 0 && <details className="aura-home__sources">
               <summary className="aura-home__source-heading">Sources</summary>
-              {entry.citations.map(citation => <details key={citation.id} className="aura-home__citation">
-                <summary>{fileNames[citation.sourceId] ?? `Source ${citation.sourceId}`} · {locationLabel(citation.location)}</summary>
-                <p>{citation.excerpt || 'No excerpt was returned for this source.'}</p>
-              </details>)}
+              {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).map(citation => <button key={`${citation.source_id}:${citation.id}`} className="aura-home__citation" type="button" onClick={() => setOpenCitation(citation)}>[{citation.referenceIds?.join(', ')}] {citation.title} · {citation.location}</button>)}
             </details>}
           </article>)}
           {sending && <div className="aura-home__thinking" role="status">✦ Aura is thinking…</div>}
@@ -304,7 +306,8 @@ export default function ChatHome({
         </section>}
 
         <div className="aura-home__composer-area">
-          {studentName && <PreparationStatus courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={preparationFailed} />}
+          {studentName && <UploadBatchStatus entries={uploadEntries} busy={sending || uploadEntries.some(entry => entry.state === 'waiting' || entry.state === 'uploading')} onRetry={() => void uploadFiles(uploadEntries.filter(entry => entry.state === 'failed').map(entry => entry.file))} />}
+          {studentName && <PreparationStatus pendingIds={preparationIds} courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={preparationFailed} />}
           {coursesError && <div className="aura-home__error" role="alert">Aura couldn't connect. Please refresh and try again.</div>}
           {coursesLoading && <p className="aura-home__loading" role="status">Getting Aura ready…</p>}
           {!coursesLoading && !coursesError && !courseId && <p className="aura-home__loading" role="status">Aura isn't ready yet. Please try again shortly.</p>}
@@ -341,8 +344,8 @@ export default function ChatHome({
                   disabled={busy || !courseId || Boolean(coursesError)} onClick={() => setUploadMenu(current => !current)}>+</button>
                 {uploadMenu && <div id="aura-upload-panel" className="aura-home__upload-panel">
                   <label htmlFor="aura-file">Upload study material</label>
-                  <p>PDF, DOCX, PPTX, audio or MP4. One file at a time.</p>
-                  <input ref={fileInput} id="aura-file" type="file" accept=".pdf,.docx,.ppt,.pptx,audio/*,.mp4" onChange={event => void uploadFile(event)} />
+                  <p>PDF, DOCX, PPTX, audio or MP4. Select up to 5 files at once. Each file can be up to 100 MiB.</p>
+                  <input ref={fileInput} id="aura-file" type="file" multiple accept=".pdf,.docx,.ppt,.pptx,audio/*,.mp4" onChange={event => void uploadFile(event)} />
                 </div>}
               </div>
               <span className="aura-home__composer-hint">{sending ? 'Thinking…' : ''}</span>
@@ -354,6 +357,7 @@ export default function ChatHome({
         </div>
       </main>
       {!hasConversation && <footer className="aura-home__footer">A little curiosity goes a long way.</footer>}
+      <SourceViewer citation={openCitation} onClose={() => setOpenCitation(null)} />
     </div>
   )
 }

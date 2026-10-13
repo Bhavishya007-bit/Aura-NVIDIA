@@ -1,0 +1,10 @@
+[
+  {"id":"treadmilling_definition","question":"What is treadmilling? Use only the presentation.","reference":"Treadmilling maintains near-constant filament length by adding subunits at the plus end and losing subunits at the minus end.","expected_positions":[1],"off_material":false},
+  {"id":"treadmilling_balance","question":"How is treadmilling different from net filament growth? Use only the presentation.","reference":"During treadmilling equal addition and loss maintain length; greater addition than loss causes net growth.","expected_positions":[1],"off_material":false},
+  {"id":"dynamic_instability","question":"What is dynamic instability? Use only the presentation.","reference":"Dynamic instability is switching between microtubule growth and shrinkage; it differs from balanced turnover at constant length.","expected_positions":[2],"off_material":false},
+  {"id":"speed_formula","question":"What formula relates speed, distance and time? Use only the presentation.","reference":"Speed equals distance divided by elapsed time: v = d/t.","expected_positions":[3],"off_material":false},
+  {"id":"speed_calculation","question":"Calculate speed for 12 metres travelled in 2 seconds. Use only the presentation.","reference":"v = d/t = 12/2 = 6 m/s.","expected_positions":[3],"off_material":false},
+  {"id":"force_formula","question":"How do force, mass and acceleration relate? Use only the presentation.","reference":"Force equals mass multiplied by acceleration: F = m*a.","expected_positions":[4],"off_material":false},
+  {"id":"off_material_bitcoin","question":"What is today's Bitcoin price? Use only the presentation.","reference":"The material does not cover Bitcoin prices.","expected_positions":[],"off_material":true},
+  {"id":"off_material_ribosome","question":"Explain ribosome assembly. Use only the presentation.","reference":"The material does not cover ribosome assembly.","expected_positions":[],"off_material":true}
+]

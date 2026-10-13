@@ -1,0 +1,24 @@
+.aura-source-viewer { width: min(1000px, calc(100vw - 32px)); max-height: 92dvh; border: 1px solid #cfcfc8; border-radius: 14px; padding: 24px; background: #fffefa; color: #292e2b; font: 14px/1.5 system-ui,sans-serif; overflow-y: auto; }
+.aura-source-viewer::backdrop { background: #1e272bb3; }
+.aura-source-viewer header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.aura-source-viewer h2 { font-size: 21px; margin: 4px 0; overflow-wrap: anywhere; }
+.aura-source-viewer header > button { font-size: 26px; padding: 0 8px; }
+.aura-source-viewer button { font: inherit; color: inherit; background: transparent; border: 1px solid #d3d6cf; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+.aura-source-viewer button:disabled { opacity: .5; cursor: default; }
+.aura-source-actions, .aura-source-actions > div { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.aura-source-actions { margin: 20px 0; justify-content: space-between; }
+.aura-source-canvas { background: #e8e8e3; border-radius: 8px; padding: 8px; text-align: center; }
+.aura-source-canvas img, .aura-source-canvas video { max-width: 100%; height: auto; display: block; margin: auto; }
+.aura-source-canvas audio { width: 100%; }
+.aura-source-excerpt { margin-top: 20px; padding: 12px 0; border-top: 1px solid #d3d6cf; }
+.aura-source-excerpt summary { cursor: pointer; font-weight: 600; }
+.aura-source-excerpt p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.aura-source-viewer small { color: #676e67; }
+@media (max-width: 600px) { .aura-source-viewer { padding: 16px; } .aura-source-actions { align-items: flex-start; } }
+
+[data-theme="dark"] .aura-source-viewer { background: #1f2926; color: #e4e9e1; border-color: #526054; }
+[data-theme="dark"] .aura-source-viewer button, [data-theme="dark"] .aura-source-excerpt { border-color: #526054; }
+[data-theme="dark"] .aura-source-canvas { background: #16211d; }
+[data-theme="dark"] .aura-source-viewer small { color: #aeb9ac; }
+.aura-source-excerpt textarea { display: block; box-sizing: border-box; width: 100%; margin: 8px 0; padding: 10px; border: 1px solid #64748b; border-radius: 8px; font: inherit; }
+.aura-source-excerpt button { margin: 8px 0; }

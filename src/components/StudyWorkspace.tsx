@@ -3,11 +3,16 @@ import type { FormEvent } from 'react'
 import type { Course } from '../types/study'
 import type { AuthUser } from '../services/authApi'
 import { askTutor } from '../services/studyApi'
-import { startPreparation } from '../services/preparationApi'
-import type { PreparationJob } from '../services/preparationApi'
+import { queueMaterials } from '../services/preparationApi'
+import type { PreparationJob, UploadEntry } from '../services/preparationApi'
 import PreparationStatus from './PreparationStatus'
+import UploadBatchStatus from './UploadBatchStatus'
+import LearningPanel from './LearningPanel'
+import TutorCheck from './TutorCheck'
+import SourceViewer from './SourceViewer'
+import { citedNumbers, groupToolCitations } from '../services/citationDisplay'
 import { generateTool, getPracticeProgress, listArtifacts, listMaterials, setMaterialArchived, submitAssessment } from '../services/studyToolsApi'
-import type { Artifact, Material, PracticeProgress, ToolCitation, ToolKind } from '../services/studyToolsApi'
+import type { Artifact, LearningMode, Material, PracticeProgress, ToolCitation, ToolKind } from '../services/studyToolsApi'
 import { readWorkspace, saveWorkspace } from '../services/workspaceStorage'
 import './StudyWorkspace.css'
 
@@ -16,16 +21,13 @@ const tabs: Tab[] = ['Overview', 'Tutor', 'Notes', 'Summary', 'Flashcards', 'Ass
 const iconPaths = ['M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z', 'M4 4h16v12H9l-5 4z', 'M5 5h14 M5 10h14 M5 15h14 M5 20h9', 'M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5', 'M7 3h14v15H7z M3 7v14h14', 'M4 12l5 5L20 6', 'M4 19V5 M4 19h16 M7 15l4-5 4 2 5-7']
 function WorkspaceIcon({ path }: { path: string }) { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path} /></svg> }
 const kinds: Partial<Record<Tab, ToolKind>> = { Notes: 'notes', Summary: 'summary', Flashcards: 'flashcards', Assessment: 'assessment' }
-type ChatEntry = { role: 'user' | 'assistant'; text: string; grounded?: boolean; citations?: ToolCitation[] }
-type Saved = { preparationId?: string; sourceId?: string; tab?: Tab; selectedArtifact?: string; question?: string; chats?: Record<string, ChatEntry[]>; answers?: Record<string, Record<string, string>> }
+type ChatEntry = { role: 'user' | 'assistant'; text: string; grounded?: boolean; answerMode?: 'source' | 'source_plus_background' | 'general_background'; citations?: ToolCitation[] }
+type Saved = { preparationIds?: string[]; preparationId?: string; sourceId?: string; tab?: Tab; selectedArtifact?: string; question?: string; chats?: Record<string, ChatEntry[]>; answers?: Record<string, Record<string, string>> }
 type Props = { user: AuthUser; courses: Course[]; courseId: string; coursesLoading: boolean; coursesError: string; theme: 'light' | 'dark'; onCourseChange: (id: string) => void; onThemeChange: () => void; onChatHome: () => void; onSignOut: () => void; signingOut: boolean; sessionNotice: string }
 const explainError = (error: unknown) => error instanceof Error ? error.message : 'Could not complete this request. Please retry.'
 
 function SourceButtons({ ids, citations, onOpen }: { ids: number[]; citations: ToolCitation[]; onOpen: (citation: ToolCitation) => void }) {
-  return <div className="sw-citations">{ids.map(id => {
-    const citation = citations.find(item => item.id === id)
-    return citation ? <button key={id} type="button" onClick={() => onOpen(citation)} title={citation.title}>[{id}] {citation.location}</button> : null
-  })}</div>
+  return <div className="sw-citations">{groupToolCitations(ids, citations).map(citation => <button key={`${citation.source_id}:${citation.id}`} type="button" onClick={() => onOpen(citation)} title={citation.title}>[{citation.referenceIds?.join(', ') ?? citation.id}] {citation.location}</button>)}</div>
 }
 
 export default function StudyWorkspace(props: Props) {
@@ -48,8 +50,12 @@ export default function StudyWorkspace(props: Props) {
   const [count, setCount] = useState(3)
   const [focus, setFocus] = useState('')
   const [difficulty, setDifficulty] = useState('beginner')
+  const [learningMode, setLearningMode] = useState<LearningMode>('adaptive')
   const [questionType, setQuestionType] = useState('mcq')
   const [busy, setBusy] = useState('')
+  const [uploadEntries, setUploadEntries] = useState<UploadEntry[]>([])
+  const [preparationIds, setPreparationIds] = useState<string[]>(Array.isArray(saved.preparationIds) ? saved.preparationIds.filter(id => typeof id === 'string') : [])
+  const uploadController = useRef<AbortController | null>(null)
   const [preparationRefresh, setPreparationRefresh] = useState(0)
   const [preparationId, setPreparationId] = useState(saved.preparationId ?? '')
   const [error, setError] = useState('')
@@ -62,7 +68,6 @@ export default function StudyWorkspace(props: Props) {
   const [openCitation, setOpenCitation] = useState<ToolCitation | null>(null)
   const [flipped, setFlipped] = useState<Record<string, boolean>>({})
   const fileInput = useRef<HTMLInputElement>(null)
-  const citationDialog = useRef<HTMLDialogElement>(null)
   const busyRef = useRef(false)
   const mounted = useRef(true)
   const transcript = useRef<HTMLDivElement>(null)
@@ -72,15 +77,16 @@ export default function StudyWorkspace(props: Props) {
   const material = activeMaterials.find(item => item.id === sourceId)
   const sourceReady = Boolean(sourceId) && !['processing', 'error', 'empty', 'not_configured'].includes(material?.status ?? '')
   const kind = kinds[tab]
-  const available = artifacts.filter(item => item.kind === kind)
+  const available = artifacts.filter(item => item.kind === kind && item.payload.learning?.mode !== 'conversation')
   const active = available.find(item => item.id === selectedArtifact) ?? available[0]
   const entries = Array.isArray(chats[sourceId]) ? chats[sourceId].filter(item => item && typeof item.text === 'string' && ['user', 'assistant'].includes(item.role)) : []
   const draftAnswers = active && answers[active.id] && typeof answers[active.id] === 'object' ? answers[active.id] : {}
 
+  useEffect(() => { setUploadEntries([]); return () => uploadController.current?.abort() }, [courseId])
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => {
-    saveWorkspace(storageKey, { sourceId, tab, selectedArtifact, question, chats, answers, preparationId })
-  }, [storageKey, sourceId, tab, selectedArtifact, question, chats, answers, preparationId])
+    saveWorkspace(storageKey, { sourceId, tab, selectedArtifact, question, chats, answers, preparationId, preparationIds })
+  }, [storageKey, sourceId, tab, selectedArtifact, question, chats, answers, preparationId, preparationIds])
   useEffect(() => {
     let cancelled = false
     if (!courseId) { setMaterialsLoading(false); return }
@@ -119,10 +125,6 @@ export default function StudyWorkspace(props: Props) {
     return () => { cancelled = true }
   }, [courseId, progressReload])
   useEffect(() => {
-    if (openCitation) citationDialog.current?.showModal()
-    else citationDialog.current?.close()
-  }, [openCitation])
-  useEffect(() => {
     if (tab === 'Tutor' && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight
   }, [chats, tab, busy])
 
@@ -145,18 +147,26 @@ export default function StudyWorkspace(props: Props) {
     } catch (cause) { if (mounted.current) setError(explainError(cause)) }
     finally { end() }
   }
-  async function upload(file?: File) {
-    if (!file || !courseId || !begin('Uploading and reading your material…')) return
+  async function upload(files: File[]) {
+    if (!files.length || !courseId || !begin('Uploading selected materials…')) return
+    const controller = new AbortController()
+    uploadController.current = controller
     try {
-      const job = await startPreparation(courseId, file)
-      if (!mounted.current) return
-      setPreparationId(job.id)
-      setPreparationRefresh(value => value + 1)
-      setMaterialNotice('File uploaded. You can keep studying while it is prepared.')
-    } catch (cause) { if (mounted.current) setError(explainError(cause)) }
-    finally { end(); if (fileInput.current) fileInput.current.value = '' }
+      const entries = await queueMaterials(courseId, files, setUploadEntries, (job, first) => {
+        setPreparationIds(current => [...current, job.id])
+        if (first) setPreparationId(job.id)
+        setPreparationRefresh(value => value + 1)
+      }, controller.signal)
+      if (!controller.signal.aborted && mounted.current) {
+        const count = entries.filter(entry => entry.state === 'queued').length
+        setMaterialNotice(`${count} files queued. Each file has its own preparation status.`)
+      }
+    } catch (cause) { if (!controller.signal.aborted && mounted.current) setError(explainError(cause)) }
+    finally { end(); uploadController.current = null; if (fileInput.current) fileInput.current.value = '' }
   }
   function preparationReady(job: PreparationJob) {
+    if (String(job.course_id) !== courseId) return
+    setPreparationIds(current => current.filter(id => id !== job.id))
     setReload(value => value + 1)
     if (job.id === preparationId && job.source_id) {
       setSourceId(String(job.source_id)); setTab('Tutor'); setPreparationId('')
@@ -166,8 +176,22 @@ export default function StudyWorkspace(props: Props) {
   async function generate() {
     if (!kind || !sourceId || material?.status === 'processing' || material?.status === 'error' || !begin('Creating and checking your study material…')) return
     try {
-      const generated = await generateTool(courseId, sourceId, kind, { count, focus, difficulty, questionType })
+      const generated = await generateTool(courseId, sourceId, kind, { count, focus, difficulty, questionType, learningMode: kind === 'assessment' ? learningMode : 'manual' })
       if (mounted.current) { setArtifacts(current => [generated, ...current]); setSelectedArtifact(generated.id); setFlipped({}) }
+    } catch (cause) { if (mounted.current) setError(explainError(cause)) }
+    finally { end() }
+  }
+  async function startLearning(mode: LearningMode, topic = '') {
+    if (!sourceReady || !begin('Creating and checking your practice…')) return
+    try {
+      const generated = await generateTool(courseId, sourceId, 'assessment', {
+        count: mode === 'diagnostic' ? 5 : count, focus: topic,
+        difficulty: 'beginner', questionType, learningMode: mode,
+      })
+      if (mounted.current) {
+        setArtifacts(current => [generated, ...current]); setSelectedArtifact(generated.id)
+        setLearningMode(mode); setFocus(topic); selectTab('Assessment')
+      }
     } catch (cause) { if (mounted.current) setError(explainError(cause)) }
     finally { end() }
   }
@@ -182,9 +206,9 @@ export default function StudyWorkspace(props: Props) {
       const citations: ToolCitation[] = response.citations.map((citation, index) => {
         const location = citation.location
         const label = location.kind === 'pdf_page' ? `Page ${location.page}` : location.kind === 'slide' ? `Slide ${location.slide}` : `${Math.floor(location.seconds / 60)}:${String(Math.floor(location.seconds % 60)).padStart(2, '0')}`
-        return { id: index + 1, chunk_id: 0, source_id: Number(citation.sourceId), title: material?.title ?? 'Source', location: label, excerpt: citation.excerpt ?? '' }
+        return { id: citation.citationNumber ?? index + 1, page: location.kind === 'pdf_page' ? location.page : null, slide: location.kind === 'slide' ? location.slide : null, seconds: location.kind === 'video_timestamp' ? location.seconds : null, chunk_id: 0, source_id: Number(citation.sourceId), title: material?.title ?? 'Source', location: label, excerpt: citation.excerpt ?? '' }
       })
-      if (mounted.current) setChats(current => ({ ...current, [sourceId]: [...(current[sourceId] ?? []), { role: 'assistant', text: response.message.content, grounded: response.groundingStatus === 'grounded', citations }] }))
+      if (mounted.current) setChats(current => ({ ...current, [sourceId]: [...(current[sourceId] ?? []), { role: 'assistant', text: response.message.content, grounded: response.groundingStatus === 'grounded', answerMode: response.answerMode, citations }] }))
     } catch (cause) { if (mounted.current) { setError(explainError(cause)); setQuestion(text) } }
     finally { end() }
   }
@@ -222,7 +246,7 @@ export default function StudyWorkspace(props: Props) {
       <div className="sw-body">
         <aside className="sw-materials"><div className="sw-material-heading"><h2>Materials</h2><button type="button" aria-label="Refresh materials" disabled={!!busy || materialsLoading} onClick={() => setReload(value => value + 1)}>↻</button></div>
           <button type="button" className="sw-add" disabled={!!busy || !courseId} onClick={() => fileInput.current?.click()}>＋ Add material</button>
-          <input ref={fileInput} type="file" hidden accept=".pdf,.docx,.ppt,.pptx,audio/*,.mp4" onChange={event => void upload(event.target.files?.[0])} />
+          <input ref={fileInput} type="file" multiple hidden accept=".pdf,.docx,.ppt,.pptx,audio/*,.mp4" onChange={event => void upload(Array.from(event.target.files ?? []))} />
           {materialsLoading && <p className="sw-muted" role="status">Loading materials…</p>}
           {materialsError && <p className="sw-error" role="alert">{materialsError}</p>}
           <label className="sw-material-search"><span className="sw-sr-only">Search materials</span><input type="search" placeholder="Search materials" value={materialSearch} onChange={event => setMaterialSearch(event.target.value)} /></label>
@@ -238,37 +262,40 @@ export default function StudyWorkspace(props: Props) {
         <main className="sw-main">
           <div className="sw-heading"><div><p className="sw-eyebrow">{tab === 'Progress' ? 'All materials in this course' : material?.title ?? 'Your study materials'}</p><h1>{tab === 'Overview' ? 'Overview' : tab === 'Tutor' ? 'Ask Aura' : tab}</h1></div>{tab !== 'Overview' && tab !== 'Progress' && <span className="sw-source-badge">{material ? 'Selected material' : 'Choose a material'}</span>}</div>
           {error && <p className="sw-error" role="alert">{error}</p>}
-          <PreparationStatus courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={() => setReload(value => value + 1)} />
+          <UploadBatchStatus entries={uploadEntries} busy={!!busy} onRetry={() => void upload(uploadEntries.filter(entry => entry.state === 'failed').map(entry => entry.file))} />
+          <PreparationStatus pendingIds={preparationIds} courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={job => { setPreparationIds(current => current.filter(id => id !== job.id)); setReload(value => value + 1) }} />
           {busy && <div className="sw-status" role="status"><span className="sw-spinner" aria-hidden="true" />{busy}</div>}
           {tab === 'Overview' && <>
+            <LearningPanel courseId={courseId} sourceId={sourceId} refreshKey={progressReload} disabled={!!busy || !sourceReady} onPractice={(mode, topic) => void startLearning(mode, topic)} />
             <section className="sw-start"><span className="sw-eyebrow">CONTINUE WITH</span><h2>{material?.title ?? 'Your first study material'}</h2><p>{material ? 'Ask a question, build revision material, or check what you know.' : 'Upload a lecture, textbook, or presentation to get started.'}</p><button className="sw-primary" type="button" disabled={!material} onClick={() => selectTab('Tutor')}>Open tutor →</button></section>
             <div className="sw-tool-grid">{(['Notes', 'Summary', 'Flashcards', 'Assessment'] as Tab[]).map(item => <button key={item} type="button" onClick={() => selectTab(item)}><strong>{item}</strong><span>{item === 'Notes' ? 'Organize key explanations' : item === 'Summary' ? 'Review the main ideas' : item === 'Flashcards' ? 'Practice active recall' : 'Test your understanding'}</span><span aria-hidden="true">↗</span></button>)}</div>
             <section className="sw-section"><h2>Recent study material</h2>{artifactsLoading ? <p className="sw-muted">Loading your saved work…</p> : artifactsError ? <p className="sw-error">{artifactsError}</p> : artifacts.length ? <div className="sw-recent">{artifacts.slice(0, 5).map(item => <button key={item.id} type="button" onClick={() => { setSelectedArtifact(item.id); selectTab(item.kind === 'assessment' ? 'Assessment' : item.kind === 'notes' ? 'Notes' : item.kind === 'summary' ? 'Summary' : 'Flashcards') }}><span>{item.kind.charAt(0).toUpperCase() + item.kind.slice(1)}</span><small>{new Date(item.created_at).toLocaleDateString()} · {item.payload.items.length} {item.kind === 'assessment' ? 'questions' : 'items'}</small><span>→</span></button>)}</div> : <p className="sw-muted">Your generated notes, cards, and assessments will appear here.</p>}</section>
             {weakTopics.length > 0 && <section className="sw-section"><h2>Suggested review</h2><p className="sw-muted">Based on your completed practice.</p>{weakTopics.slice(0, 3).map(item => <button className="sw-review" key={item.topic} type="button" onClick={() => { setFocus(item.topic); selectTab('Flashcards') }}>{item.topic}<span>Create review cards →</span></button>)}</section>}
           </>}
-          {tab === 'Tutor' && <section className="sw-tutor"><div className="sw-transcript" ref={transcript} aria-live="polite">{!entries.length && <div className="sw-chat-empty"><span>✦</span><h2>What would you like to understand?</h2><p>Ask about {material?.title ?? 'a material you select'}.</p><div>{['What is this material about?', 'Explain the main ideas'].map(prompt => <button key={prompt} type="button" onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div>}{entries.map((entry, index) => <article key={index} className={`sw-chat-entry ${entry.role}`}><strong>{entry.role === 'user' ? 'You' : '✦ Aura'}</strong><p>{entry.text}</p>{entry.role === 'assistant' && <><span className="sw-grounding">{entry.grounded ? 'Source checked' : 'Contains unverified content — see answer label'}</span>{entry.citations?.length ? <SourceButtons ids={entry.citations.map(c => c.id)} citations={entry.citations} onOpen={setOpenCitation} /> : null}</>}</article>)}</div><form className="sw-composer" onSubmit={event => { event.preventDefault(); void send() }}><label className="sw-sr-only" htmlFor="sw-question">Ask Aura a question</label><textarea id="sw-question" rows={2} onKeyDown={event => {
+          {tab === 'Tutor' && <><section className="sw-tutor"><div className="sw-transcript" ref={transcript} aria-live="polite">{!entries.length && <div className="sw-chat-empty"><span>✦</span><h2>What would you like to understand?</h2><p>Ask about {material?.title ?? 'a material you select'}.</p><div>{['What is this material about?', 'Explain the main ideas'].map(prompt => <button key={prompt} type="button" onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div>}{entries.map((entry, index) => <article key={index} className={`sw-chat-entry ${entry.role}`}><strong>{entry.role === 'user' ? 'You' : '✦ Aura'}</strong><p>{entry.text}</p>{entry.role === 'assistant' && <><span className="sw-grounding">{entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : entry.grounded ? 'Source checked' : 'Contains unverified content — see answer label'}</span>{entry.citations?.length ? <SourceButtons ids={citedNumbers(entry.text)} citations={entry.citations} onOpen={setOpenCitation} /> : null}</>}</article>)}</div><form className="sw-composer" onSubmit={event => { event.preventDefault(); void send() }}><label className="sw-sr-only" htmlFor="sw-question">Ask Aura a question</label><textarea id="sw-question" rows={2} onKeyDown={event => {
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
                 event.preventDefault()
                 void send()
               }
-            }} value={question} disabled={!sourceId || !!busy} onChange={event => setQuestion(event.target.value)} placeholder={sourceId ? 'Ask a question about this material…' : 'Select or add a material first'} /><button className="sw-primary" type="submit" disabled={!sourceReady || !question.trim() || !!busy}>Send ↑</button></form></section>}
+            }} value={question} disabled={!sourceId || !!busy} onChange={event => setQuestion(event.target.value)} placeholder={sourceId ? 'Ask a question about this material…' : 'Select or add a material first'} /><button className="sw-primary" type="submit" disabled={!sourceReady || !question.trim() || !!busy}>Send ↑</button></form></section><TutorCheck key={`${courseId}:${sourceId}`} courseId={courseId} sourceId={sourceId} disabled={!!busy || !sourceReady} onUpdated={() => { setProgressReload(value => value + 1); setReload(value => value + 1) }} onOpen={setOpenCitation} /></>}
           {kind && <>
-            <form className="sw-generation" onSubmit={event => { event.preventDefault(); void generate() }}><label className="sw-focus">Focus <span>(optional)</span><input value={focus} maxLength={180} onChange={event => setFocus(event.target.value)} placeholder="e.g. cytoskeleton functions" disabled={!!busy} /></label>{kind !== 'summary' && <label>{kind === 'assessment' ? 'Questions' : 'Items'}<select value={count} disabled={!!busy} onChange={event => setCount(Number(event.target.value))}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}{kind === 'assessment' && <><label>Format<select value={questionType} disabled={!!busy} onChange={event => setQuestionType(event.target.value)}><option value="mcq">Multiple choice</option><option value="short_answer">Short answer</option></select></label><label>Difficulty<select value={difficulty} disabled={!!busy} onChange={event => setDifficulty(event.target.value)}>{['beginner', 'intermediate', 'advanced'].map(value => <option key={value} value={value}>{value}</option>)}</select></label></>}<button className="sw-primary" disabled={!sourceReady || !!busy || artifactsLoading || !!artifactsError} type="submit">{active ? 'Generate new' : 'Generate'}</button></form>
+            <form className="sw-generation" onSubmit={event => { event.preventDefault(); void generate() }}><label className="sw-focus">Focus <span>(optional)</span><input value={focus} maxLength={180} onChange={event => setFocus(event.target.value)} placeholder="e.g. cytoskeleton functions" disabled={!!busy} /></label>{kind !== 'summary' && <label>{kind === 'assessment' ? 'Questions' : 'Items'}<select value={count} disabled={!!busy} onChange={event => setCount(Number(event.target.value))}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}{kind === 'assessment' && <><label>Format<select value={questionType} disabled={!!busy} onChange={event => setQuestionType(event.target.value)}><option value="mcq">Multiple choice</option><option value="short_answer">Short answer</option><option value="numerical">Numerical (with units)</option></select></label><label>Practice mode<select value={learningMode} disabled={!!busy} onChange={event => setLearningMode(event.target.value as LearningMode)}><option value="adaptive">Adapt to my understanding</option><option value="diagnostic">Starting-point diagnostic</option><option value="manual">Choose difficulty myself</option></select></label>{learningMode === 'manual' && <label>Difficulty<select value={difficulty} disabled={!!busy} onChange={event => setDifficulty(event.target.value)}>{['beginner', 'intermediate', 'advanced'].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}</>}<button className="sw-primary" disabled={!sourceReady || !!busy || artifactsLoading || !!artifactsError} type="submit">{active ? 'Generate new' : 'Generate'}</button></form>
             {artifactsError && <p className="sw-error" role="alert">{artifactsError} <button type="button" onClick={() => setReload(value => value + 1)}>Retry</button></p>}
             {artifactsLoading ? <p className="sw-muted" role="status">Loading saved work…</p> : !active ? <div className="sw-empty"><span>{tab === 'Assessment' ? '✓' : '▤'}</span><h2>{sourceId ? `Create your first ${tab.toLowerCase()}` : 'Choose a material first'}</h2><p>{sourceId ? 'Aura will generate content from selected passages and check its sources before saving.' : 'Select a file from the materials list or upload one.'}</p></div> : <>
               <div className="sw-output-toolbar"><label>Saved version<select aria-label="Saved version" value={active.id} disabled={!!busy} onChange={event => { setSelectedArtifact(event.target.value); setFlipped({}) }}>{available.map(item => <option key={item.id} value={item.id}>{new Date(item.created_at).toLocaleString()}{item.payload.focus ? ` · ${item.payload.focus}` : ''}</option>)}</select></label>{kind !== 'assessment' && <button type="button" onClick={exportTool}>Export text ↓</button>}</div>
+              {kind === 'assessment' && active.payload.learning && <p className="sw-status" role="status">{active.payload.learning.mode === 'diagnostic' ? 'Diagnostic' : active.payload.learning.mode === 'adaptive' ? 'Adaptive practice' : 'Practice'}: {active.payload.learning.reason}{active.payload.learning.difficulty ? ` Suggested difficulty: ${active.payload.learning.difficulty}.` : ''}</p>}
               <p className="sw-coverage">Based on {active.payload.coverage.selected_passages} selected passages from this material. Sources are model checked.</p>
               {active.payload.notice && <p className="sw-status" role="status">{active.payload.notice}</p>}
               {(kind === 'notes' || kind === 'summary') && <div className="sw-reading">{active.payload.items.map(item => <article key={item.id}><h2>{item.title}</h2><p>{item.text}</p><SourceButtons ids={item.citation_ids} citations={active.payload.citations} onOpen={setOpenCitation} /></article>)}</div>}
               {kind === 'flashcards' && <div className="sw-flashcards">{active.payload.items.map((item, index) => <article key={item.id}><span className="sw-eyebrow">CARD {index + 1} OF {active.payload.items.length}</span><h2>{item.question}</h2><button className="sw-reveal" type="button" aria-expanded={!!flipped[item.id]} onClick={() => setFlipped(current => ({ ...current, [item.id]: !current[item.id] }))}>{flipped[item.id] ? 'Hide answer' : 'Reveal answer'}</button>{flipped[item.id] && <div className="sw-card-answer"><p>{item.answer}</p><SourceButtons ids={item.citation_ids} citations={active.payload.citations} onOpen={setOpenCitation} /></div>}</article>)}</div>}
-              {kind === 'assessment' && (!active.result ? <form className="sw-assessment" onSubmit={event => void submit(event)}>{active.payload.items.map((item, index) => <fieldset key={item.id} disabled={!!busy}><legend><small>QUESTION {index + 1} · {item.difficulty} · {item.topic}</small>{item.prompt}</legend>{item.kind === 'mcq' ? item.choices?.map(choice => <label key={choice.id} className={draftAnswers[item.id] === choice.id ? 'is-chosen' : ''}><input type="radio" name={item.id} value={choice.id} required checked={draftAnswers[item.id] === choice.id} onChange={() => setAnswers(current => ({ ...current, [active.id]: { ...draftAnswers, [item.id]: choice.id } }))} /><span>{choice.id}</span>{choice.text}</label>) : <textarea aria-label={`Answer question ${index + 1}`} required rows={3} maxLength={3000} value={draftAnswers[item.id] ?? ''} onChange={event => setAnswers(current => ({ ...current, [active.id]: { ...draftAnswers, [item.id]: event.target.value } }))} />}<SourceButtons ids={item.citation_ids} citations={active.payload.citations} onOpen={setOpenCitation} /></fieldset>)}<button className="sw-primary" type="submit" disabled={!!busy || active.payload.items.some(item => !draftAnswers[item.id]?.trim())}>Submit assessment</button></form> : <section className="sw-report"><div className="sw-report-heading"><div><span className="sw-eyebrow">ASSESSMENT COMPLETE</span><h2>{active.result.correct_count} of {active.result.question_count} correct</h2></div><strong>{active.result.score}%</strong></div><p>{active.result.recommended_action}</p>{active.result.feedback.map((item, index) => <article key={item.question_id}><small className={item.correct ? 'sw-correct' : 'sw-incorrect'}>{item.correct ? 'Correct' : 'Review this'} · QUESTION {index + 1}</small><h3>{item.prompt}</h3><p><strong>Your answer:</strong> {item.submitted_answer}</p><p><strong>Expected answer:</strong> {item.expected_answer}</p><p>{item.explanation}</p><SourceButtons ids={item.citation_ids} citations={active.payload.citations} onOpen={setOpenCitation} /><button type="button" className="sw-link" onClick={() => { setFocus(item.topic); selectTab('Flashcards') }}>Review {item.topic} →</button></article>)}</section>)}
+              {kind === 'assessment' && (!active.result ? <form className="sw-assessment" onSubmit={event => void submit(event)}>{active.payload.items.map((item, index) => <fieldset key={item.id} disabled={!!busy}><legend><small>QUESTION {index + 1} · {item.difficulty} · {item.topic}</small>{item.prompt}</legend>{item.kind === 'mcq' ? item.choices?.map(choice => <label key={choice.id} className={draftAnswers[item.id] === choice.id ? 'is-chosen' : ''}><input type="radio" name={item.id} value={choice.id} required checked={draftAnswers[item.id] === choice.id} onChange={() => setAnswers(current => ({ ...current, [active.id]: { ...draftAnswers, [item.id]: choice.id } }))} /><span>{choice.id}</span>{choice.text}</label>) : <textarea aria-label={`Answer question ${index + 1}`} required rows={3} placeholder={item.kind === 'numerical' ? 'Enter a number and unit, e.g. 12 cm/s' : 'Explain your answer'} maxLength={3000} value={draftAnswers[item.id] ?? ''} onChange={event => setAnswers(current => ({ ...current, [active.id]: { ...draftAnswers, [item.id]: event.target.value } }))} />}<SourceButtons ids={item.citation_ids} citations={active.payload.citations} onOpen={setOpenCitation} /></fieldset>)}<button className="sw-primary" type="submit" disabled={!!busy || active.payload.items.some(item => !draftAnswers[item.id]?.trim())}>Submit assessment</button></form> : <section className="sw-report"><div className="sw-report-heading"><div><span className="sw-eyebrow">ASSESSMENT COMPLETE</span><h2>{active.result.correct_count} of {active.result.question_count} correct</h2></div><strong>{active.result.score}%</strong></div><p>{active.result.recommended_action}</p>{Boolean(active.result.mastery_updates?.length) && <p className="sw-status">Your topic mastery estimates were updated. <button type="button" onClick={() => selectTab('Progress')}>View understanding and next practice →</button></p>}{active.result.feedback.map((item, index) => <article key={item.question_id}><small className={item.correct ? 'sw-correct' : 'sw-incorrect'}>{item.correct ? 'Correct' : 'Review this'} · QUESTION {index + 1}</small><h3>{item.prompt}</h3><p><strong>Your answer:</strong> {item.submitted_answer}</p><p><strong>Expected answer:</strong> {item.expected_answer}</p><p>{item.explanation}</p>{item.numerical_feedback && <p>{item.numerical_feedback.hint}</p>}{item.misconception && <aside className="sw-status"><strong>Possible misconception: {item.misconception.category.replaceAll('_', ' ')}</strong><p>{item.misconception.hint}</p>{item.misconception.student_quote && <p>Your response: “{item.misconception.student_quote}”</p>}{item.misconception.source_quote && <p>Source evidence: “{item.misconception.source_quote}”</p>}<small>This is a feedback hypothesis from this answer, not a confirmed diagnosis.</small></aside>}<SourceButtons ids={item.citation_ids} citations={active.payload.citations} onOpen={setOpenCitation} /><button type="button" className="sw-link" onClick={() => { setFocus(item.topic); selectTab('Flashcards') }}>Review {item.topic} →</button></article>)}</section>)}
             </>}
           </>}
-          {tab === 'Progress' && <section className="sw-progress">{progressError ? <p className="sw-error" role="alert">{progressError} <button type="button" onClick={() => setProgressReload(value => value + 1)}>Retry</button></p> : !progress ? <p role="status">Loading progress…</p> : <ProgressDashboard progress={progress} onPractice={() => selectTab('Assessment')} />}</section>}
+          {tab === 'Progress' && <section className="sw-progress"><LearningPanel courseId={courseId} sourceId={sourceId} refreshKey={progressReload} disabled={!!busy || !sourceReady} onPractice={(mode, topic) => void startLearning(mode, topic)} />{progressError ? <p className="sw-error" role="alert">{progressError} <button type="button" onClick={() => setProgressReload(value => value + 1)}>Retry</button></p> : !progress ? <p role="status">Loading progress…</p> : <ProgressDashboard progress={progress} onPractice={() => selectTab('Assessment')} />}</section>}
         </main>
       </div>
     </div>
-    <dialog ref={citationDialog} className="sw-source-dialog" onCancel={() => setOpenCitation(null)}><header><div><p className="sw-eyebrow">SOURCE EXCERPT</p><h2>{openCitation?.title}</h2><span>{openCitation?.location}</span></div><button type="button" aria-label="Close source excerpt" onClick={() => setOpenCitation(null)}>×</button></header><p>{openCitation?.excerpt || 'No excerpt is available for this source.'}</p><small>Extracted text from this location; this is not a full document preview.</small></dialog>
+    <SourceViewer citation={openCitation} onClose={() => setOpenCitation(null)} />
   </div>
 }
 

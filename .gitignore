@@ -41,14 +41,7 @@ Thumbs.db
 *.key
 .vercel
 
-.venv/
-node_modules/
-dist/
-__pycache__/
 *.pyc
-.env
-.env.*
-!.env.example
 backend/uploads/
 # Review packages and development reports
 *.zip
@@ -73,3 +66,12 @@ test_*.py
 /requirements-multimodal.txt
 /CONTRIBUTING.md
 /INGESTION.md
+
+/aura-update-backups/
+
+# Local runtime files and update packages
+.venv*/
+node_modules
+.ruff_cache/
+/Aura*Update*/
+/evaluation/results/live_responses.json

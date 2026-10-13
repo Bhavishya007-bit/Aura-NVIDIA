@@ -175,6 +175,7 @@ export async function askTutor(
     sources?: BackendSource[]
     citation_validation?: {
       valid?: boolean
+      stage?: string
     }
   }
   const response = await requestApi(
@@ -231,6 +232,7 @@ export async function askTutor(
       }
       return {
         id: `source-${source.source_id}-${source.chunk_id}-${index}`,
+        citationNumber: index + 1,
         materialId: String(source.source_id),
         sourceId: String(source.source_id),
         location,
@@ -255,6 +257,7 @@ export async function askTutor(
     },
     citations,
     groundingStatus,
+    answerMode: response.citation_validation?.stage === 'source_plus_background' ? 'source_plus_background' : response.citation_validation?.stage === 'general_background' ? 'general_background' : response.citation_validation?.valid === true ? 'source' : undefined,
   }
 }
 export async function getStudyToolContent(

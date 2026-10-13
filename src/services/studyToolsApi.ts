@@ -1,19 +1,24 @@
 import { requestApi, requireRecord, ApiResponseError } from './apiClient'
 
+export type LearningMode = 'manual' | 'adaptive' | 'diagnostic' | 'conversation'
+export type MasteryTopic = { topic: string; mastery: number; evidence_count: number; correct_count: number; difficulty: string; limited_evidence: boolean; updated_at: string }
+export type LearningProfile = { model: string; topics: MasteryTopic[]; diagnostic_recommended: boolean; notice: string }
+export type LearningPlan = { mode: LearningMode; reason: string; difficulty?: string; target_topic?: string | null; evidence_count?: number }
 export type ToolKind = 'notes' | 'summary' | 'flashcards' | 'assessment'
 export type Material = { id: string; title: string; type: string; status: string; archived?: boolean }
-export type ToolCitation = { id: number; chunk_id: number; source_id: number; title: string; location: string; excerpt: string }
+export type ToolCitation = { id: number; chunk_id: number; source_id: number; title: string; location: string; excerpt: string; page?: number | null; slide?: number | null; seconds?: number | null; referenceIds?: number[] }
 export type ToolItem = {
   id: string; title?: string; text?: string; question?: string; answer?: string
-  prompt?: string; kind?: 'mcq' | 'short_answer'; topic?: string; difficulty?: string
+  prompt?: string; kind?: 'mcq' | 'short_answer' | 'numerical'; topic?: string; difficulty?: string
   choices?: Array<{ id: string; text: string }>; citation_ids: number[]
 }
-export type AssessmentFeedback = { question_id: string; prompt: string; correct: boolean; submitted_answer: string; expected_answer: string; explanation: string; topic: string; citation_ids: number[] }
+export type Misconception = { category: string; status: 'possible'; hint: string; method: string; student_quote?: string; source_quote?: string; citation_ids: number[] }
+export type AssessmentFeedback = { question_id: string; prompt: string; correct: boolean; submitted_answer: string; expected_answer: string; explanation: string; topic: string; citation_ids: number[]; misconception?: Misconception; numerical_feedback?: { hint: string; converted_answer?: number } }
 export type TopicPerformance = { topic: string; score: number; correct: number; total: number }
-export type AssessmentReport = { score: number; question_count: number; correct_count: number; feedback: AssessmentFeedback[]; topics: TopicPerformance[]; recommended_action: string; completed_at?: string }
-export type Artifact = { id: string; kind: ToolKind; created_at: string; result: AssessmentReport | null; payload: { source_id: number; course_id: number; source_title: string; focus: string; items: ToolItem[]; citations: ToolCitation[]; coverage: { selected_passages: number; available_passages: number }; fulfillment?: { requested: number; created: number; partial: boolean }; notice?: string } }
+export type AssessmentReport = { score: number; question_count: number; correct_count: number; feedback: AssessmentFeedback[]; topics: TopicPerformance[]; recommended_action: string; completed_at?: string; mastery_updates?: Array<{ topic: string; before: number; after: number; evidence_count: number }>; learning_mode?: LearningMode }
+export type Artifact = { id: string; kind: ToolKind; created_at: string; result: AssessmentReport | null; payload: { source_id: number; course_id: number; source_title: string; focus: string; items: ToolItem[]; citations: ToolCitation[]; coverage: { selected_passages: number; available_passages: number }; fulfillment?: { requested: number; created: number; partial: boolean }; notice?: string; learning?: LearningPlan } }
 export type ScorePoint = { score: number; question_count: number; correct_count: number; completed_at?: string | null }
-export type PracticeProgress = { correct_count?: number; score_history?: ScorePoint[]; assessment_count: number; question_count: number; topics: TopicPerformance[]; recent_results: AssessmentReport[] }
+export type PracticeProgress = { learning?: LearningProfile; correct_count?: number; score_history?: ScorePoint[]; assessment_count: number; question_count: number; topics: TopicPerformance[]; recent_results: AssessmentReport[] }
 
 function invalid(resource: string): never { throw new ApiResponseError(`Aura returned an invalid ${resource} response.`) }
 function artifact(value: unknown): Artifact {
@@ -56,9 +61,9 @@ export async function listArtifacts(courseId: string, sourceId: string): Promise
     return data.artifacts.map(artifact)
   })
 }
-export async function generateTool(courseId: string, sourceId: string, kind: ToolKind, settings: { count: number; focus: string; difficulty: string; questionType: string }): Promise<Artifact> {
+export async function generateTool(courseId: string, sourceId: string, kind: ToolKind, settings: { count: number; focus: string; difficulty: string; questionType: string; learningMode?: LearningMode }): Promise<Artifact> {
   return requestApi('study/tools', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ course_id: Number(courseId), source_id: Number(sourceId), kind, count: settings.count, focus: settings.focus, difficulty: settings.difficulty, question_type: settings.questionType }) }, artifact)
+    body: JSON.stringify({ course_id: Number(courseId), source_id: Number(sourceId), kind, count: settings.count, focus: settings.focus, difficulty: settings.difficulty, question_type: settings.questionType, learning_mode: settings.learningMode ?? 'manual' }) }, artifact)
 }
 export async function submitAssessment(id: string, answers: Record<string, string>): Promise<AssessmentReport> {
   return requestApi(`study/assessments/${encodeURIComponent(id)}/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -79,5 +84,18 @@ export async function setMaterialArchived(courseId: string, sourceId: string, ar
   }, value => {
     const data = requireRecord(value, 'material visibility')
     if (data.source_id !== Number(sourceId) || data.archived !== archived) invalid('material visibility')
+  })
+}
+
+export async function getLearningProfile(courseId: string, sourceId?: string): Promise<LearningProfile> {
+  const source = sourceId ? `&source_id=${encodeURIComponent(sourceId)}` : ''
+  return requestApi(`study/learning?course_id=${encodeURIComponent(courseId)}${source}`, { method: 'GET' }, value => {
+    const data = requireRecord(value, 'learning profile')
+    if (!Array.isArray(data.topics) || typeof data.diagnostic_recommended !== 'boolean' || typeof data.notice !== 'string') invalid('learning profile')
+    for (const value of data.topics) {
+      const row = requireRecord(value, 'mastery topic')
+      if (typeof row.topic !== 'string' || typeof row.mastery !== 'number' || !Number.isFinite(row.mastery) || row.mastery < 0 || row.mastery > 1 || typeof row.evidence_count !== 'number') invalid('mastery topic')
+    }
+    return data as unknown as LearningProfile
   })
 }

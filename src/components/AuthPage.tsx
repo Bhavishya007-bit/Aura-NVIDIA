@@ -78,7 +78,7 @@ export default function AuthPage({ mode, theme, onSuccess, initialError, onNavig
       <a className="brand auth-brand" href="/" onClick={event => { event.preventDefault(); if (!busy) onNavigate('/') }}>
         <span className="brand-mark">A.</span><span>Aura</span>
       </a>
-      <p className="auth-eyebrow">{isSignup ? 'START LEARNING' : 'WELCOME BACK'}</p>
+      <p className="auth-eyebrow">{isSignup ? 'START LEARNING' : 'YOUR STUDY WORKSPACE'}</p>
       <h1 id="auth-title">{isSignup ? 'Create your account' : 'Welcome back'}</h1>
       <p className="auth-description">{registered ? 'Account created. Sign in to continue.' : isSignup ? 'Bring your learning materials and progress together.' : 'Sign in to continue to your study workspace.'}</p>
       <form className="auth-form" onSubmit={event => void submit(event)} noValidate aria-busy={busy}>

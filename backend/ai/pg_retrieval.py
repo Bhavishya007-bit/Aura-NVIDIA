@@ -7,6 +7,7 @@ import psycopg2
 
 from backend.ai.embeddings import EmbeddingModel, get_embedding_model, LEGACY_MODEL
 from backend.ai.models import Chunk, RetrievedChunk
+from backend.ai.grounded_expansion import topic_terms
 
 load_dotenv("backend/.env")
 
@@ -157,6 +158,48 @@ class PostgresRetriever:
                     topic=row[9],
                 )
                 results.append(RetrievedChunk(chunk=chunk, score=float(row[10])))
+            return results
+        finally:
+            connection.close()
+
+    def concept_context(self, query: str, course_id: int, source_id: int,
+                        owner_student_id: int, limit: int = 6) -> list[RetrievedChunk]:
+        """Literal concept matches plus nearby locations, within the owned file."""
+        terms = topic_terms(query)
+        if not terms or not course_id or not source_id or not owner_student_id:
+            return []
+        connection = self._get_connection()
+        try:
+            with connection.cursor() as cursor:
+                fields = """chunks.chunk_id,chunks.source_id,sources.source_name,sources.source_type,
+                            chunks.content,chunks.page_number,chunks.slide_number,chunks.timestamp_seconds,
+                            chunks.timestamp_end,topics.topic_name"""
+                base = """ FROM chunks JOIN sources ON chunks.source_id=sources.source_id
+                          JOIN courses ON courses.course_id=sources.course_id
+                          LEFT JOIN topics ON topics.topic_id=chunks.topic_id
+                          WHERE sources.course_id=%s AND sources.source_id=%s
+                          AND sources.owner_student_id=%s AND courses.owner_student_id=%s
+                          AND chunks.content IS NOT NULL AND btrim(chunks.content)<>''"""
+                scope = (course_id, source_id, owner_student_id, owner_student_id)
+                cursor.execute("SELECT " + fields + base + " AND chunks.content ILIKE ANY(%s) ORDER BY length(chunks.content) DESC,chunks.chunk_id LIMIT %s",
+                               (*scope, ['%' + term + '%' for term in terms], min(4, limit)))
+                hits = cursor.fetchall()
+                pages = sorted({row[5] + offset for row in hits if row[5] is not None for offset in (-1, 0, 1) if row[5] + offset > 0})
+                slides = sorted({row[6] + offset for row in hits if row[6] is not None for offset in (-1, 0, 1) if row[6] + offset > 0})
+                nearby = []
+                if hits and (pages or slides):
+                    cursor.execute("SELECT " + fields + base + " AND (chunks.page_number=ANY(%s) OR chunks.slide_number=ANY(%s)) ORDER BY length(chunks.content) DESC,chunks.chunk_id LIMIT %s",
+                                   (*scope, pages, slides, 6))
+                    nearby = cursor.fetchall()
+            results, seen = [], set()
+            for row in hits + nearby:
+                key = ' '.join(row[4].casefold().split())
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append(RetrievedChunk(chunk=Chunk(chunk_id=str(row[0]),source_id=row[1],source_name=row[2],source_type=row[3],content=row[4],page=row[5],slide=row[6],timestamp_start=row[7],timestamp_end=row[8],topic=row[9]),score=0.0))
+                if len(results) >= limit:
+                    break
             return results
         finally:
             connection.close()

@@ -1,0 +1,4 @@
+# Optional evaluation environment; keep separate from Aura's application .venv.
+ragas==0.2.15
+langchain-ollama==0.2.3
+requests>=2.32,<3

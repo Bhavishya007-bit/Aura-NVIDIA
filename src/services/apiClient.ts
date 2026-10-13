@@ -86,3 +86,22 @@ async function readErrorMessage(response: Response): Promise<string> {
   }
   return `Aura API request failed (HTTP ${response.status}).`
 }
+
+/** Binary previews use the same account token and 401 handling as JSON requests. */
+export async function requestApiBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  const url = `${API_BASE_URL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
+  const headers = new Headers()
+  const token = await authTokenProvider()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  let response: Response
+  try { response = await fetch(url, { method: 'GET', headers, signal }) }
+  catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ApiUnavailableError(`Could not reach the Aura API at ${API_BASE_URL}.`)
+  }
+  if (!response.ok) {
+    if (response.status === 401 && token) unauthorizedHandler(token)
+    throw new ApiHttpError(response.status, await readErrorMessage(response))
+  }
+  return response.blob()
+}

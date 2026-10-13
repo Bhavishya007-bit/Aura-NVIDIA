@@ -31,14 +31,40 @@ function decodeJob(value: unknown): PreparationJob {
   return row as unknown as PreparationJob
 }
 
-export async function startPreparation(courseId: string, file: File): Promise<PreparationJob> {
+export async function startPreparation(courseId: string, file: File, signal?: AbortSignal): Promise<PreparationJob> {
   const form = new FormData()
   form.append('file', file, file.name)
-  return requestApi(`courses/${encodeURIComponent(courseId)}/preparation-jobs`, { method: 'POST', body: form }, value => {
+  return requestApi(`courses/${encodeURIComponent(courseId)}/preparation-jobs`, { method: 'POST', body: form, signal }, value => {
     const job = decodeJob(value)
     if (String(job.course_id) !== courseId) throw new ApiResponseError('Preparation belongs to a different workspace.')
     return job
   })
+}
+
+export type UploadEntry = { file: File; state: 'waiting' | 'uploading' | 'queued' | 'failed'; error?: string; job?: PreparationJob }
+export async function queueMaterials(courseId: string, files: File[], onUpdate: (entries: UploadEntry[]) => void, onQueued: (job: PreparationJob, first: boolean) => void, signal?: AbortSignal): Promise<UploadEntry[]> {
+  if (!files.length || files.length > 5) throw new Error('Choose between 1 and 5 files per batch.')
+  const entries: UploadEntry[] = files.map(file => ({ file, state: 'waiting' }))
+  const emit = () => { if (!signal?.aborted) onUpdate(entries.map(entry => ({ ...entry }))) }
+  let first = true
+  emit()
+  for (const entry of entries) {
+    if (signal?.aborted) break
+    try {
+      if (!/\.(pdf|docx|ppt|pptx|mp4|mp3|wav|m4a|ogg|flac|aac|mpeg|mpga)$/i.test(entry.file.name)) throw new Error('Unsupported file type. Choose a PDF, DOCX, presentation, supported audio file or MP4.')
+      if (entry.file.size === 0) throw new Error('This file is empty.')
+      if (entry.file.size > 100 * 1024 * 1024) throw new Error('This file exceeds 100 MiB.')
+      entry.state = 'uploading'; emit()
+      const job = await startPreparation(courseId, entry.file, signal)
+      if (signal?.aborted) break
+      entry.state = 'queued'; entry.job = job; onQueued(job, first); first = false
+    } catch (cause) {
+      if (signal?.aborted) break
+      entry.state = 'failed'; entry.error = cause instanceof Error ? cause.message : 'Could not upload this file.'
+    }
+    emit()
+  }
+  return entries
 }
 
 export async function listPreparation(courseId: string): Promise<PreparationJob[]> {

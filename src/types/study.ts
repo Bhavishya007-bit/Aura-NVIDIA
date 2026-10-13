@@ -22,6 +22,7 @@ export interface StudyMaterial {
 
 export interface Citation {
   id: string
+  citationNumber?: number
   materialId: string
   sourceId: string
   location: SourceLocation
@@ -81,6 +82,7 @@ export interface TutorRequest {
 }
 
 export interface TutorResponse {
+  answerMode?: 'source' | 'source_plus_background' | 'general_background'
   message: ChatMessage
   citations: Citation[]
   groundingStatus: 'grounded' | 'partially_covered' | 'not_covered' | 'unavailable'
