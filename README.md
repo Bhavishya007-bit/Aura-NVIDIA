@@ -158,6 +158,37 @@ select CPU. On Linux use the matching PyTorch selector and `.venv/bin/python`.
 Keep Ollama running. If needed, run `ollama serve` in another terminal. If its
 port is already occupied, the service may already be running.
 
+### Gemma 3 4B — required for figure interpretation
+
+Ollama runs the local models. The existing `qwen2.5:3b` model handles text
+tutoring; **Gemma 3 4B** is the separate image-capable model used for figures,
+diagrams and optional visual interpretation of new JPEG/PNG materials.
+Gemma reads images and generates text explanations; it does not generate images.
+
+Install and configure it from the repository root:
+
+```powershell
+ollama pull gemma3:4b
+powershell -ExecutionPolicy Bypass -File scripts/configure_vision.ps1 -Model "gemma3:4b"
+```
+
+The configuration script sets `OLLAMA_VISION_MODEL=gemma3:4b` in the existing
+`backend/.env` and backs up the previous file. It preserves the text model,
+embedding settings and database credentials. Restart the backend after changing
+this setting. Use a version of Ollama supporting Gemma 3 (0.6 or later).
+
+To try it, click a citation, open its original page/slide/image, and expand
+**Explain this figure or diagram**. Ask about visible arrows, labels or axes.
+Gemma runs for this action and optional image-upload interpretation; it does
+not automatically replace the ordinary text tutor. Text-based features can run
+without configuring the vision model. Images without readable OCR text may need
+vision configuration and a preparation retry to become searchable.
+
+CPU inference is possible but can be slow. Ollama manages model placement
+separately from the embedding device configuration. Visual interpretation uses
+two model calls and can take several minutes. Small labels, dense diagrams and
+model interpretations require comparison with the original image.
+
 ## 4. Start a fresh database — choose ONE option
 
 ### Option A: Docker database (recommended for a new judge laptop)
@@ -175,7 +206,7 @@ locally, and defaults to host port **5433** to avoid an existing PostgreSQL on
 5432. The named Docker volume keeps database data between restarts.
 
 `init_database.py` creates the base schema plus authentication, private workspace,
-study tool and archive-preference tables in one transaction. It refuses to
+study tool, archive-preference and learner-evidence tables in one transaction. It refuses to
 initialize a nonempty database and does not delete existing records.
 
 For later sessions, start the same database container; do not initialize again.
@@ -280,12 +311,16 @@ LibreOffice installation paths; `LIBREOFFICE_PATH` can override it.
   scoped to the account; it is not a cross-device synchronized chat history.
 - Generated content is checked against available passages; requests may return
   fewer verified items than requested. Local-model checks are fallible.
-- Progress currently reports assessment performance. It is not evidence of
-  measured learning gain or a fully evaluated conversation-driven learner model.
-- Legacy learner-model/adaptive modules remain in the repository, but their
-  presence does not imply the current UI implements all Triad B requirements.
-- No RAGAS/DeepEval/TruLens benchmark results or simulated mastery gains are
-  claimed in this package. Those require a separately executed evaluation set.
+- Progress reports assessment performance and estimated per-topic mastery.
+  Source-graded quizzes and Check my understanding replies update the persistent
+  learner model. Reading explanations alone does not update mastery. Fixed BKT
+  parameters are prototype assumptions, not measured human learning gains.
+- Numerical practice, diagnostic/adaptive assessment and possible misconception
+  feedback are implemented with the limits described below. This does not by
+  itself establish that every Track D requirement has been fully validated.
+- Seeded synthetic student-policy simulation results are included. They do not
+  demonstrate human learning gains or benchmark the live question generator.
+  Live RAGAS scores require running the separate evaluation workflow below.
 - Authentication tokens expire after 30 minutes. Refresh restores the session
   while its token remains valid. Logout-token revocation is process-local.
 
@@ -325,6 +360,8 @@ Measure extraction and indexing timings on your own laptop.
 | `.ppt` conversion unavailable | Install LibreOffice or use `.pptx` |
 | Very slow first upload | Model downloads, OCR and CPU embeddings can take time; preload and use a shorter deck |
 | Summary says it cannot verify | Check that the selected material is ready and its extracted text supports the request |
+| Figure action asks for a vision model | Install `gemma3:4b`, run `scripts/configure_vision.ps1`, and restart the backend |
+| JPEG/PNG has no readable content | Configure the vision model for a text-free diagram/photo and retry preparation; inspect OCR/vision limitations |
 | UI still shows an old answer | Ask a new question; saved messages are not rewritten by backend updates |
 | Preview still shows old UI | Stop preview, run `npm run build`, restart preview and refresh |
 
@@ -435,6 +472,52 @@ the collector and scorer on your own uploaded material. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md). The demonstration video still needs
 to be recorded and uploaded.
+
+## Run optional live evaluation
+
+Application Python packages belong in the root `requirements.txt`; optional
+RAGAS evaluation packages belong in `evaluation/requirements.txt`. Frontend
+packages are installed through `npm ci`. Ollama models, PostgreSQL/pgvector and
+LibreOffice are separate installations rather than pip dependencies.
+
+Upload `evaluation/demo_material.pdf` as a new material. Replace the two ID
+placeholders below with its actual course and source IDs, then collect responses
+from the running local backend:
+
+```powershell
+.\.venv\Scripts\python.exe evaluation/collect_live.py --course-id YOUR_COURSE_ID --source-id YOUR_DEMO_SOURCE_ID
+```
+
+The collector asks for your Aura account email and a hidden password unless an
+`AURA_BENCHMARK_TOKEN` is supplied. It saves responses and source-location metrics
+in `evaluation/results/live_responses.json`, which is ignored by Git because
+responses may contain private material. The default test set is a small fixture;
+add manually annotated questions from your actual course for a meaningful report.
+
+Install pinned evaluation dependencies in a separate environment and score the
+collected responses with local Ollama models:
+
+```powershell
+.\.venv\Scripts\python.exe -m venv .venv-eval
+.\.venv-eval\Scripts\python.exe -m pip install -r evaluation/requirements.txt
+ollama pull nomic-embed-text
+.\.venv-eval\Scripts\python.exe evaluation/score_ragas.py --judge gemma3:4b --embedding-model nomic-embed-text
+```
+
+This uses `gemma3:4b` as the optional evaluation judge, separately from its
+vision role in the app. The scoring script writes faithfulness, answer relevancy,
+context precision/recall and failure counts to `evaluation/results/ragas_metrics.json`.
+Null scores indicate failed metric evaluation; they are not fabricated successes.
+Local model-judged scores require review and can take time on CPU.
+
+To reproduce the included synthetic policy simulation:
+
+```powershell
+.\.venv\Scripts\python.exe evaluation/simulate_students.py --seed 42 --students 60 --sessions 8
+```
+
+Live model validation and the actual 3–10 minute YouTube demonstration remain
+separate completion steps. See the evaluation and demonstration documentation.
 
 ## English answer quality and evidence limits
 
