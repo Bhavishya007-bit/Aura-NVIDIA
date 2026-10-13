@@ -4,6 +4,7 @@ from .docx import ingest_docx
 from .pdf import ingest_pdf
 from .pptx import ingest_pptx
 from .video import ingest_video
+from .image import ingest_image
 
 from .utils import (
     get_file_type,
@@ -100,8 +101,14 @@ def ingest_file(file, filename: str) -> dict:
             warnings=[str(error)],
         )
 
+    # Standalone image material, with exact original image navigation.
+    if file_type == "image":
+        try:
+            content_units, warnings = ingest_image(data, filename)
+        except ValueError as error:
+            return _build_result(filename,file_type,"error",[],[str(error)])
     # PDF
-    if file_type == "pdf":
+    elif file_type == "pdf":
         content_units, warnings = ingest_pdf(
             data=data,
             filename=filename,

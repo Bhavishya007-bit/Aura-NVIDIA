@@ -10,7 +10,7 @@ export function groupToolCitations(ids: number[], citations: ToolCitation[]): To
   for (const id of [...new Set(ids)]) {
     const citation = citations.find(item => item.id === id)
     if (!citation) continue
-    const known = /^(?:Page [1-9]\d*|Slide [1-9]\d*|\d+:\d{2})$/.test(citation.location)
+    const known = /^(?:Image|Page [1-9]\d*|Slide [1-9]\d*|\d+:\d{2})$/.test(citation.location)
     const key = `${citation.source_id}:${known ? citation.location : `unknown-${id}`}`
     const previous = groups.get(key)
     if (!previous) groups.set(key, { ...citation, referenceIds: [id] })
@@ -27,7 +27,7 @@ export function chatCitationGroups(text: string, citations: Citation[], title: (
     const location = citation.location
     const number = citation.citationNumber ?? index + 1 // Preserve old saved chat entries.
     return { id: number, chunk_id: 0, source_id: Number(citation.sourceId), title: title(citation.sourceId), excerpt: citation.excerpt ?? '',
-      location: location.kind === 'pdf_page' ? `Page ${location.page}` : location.kind === 'slide' ? `Slide ${location.slide}` : `${Math.floor(location.seconds / 60)}:${String(Math.floor(location.seconds % 60)).padStart(2, '0')}`,
+      location: location.kind === 'pdf_page' ? (/\.(png|jpe?g)$/i.test(title(citation.sourceId)) ? 'Image' : `Page ${location.page}`) : location.kind === 'slide' ? `Slide ${location.slide}` : `${Math.floor(location.seconds / 60)}:${String(Math.floor(location.seconds % 60)).padStart(2, '0')}`,
       page: location.kind === 'pdf_page' ? location.page : null,
       slide: location.kind === 'slide' ? location.slide : null,
       seconds: location.kind === 'video_timestamp' ? location.seconds : null,

@@ -262,6 +262,10 @@ LibreOffice installation paths; `LIBREOFFICE_PATH` can override it.
 - PDF, PPTX and DOCX text is extracted with page/slide/paragraph provenance.
 - Legacy PPT is converted by LibreOffice before extraction.
 - Audio and MP4 speech use local Whisper, retaining segment timestamps.
+- JPEG, JPG and PNG are accepted as individual materials, including in multiple-file
+  uploads. Images are limited to 20 megapixels and 100 MiB. Readable text uses
+  OCR; a configured vision model can also index a checked visual interpretation.
+  Images without readable text need the vision model to produce usable content.
 - OCR can extract image text in PDFs/slides. It is not full visual reasoning:
   unlabeled arrows or a diagram's spatial meaning may not be established.
 - Citation buttons open the original PDF page, rendered presentation slide or
@@ -395,8 +399,9 @@ background. API clients can set `include_related_background: false` on private
 chat requests. Reading additional context does not update mastery; practice
 grading remains source-based. Existing saved answer text is not rewritten.
 
-This update improves extracted-text retrieval and tutoring. It does not add a
-new vision model for diagrams or establish measured learning gains. See
+Source-grounded tutoring uses extracted evidence; the separate vision feature
+below handles original images and figures. Neither establishes measured human
+learning gains. See
 [docs/TUTOR_GROUNDING.md](docs/TUTOR_GROUNDING.md) for behavior and live checks.
 
 ## Figure interpretation, numerical questions and evaluation
@@ -409,11 +414,12 @@ queue is full, wait for capacity and retry the failed uploads. Each prepared fil
 appears as a separate material in the workspace; choose it to scope your tutor.
 
 The original-source viewer now offers **Explain this figure or diagram** on PDF
-pages and slides. It reads the displayed image with a separately configured
+pages, slides and uploaded JPEG/PNG images. It reads the displayed image with a separately configured
 local vision model (`OLLAMA_VISION_MODEL`), rather than inferring relationships
 from OCR labels. Returned interpretations include limitations and need visual
 review. `gemma3:4b` is an image-capable example; install the model with Ollama
-before configuring it. This is on-demand interpretation, not visual reindexing.
+before configuring it. New standalone image uploads can index checked visual
+interpretations. Existing PDF/slide visual content is interpreted on demand.
 
 Assessment offers **Numerical (with units)** for material with an explicit
 quantitative relationship. Formula support is model checked; bounded arithmetic
@@ -429,3 +435,22 @@ the collector and scorer on your own uploaded material. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md). The demonstration video still needs
 to be recorded and uploaded.
+
+## English answer quality and evidence limits
+
+Tutor responses default to English for English questions. Unrequested Chinese,
+Japanese or Korean annotations are rejected in generated answers and omitted
+from fallback quotations. The original indexed text and original files remain
+unchanged for inspection. English explanations use a compact set of intact,
+relevant source sentences, a shorter teaching prompt and the selected file's
+identity in the relevance check. A failed draft gets a bounded repair rather
+than a long repeated collection of verification text. Checked compact synthesis
+is attempted before a short, clearly labelled evidence fallback.
+
+These changes reduce quote dumping and topic drift but cannot guarantee the
+configured local model's factual accuracy. Source citations establish agreement
+with extracted material, not independent scientific truth. OCR and visual-model
+interpretations can be wrong. Ask a NEW question after restarting: saved answers
+are not rewritten. Response `pipeline_version` is `aura-image-english-tutor-v5`.
+No reindex is needed for the answer-language changes. New image support requires
+Pillow, included in requirements.txt. See docs/IMAGE_AND_ANSWER_QUALITY.md.

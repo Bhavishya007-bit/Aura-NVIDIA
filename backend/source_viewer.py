@@ -17,6 +17,7 @@ from starlette.responses import FileResponse, Response
 from backend.auth_db import get_auth_connection
 from backend.auth_routes import get_current_student
 from backend.ingestion.ppt_convert import _find_soffice, PptConversionError
+from backend.image_processing import image_png
 
 router = APIRouter(prefix="/study/sources", tags=["Source viewer"])
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +56,8 @@ def owned_original(source_id: int, student_id: int) -> dict:
 
 def source_kind(source: dict) -> str:
     suffix = source["path"].suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png"}:
+        return "image"
     if suffix == ".pdf":
         return "pdf_page"
     if suffix in {".ppt", ".pptx"}:
@@ -135,6 +138,8 @@ def viewer_info(source_id: int, student=Depends(get_current_student)) -> dict:
     source = owned_original(source_id, student["student_id"])
     kind = source_kind(source)
     count = None
+    if kind == "image":
+        count = 1
     if kind in {"pdf_page", "slide"}:
         count = json.loads(run_pdf("info", pdf_for(source)))["page_count"]
     return {"source_id": source_id, "title": source["title"], "kind": kind, "page_count": count}
@@ -143,6 +148,11 @@ def viewer_info(source_id: int, student=Depends(get_current_student)) -> dict:
 @router.get("/{source_id}/preview")
 def preview(source_id: int, position: int = Query(default=1, ge=1), student=Depends(get_current_student)):
     source = owned_original(source_id, student["student_id"])
+    if source_kind(source) == "image":
+        if position != 1: raise HTTPException(404, "This material contains one original image.")
+        try: data = image_png(source["path"].read_bytes())
+        except ValueError as error: raise HTTPException(422,str(error)) from error
+        return Response(data,media_type="image/png",headers={"Cache-Control":"no-store"})
     return Response(run_pdf("png", pdf_for(source), position), media_type="image/png",
                     headers={"Cache-Control": "no-store"})
 

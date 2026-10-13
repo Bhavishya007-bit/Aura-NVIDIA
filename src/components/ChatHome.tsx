@@ -344,8 +344,8 @@ export default function ChatHome({
                   disabled={busy || !courseId || Boolean(coursesError)} onClick={() => setUploadMenu(current => !current)}>+</button>
                 {uploadMenu && <div id="aura-upload-panel" className="aura-home__upload-panel">
                   <label htmlFor="aura-file">Upload study material</label>
-                  <p>PDF, DOCX, PPTX, audio or MP4. Select up to 5 files at once. Each file can be up to 100 MiB.</p>
-                  <input ref={fileInput} id="aura-file" type="file" multiple accept=".pdf,.docx,.ppt,.pptx,audio/*,.mp4" onChange={event => void uploadFile(event)} />
+                  <p>PDF, DOCX, PPTX, JPEG/PNG, audio or MP4. Select up to 5 files at once. Each file can be up to 100 MiB.</p>
+                  <input ref={fileInput} id="aura-file" type="file" multiple accept=".pdf,.docx,.ppt,.pptx,.jpg,.jpeg,.png,audio/*,.mp4" onChange={event => void uploadFile(event)} />
                 </div>}
               </div>
               <span className="aura-home__composer-hint">{sending ? 'Thinking…' : ''}</span>

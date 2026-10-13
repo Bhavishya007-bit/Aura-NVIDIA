@@ -51,7 +51,7 @@ export async function queueMaterials(courseId: string, files: File[], onUpdate: 
   for (const entry of entries) {
     if (signal?.aborted) break
     try {
-      if (!/\.(pdf|docx|ppt|pptx|mp4|mp3|wav|m4a|ogg|flac|aac|mpeg|mpga)$/i.test(entry.file.name)) throw new Error('Unsupported file type. Choose a PDF, DOCX, presentation, supported audio file or MP4.')
+      if (!/\.(pdf|docx|ppt|pptx|jpg|jpeg|png|mp4|mp3|wav|m4a|ogg|flac|aac|mpeg|mpga)$/i.test(entry.file.name)) throw new Error('Unsupported file type. Choose a PDF, DOCX, presentation, JPEG/PNG image, supported audio file or MP4.')
       if (entry.file.size === 0) throw new Error('This file is empty.')
       if (entry.file.size > 100 * 1024 * 1024) throw new Error('This file exceeds 100 MiB.')
       entry.state = 'uploading'; emit()
@@ -82,6 +82,7 @@ export async function retryPreparation(id: string): Promise<PreparationJob> {
 }
 
 export const preparationLabels: Record<string, string> = {
+  reading_image: 'Reading your image',
   queued: 'File uploaded · Waiting to prepare', reading: 'Reading your material',
   reading_pages: 'Reading pages and images', reading_slides: 'Reading slides and images',
   saving: 'Saving your material', loading_model: 'Getting the tutor ready',

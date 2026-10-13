@@ -22,6 +22,13 @@ presentation conversion includes hidden slides to preserve slide numbering.
 On-demand figure requests send the displayed rendered page to a separate local
 vision model and check the interpretation against the same image.
 
+Standalone JPEG/PNG material uses bounded image decoding, OCR and optional
+vision interpretation during ingestion. Indexed visual text is explicitly
+marked model-generated; its source location opens the original image. English
+tutoring uses compact intact source sentences and checks output language. The
+selected file identity is supplied to relevance checking, and failed generation
+gets a checked compact-synthesis pass before short labelled evidence fallback.
+
 ## Assessments and learner model
 
 Source-backed generation creates MCQ, short-answer or bounded numerical items.

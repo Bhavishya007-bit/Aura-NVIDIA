@@ -27,10 +27,11 @@ image and the student question are treated as data.
 
 Responses separate visible observations, interpretation and limitations. Model
 interpretations can be wrong, especially for small labels or dense graphs. This
-is on-demand original-page interpretation; it does not automatically add visual
-claims to the embedding index or use them as verified numerical answer keys.
-PDF and PPT/PPTX are supported. PPT previews require the existing LibreOffice
-setup. Video-frame interpretation and image-only uploads are not added here.
+is on-demand original-page interpretation for PDF/slide figures. New JPEG/PNG
+uploads can also index marked, checked visual interpretations; they are not
+used as verified numerical answer keys. PDF, PPT/PPTX and original JPEG/PNG
+images are supported. PPT previews require the existing LibreOffice setup.
+Video-frame interpretation is not added. See IMAGE_AND_ANSWER_QUALITY.md.
 
 Install a local vision model, for example `ollama pull gemma3:4b`, then add
 `OLLAMA_VISION_MODEL=gemma3:4b` to backend/.env and restart. Gemma 3 4B supports

@@ -7,6 +7,7 @@ MAX_FILE_SIZE = 100 * 1024 * 1024
 
 
 SUPPORTED_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png",
     ".pdf",
     ".ppt",
     ".pptx",
@@ -40,6 +41,7 @@ def get_file_type(filename: str) -> str | None:
     extension = Path(filename).suffix.lower()
 
     mapping = {
+        ".jpg": "image", ".jpeg": "image", ".png": "image",
         ".pdf": "pdf",
         # Converted by ingest_pptx; use the existing presentation source type.
         ".ppt": "pptx",

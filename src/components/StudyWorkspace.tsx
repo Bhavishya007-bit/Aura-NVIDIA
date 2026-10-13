@@ -205,7 +205,7 @@ export default function StudyWorkspace(props: Props) {
         history: entries.filter(item => item.role === 'user' || item.grounded).slice(-8).map(item => ({ role: item.role, content: item.text })) })
       const citations: ToolCitation[] = response.citations.map((citation, index) => {
         const location = citation.location
-        const label = location.kind === 'pdf_page' ? `Page ${location.page}` : location.kind === 'slide' ? `Slide ${location.slide}` : `${Math.floor(location.seconds / 60)}:${String(Math.floor(location.seconds % 60)).padStart(2, '0')}`
+        const label = location.kind === 'pdf_page' ? (/\.(png|jpe?g)$/i.test(material?.title ?? '') ? 'Image' : `Page ${location.page}`) : location.kind === 'slide' ? `Slide ${location.slide}` : `${Math.floor(location.seconds / 60)}:${String(Math.floor(location.seconds % 60)).padStart(2, '0')}`
         return { id: citation.citationNumber ?? index + 1, page: location.kind === 'pdf_page' ? location.page : null, slide: location.kind === 'slide' ? location.slide : null, seconds: location.kind === 'video_timestamp' ? location.seconds : null, chunk_id: 0, source_id: Number(citation.sourceId), title: material?.title ?? 'Source', location: label, excerpt: citation.excerpt ?? '' }
       })
       if (mounted.current) setChats(current => ({ ...current, [sourceId]: [...(current[sourceId] ?? []), { role: 'assistant', text: response.message.content, grounded: response.groundingStatus === 'grounded', answerMode: response.answerMode, citations }] }))
@@ -246,7 +246,7 @@ export default function StudyWorkspace(props: Props) {
       <div className="sw-body">
         <aside className="sw-materials"><div className="sw-material-heading"><h2>Materials</h2><button type="button" aria-label="Refresh materials" disabled={!!busy || materialsLoading} onClick={() => setReload(value => value + 1)}>↻</button></div>
           <button type="button" className="sw-add" disabled={!!busy || !courseId} onClick={() => fileInput.current?.click()}>＋ Add material</button>
-          <input ref={fileInput} type="file" multiple hidden accept=".pdf,.docx,.ppt,.pptx,audio/*,.mp4" onChange={event => void upload(Array.from(event.target.files ?? []))} />
+          <input ref={fileInput} type="file" multiple hidden accept=".pdf,.docx,.ppt,.pptx,.jpg,.jpeg,.png,audio/*,.mp4" onChange={event => void upload(Array.from(event.target.files ?? []))} />
           {materialsLoading && <p className="sw-muted" role="status">Loading materials…</p>}
           {materialsError && <p className="sw-error" role="alert">{materialsError}</p>}
           <label className="sw-material-search"><span className="sw-sr-only">Search materials</span><input type="search" placeholder="Search materials" value={materialSearch} onChange={event => setMaterialSearch(event.target.value)} /></label>

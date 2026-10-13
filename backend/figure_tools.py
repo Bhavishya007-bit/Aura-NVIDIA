@@ -7,7 +7,8 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from backend.auth_routes import get_current_student
-from backend.source_viewer import owned_original, pdf_for, run_pdf
+from backend.source_viewer import owned_original, pdf_for, run_pdf, source_kind
+from backend.image_processing import image_png
 from backend.ai.llm import LLM
 
 router = APIRouter(prefix='/study/sources', tags=['Figure interpretation'])
@@ -77,7 +78,11 @@ DATA: ''' + json.dumps({'question':question,'proposed':result}), tokens=500)
 @router.post('/{source_id}/figure')
 def explain_figure(source_id: int, request: FigureRequest, student=Depends(get_current_student)):
     source = owned_original(source_id, student['student_id'])
-    image = run_pdf('png', pdf_for(source), request.position)
+    if source_kind(source) == 'image':
+        if request.position != 1: raise HTTPException(404,'This material contains one original image.')
+        try:image=image_png(source['path'].read_bytes())
+        except ValueError as error:raise HTTPException(422,str(error)) from error
+    else:image = run_pdf('png', pdf_for(source), request.position)
     result = interpret_image(image, request.question)
     return {**result,'source_id':source_id,'position':request.position,
             'citation':{'source_id':source_id,'title':source['title'],'position':request.position},

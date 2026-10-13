@@ -1,10 +1,10 @@
 import { requestApi, requestApiBlob, requireRecord, ApiResponseError } from './apiClient'
 
-export type ViewerInfo = { source_id: number; title: string; kind: 'pdf_page' | 'slide' | 'video_timestamp' | 'audio_timestamp' | 'download'; page_count: number | null }
+export type ViewerInfo = { source_id: number; title: string; kind: 'image' | 'pdf_page' | 'slide' | 'video_timestamp' | 'audio_timestamp' | 'download'; page_count: number | null }
 export async function getViewerInfo(sourceId: number): Promise<ViewerInfo> {
   return requestApi(`study/sources/${sourceId}/viewer`, { method: 'GET' }, value => {
     const row = requireRecord(value, 'source viewer')
-    if (row.source_id !== sourceId || typeof row.title !== 'string' || !['pdf_page', 'slide', 'video_timestamp', 'audio_timestamp', 'download'].includes(String(row.kind)) || (row.page_count != null && (typeof row.page_count !== 'number' || !Number.isInteger(row.page_count) || row.page_count < 1))) throw new ApiResponseError('Invalid source preview metadata.')
+    if (row.source_id !== sourceId || typeof row.title !== 'string' || !['image', 'pdf_page', 'slide', 'video_timestamp', 'audio_timestamp', 'download'].includes(String(row.kind)) || (row.page_count != null && (typeof row.page_count !== 'number' || !Number.isInteger(row.page_count) || row.page_count < 1))) throw new ApiResponseError('Invalid source preview metadata.')
     return row as unknown as ViewerInfo
   })
 }

@@ -30,7 +30,7 @@ export default function SourceViewer({ citation, onClose }: { citation: ToolCita
     setLoading(true)
     getViewerInfo(citation.source_id).then(value => {
       if (cancelled) return
-      const compatible = target.kind === 'timestamp' ? ['video_timestamp', 'audio_timestamp'].includes(value.kind) : value.kind === target.kind
+      const compatible = target.kind === 'timestamp' ? ['video_timestamp', 'audio_timestamp'].includes(value.kind) : value.kind === target.kind || (target.kind === 'pdf_page' && value.kind === 'image' && target.value === 1)
       if (!compatible) throw new Error('The citation location does not match this original file. The excerpt remains available below.')
       if (value.page_count && target.value > value.page_count) throw new Error('The cited page or slide is outside this original file.')
       setInfo(value)
@@ -76,8 +76,8 @@ export default function SourceViewer({ citation, onClose }: { citation: ToolCita
     finally { setDownloading(false) }
   }
   if (!citation) return null
-  const documentView = info?.kind === 'pdf_page' || info?.kind === 'slide'
-  const label = info?.kind === 'slide' ? 'Slide' : 'Page'
+  const documentView = info?.kind === 'pdf_page' || info?.kind === 'slide' || info?.kind === 'image'
+  const label = info?.kind === 'slide' ? 'Slide' : info?.kind === 'image' ? 'Image' : 'Page'
   return <dialog ref={dialog} className="aura-source-viewer" aria-labelledby="source-viewer-title" onCancel={onClose}>
     <header><div><p className="sw-eyebrow">ORIGINAL SOURCE</p><h2 id="source-viewer-title">{citation.title}</h2><span>Cited location: {citation.location}</span></div><button type="button" onClick={onClose} aria-label="Close source viewer">×</button></header>
     <div className="aura-source-actions"><button type="button" disabled={downloading} onClick={() => void download()}>{downloading ? 'Downloading…' : 'Download original'}</button>

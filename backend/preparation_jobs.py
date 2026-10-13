@@ -150,7 +150,7 @@ def install_preparation_jobs(app, legacy, database, require_course, require_sour
     async def upload_job(course_id: int, file: UploadFile = File(...), student=Depends(get_current_student)):
         filename = Path((file.filename or '').replace('\\','/')).name
         if not filename or get_file_type(filename) in {None,'webm'}:
-            raise HTTPException(400, 'Choose a supported PDF, presentation, document, audio or MP4 file.')
+            raise HTTPException(400, 'Choose a supported PDF, presentation, document, JPEG/PNG image, audio or MP4 file.')
         def check():
             with database() as connection:
                 with connection.cursor() as cursor:

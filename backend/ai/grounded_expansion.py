@@ -11,13 +11,17 @@ def topic_terms(question: str) -> list[str]:
 
 
 def topic_evidence(question: str, sources: list[dict]) -> list[dict]:
+    from backend.ai.answer_quality import source_sentences, wrong_script
     terms = set(topic_terms(question))
     candidates = []
     for number, source in enumerate(sources, 1):
         content = source.get("content", "")
         if not isinstance(content, str):
             continue
+        paragraphs=[]
         for paragraph in re.split(r"\n\s*\n|\n", content):
+            paragraphs.extend(source_sentences(paragraph,question) if wrong_script(paragraph,question) else [paragraph])
+        for paragraph in paragraphs:
             text = " ".join(paragraph.split())
             words = set(re.findall(r"[a-z]{3,}", text.casefold()))
             overlap = terms & words
@@ -74,6 +78,9 @@ DATA: """ + json.dumps({"question": question, "source_anchors": anchors, "source
         if not isinstance(background, str) or not background.strip():
             return None, {"valid": False, "reason": "No additional explanation was generated."}
         background = re.sub(r"\[\d+\]|【\d+】", "", background).strip()
+        from backend.ai.answer_quality import wrong_script
+        if wrong_script(background,question):
+            return None, {"valid": False, "reason": "Additional explanation did not use the requested answer language."}
         if len(background.split()) > 300:
             return None, {"valid": False, "reason": "Additional explanation exceeded its bounded scope."}
         verdict = llm.generate_json(

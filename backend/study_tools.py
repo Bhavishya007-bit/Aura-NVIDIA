@@ -294,7 +294,7 @@ def source_passages(
     citations: list[JsonObject] = []
     for number, passage in enumerate(selected, 1):
         chunk_id, content, page, slide, seconds, topic_id = passage
-        location = (
+        location = 'Image' if str(title).lower().endswith(('.jpg','.jpeg','.png')) and page == 1 else (
             f"Page {page}"
             if page is not None
             else (
