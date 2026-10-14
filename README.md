@@ -159,31 +159,32 @@ select CPU. On Linux use the matching PyTorch selector and `.venv/bin/python`.
 Keep Ollama running. If needed, run `ollama serve` in another terminal. If its
 port is already occupied, the service may already be running.
 
-### Gemma 3 4B — required for figure interpretation
+### Gemma 3 4B and English transcription — configure every backend laptop
 
 Ollama runs the local models. The existing `qwen2.5:3b` model handles text
 tutoring; **Gemma 3 4B** is the separate image-capable model used for figures,
-diagrams and optional visual interpretation of new JPEG/PNG materials.
+diagrams, original JPEG/PNG chat and visual interpretation of video frames.
 Gemma reads images and generates text explanations; it does not generate images.
 
 Install and configure it from the repository root:
 
 ```powershell
-ollama pull gemma3:4b
-powershell -ExecutionPolicy Bypass -File scripts/configure_vision.ps1 -Model "gemma3:4b"
+powershell -ExecutionPolicy Bypass -File scripts/setup_multimodal.ps1
 ```
 
-The configuration script sets `OLLAMA_VISION_MODEL=gemma3:4b` in the existing
-`backend/.env` and backs up the previous file. It preserves the text model,
-embedding settings and database credentials. Restart the backend after changing
-this setting. Use a version of Ollama supporting Gemma 3 (0.6 or later).
+The setup script downloads Gemma and sets `OLLAMA_VISION_MODEL=gemma3:4b`,
+`WHISPER_MODEL_SIZE=small.en` and `WHISPER_LANGUAGE=en` in the existing
+`backend/.env`. It backs up the previous file and preserves text-model, database
+and CPU/GPU device settings. Run it separately on every teammate laptop.
+Stop the old backend and restart it after setup; changing .env does not update a
+running process. Use a version of Ollama supporting Gemma 3 (0.6 or later).
 
 To try it, click a citation, open its original page/slide/image, and expand
 **Explain this figure or diagram**. Ask about visible arrows, labels or axes.
-Gemma runs for this action and optional image-upload interpretation; it does
-not automatically replace the ordinary text tutor. Text-based features can run
-without configuring the vision model. Images without readable OCR text may need
-vision configuration and a preparation retry to become searchable.
+Gemma runs for this action, original-image chat and visual extraction. It does
+not replace the ordinary document/transcript text tutor. Text-only features can
+run without it, but JPG/PNG chat requires vision configuration. Text-free video
+frames and images also need the vision model to supply usable visual content.
 
 CPU inference is possible but can be slow. Ollama manages model placement
 separately from the embedding device configuration. Visual interpretation uses
@@ -243,7 +244,11 @@ judge account. They are manual maintenance tools, not setup requirements.
 
 The check reports missing Python modules, schema columns or the Ollama model.
 Preloading embeddings downloads/caches the Qwen model before the demonstration.
-The first audio/video upload also downloads Whisper `base`. Subsequent runs use
+The first audio/video upload downloads the configured Whisper model; new setups
+use `small.en` for English recordings. This needs an initial download and may
+be slower than `base`, particularly on CPU. For other languages choose a
+multilingual model such as `small` and set `WHISPER_LANGUAGE` empty for detection.
+Subsequent runs use
 cached weights. Expected dimensions: 1024. Device should match your selection. Warm-up verifies
 that the model can load and encode on the selected device. It does not measure
 full-document processing time.
@@ -361,7 +366,9 @@ Measure extraction and indexing timings on your own laptop.
 | `.ppt` conversion unavailable | Install LibreOffice or use `.pptx` |
 | Very slow first upload | Model downloads, OCR and CPU embeddings can take time; preload and use a shorter deck |
 | Summary says it cannot verify | Check that the selected material is ready and its extracted text supports the request |
-| Figure action asks for a vision model | Install `gemma3:4b`, run `scripts/configure_vision.ps1`, and restart the backend |
+| `vision_configured: false` or image chat asks for a model | Run `scripts/setup_multimodal.ps1` on that backend laptop, stop the old backend and restart it |
+| Garbled video transcript / disconnected quoted speech | Check `WHISPER_MODEL_SIZE=small.en` and `WHISPER_LANGUAGE=en` for English audio; restart, prepare a fresh copy and select its new source. This can improve extraction but does not guarantee accuracy |
+| Setup changed but health still reports old settings | Stop the process already listening on port 8000; restart from the correct Aura project root |
 | JPEG/PNG has no readable content | Configure the vision model for a text-free diagram/photo and retry preparation; inspect OCR/vision limitations |
 | UI still shows an old answer | Ask a new question; saved messages are not rewritten by backend updates |
 | Preview still shows old UI | Stop preview, run `npm run build`, restart preview and refresh |
@@ -571,7 +578,8 @@ the original image and current question to the vision model and checks the
 interpretation against the same image. This avoids answering image questions
 from a generic cached extraction header. The interface labels this as visual
 interpretation, not independently verified factual knowledge. If the original
-or vision configuration is unavailable, the text tutor can use existing OCR.
+is unavailable, existing OCR may still be used. Missing vision configuration
+for original-image chat produces a specific setup error.
 Known extraction header lines are excluded from tutor evidence and quoted
 fallbacks, including previously indexed image chunks. Quoted excerpts receive
 a distinct label rather than Source checked. This correction does not require
@@ -598,3 +606,22 @@ source. Empty sources have no evidence: generating embeddings or restarting
 cannot fill them. Existing JPG originals work through direct image chat without
 reupload when Gemma is installed/configured on that backend. Keep the database,
 accounts, original files and CPU/GPU settings. No new dependencies were added.
+
+
+### Verify configuration before asking image/video questions
+
+After restarting the backend, use another terminal at the Aura root:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/check_multimodal.py
+Invoke-RestMethod http://127.0.0.1:8000/health | ConvertTo-Json
+```
+
+Expected: `tutor_version` is `aura-team-multimodal-v7`, `vision_configured` is
+`true`, and the diagnostic report says the configured vision model is installed.
+A true configuration flag alone does not prove model installation or accuracy.
+Old saved replies and indexed transcripts are not rewritten when settings change.
+Prepare fresh copies of poorly transcribed or empty videos, then select the new
+source. Existing JPG originals can be queried again without reupload. Do not
+reset the database. The setup script is for English recordings; preserve or
+restore a multilingual Whisper setting when your recordings are not English.

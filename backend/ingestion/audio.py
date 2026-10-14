@@ -8,7 +8,7 @@ from .utils import generate_unit_id
 
 
 # Configure through environment variables if needed.
-MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
+MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small.en")
 MODEL_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 MODEL_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 
