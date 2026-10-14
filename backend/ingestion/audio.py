@@ -59,14 +59,17 @@ def ingest_audio(
         segments, info = model.transcribe(
             audio_stream,
             beam_size=5,
-            vad_filter=False,
-            language="en",
+            vad_filter=True,
+            language=os.getenv("WHISPER_LANGUAGE", "en").strip() or None,
+            condition_on_previous_text=False,
         )
 
         for segment in segments:
             text = segment.text.strip()
 
             if not text:
+                continue
+            if getattr(segment, "no_speech_prob", 0) > 0.8 and getattr(segment, "avg_logprob", 0) < -1:
                 continue
 
             start = float(segment.start)
@@ -114,4 +117,22 @@ def ingest_audio(
             f"Audio transcription failed: {error}"
         ]
 
-    return content_units, warnings
+    # Short ASR segments are fragments, not useful independent retrieval units.
+    # Merge adjacent speech into bounded windows and preserve exact time ranges.
+    merged = []
+    for unit in content_units:
+        location = unit['source_location']
+        previous = merged[-1] if merged else None
+        if (previous is not None
+                and location['end_seconds'] - previous['source_location']['start_seconds'] <= 30
+                and location['start_seconds'] - previous['source_location']['end_seconds'] <= 3
+                and len(previous['text']) + len(unit['text']) < 1600):
+            previous['text'] += ' ' + unit['text']
+            previous['source_location']['end_seconds'] = location['end_seconds']
+        else:
+            merged.append(unit)
+    for unit in merged:
+        location = unit['source_location']
+        unit['unit_id'] = generate_unit_id(filename, 'segment',
+            f"{location['start_seconds']:.3f}-{location['end_seconds']:.3f}")
+    return merged, warnings

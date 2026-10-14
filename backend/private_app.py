@@ -18,6 +18,7 @@ from backend.auth_routes import (
 from backend.study_tools import router as study_router
 from backend.source_viewer import router as source_viewer_router
 from backend.figure_tools import router as figure_router
+from backend.figure_tools import image_tutor_answer
 from backend.learning import install_learning, learner_profile, tutor_style
 
 
@@ -138,7 +139,11 @@ def create_private_app(legacy):
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "profile": "private-local"}
+        import os
+        return {"status": "ok", "profile": "private-local",
+                "tutor_version": "aura-team-multimodal-v7",
+                "vision_configured": bool(os.getenv('OLLAMA_VISION_MODEL', '').strip()),
+                "video_visual_sampling": True}
 
     @app.get("/courses")
     def courses(credentials=Depends(bearer_scheme)):
@@ -262,6 +267,7 @@ def create_private_app(legacy):
         student = get_current_student(credentials)
         if body.course_id is None:
             raise HTTPException(422, "Choose a study workspace first.")
+        image_selected = False
         with database() as connection:
             with connection.cursor() as cursor:
                 require_course(cursor, body.course_id, student["student_id"])
@@ -269,6 +275,14 @@ def create_private_app(legacy):
                     require_source(
                         cursor, body.source_id, student["student_id"], body.course_id
                     )
+                    cursor.execute('SELECT source_type FROM sources WHERE source_id=%s', (body.source_id,))
+                    selected_type = cursor.fetchone()
+                    image_selected = bool(selected_type and selected_type[0] == 'image')
+
+        if image_selected:
+            visual = image_tutor_answer(body.source_id, body.question, student['student_id'])
+            if visual is not None:
+                return visual
 
         with database() as connection:
             with connection.cursor() as cursor:

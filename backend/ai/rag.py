@@ -6,8 +6,8 @@ from backend.ai.pg_retrieval import PostgresRetriever
 from backend.ai.llm import LLM
 from backend.ai.citation_validator import CitationValidator
 from backend.ai.citation_grounding import CitationGrounding
-from backend.ai.grounded_expansion import topic_evidence, allow_expansion, related_background
-from backend.ai.answer_quality import english_requested, wrong_script, compact_evidence
+from backend.ai.grounded_expansion import topic_evidence, allow_expansion, related_background, topic_terms
+from backend.ai.answer_quality import english_requested, wrong_script, compact_evidence, evidence_text
 
 REFUSAL_MESSAGE = (
     "I couldn't find enough information about this in the uploaded material."
@@ -67,7 +67,7 @@ class RAG:
                     "timestamp_start": chunk.timestamp_start,
                     "timestamp_end": chunk.timestamp_end,
                     "score": float(result.score),
-                    "content": chunk.content,
+                    "content": evidence_text(chunk.content),
                 }
             )
         names = {source['source_name'] for source in sources}
@@ -91,10 +91,10 @@ class RAG:
         return "\n\n".join(parts)
 
     def _teaching_context(self, question: str, sources: list[dict], overview=False) -> str:
-        facts = compact_evidence(question, sources, overview)
-        if not facts or re.search(r'\b(?:quote|verbatim|excerpt)\b',question,re.I):
-            return self._build_context([],sources)
-        return '\n\n'.join(f"PASSAGE [{item['citation']}]\nLocation: {self._format_source_location(sources[item['citation']-1])}\nText:\n{item['text']}" for item in facts)
+        # OCR labels, equations and spoken transcripts often are not grammatical
+        # sentences. Keep their full retrieved context alongside the summary.
+        # Citation numbers remain those of the original passages.
+        return self._build_context([], sources)
 
     def _prompt(self, question: str, context: str) -> str:
         if self.source_first_mode:
@@ -276,7 +276,7 @@ CORRECTED ANSWER:
 
     def _response(self, answer: str, sources: list[dict], validation: dict) -> dict:
         return {
-            "pipeline_version": "aura-image-english-tutor-v5",
+            "pipeline_version": "aura-team-multimodal-v7",
             "requested_question": self.requested_question,
             "retrieval_question": self.retrieval_question,
             "answer": answer,
@@ -642,7 +642,7 @@ Return JSON only: {{"question": "standalone question"}}"""
         text = re.split(r"answer format requested now:|follow-up request:", text)[
             0
         ].strip()
-        document = r"(?:file|pdf|pptx?|powerpoint(?: presentation)?|presentation|slides?|slide deck|document|material|upload|textbook|lecture|video|image|picture|photo)"
+        document = r"(?:file|pdf|pptx?|powerpoint(?: presentation)?|presentation|slides?|slide deck|document|material|upload|textbook|lecture|video|audio|recording|mp3|image|picture|photo)"
         reference = (
             r"(?:(?:this|the|my|uploaded|selected|attached|a|an)\s+){0,3}"
             + document
@@ -751,7 +751,7 @@ Return JSON only: {{"question": "standalone question"}}"""
             if not isinstance(text, str):
                 continue
             added = 0
-            for candidate in re.split(r"\n+|(?<=[.!?])\s+", text):
+            for candidate in re.split(r"\n+|(?<=[.!?])\s+", evidence_text(text)):
                 candidate = candidate.strip()
                 key = " ".join(candidate.casefold().split())
                 if (len(candidate.split()) < 6 or len(candidate) > 900
@@ -1074,6 +1074,26 @@ CORRECTED OVERVIEW:
                         "message": "Answer consists of exact complete source sentences.",
                     },
                 )
+        # A failed model verification should not hide actual relevant extracted
+        # material. Quote a small exact excerpt; do not approve the failed draft.
+        if self.source_first_mode:
+            terms = set(topic_terms(question))
+            excerpts = []
+            for number, source in enumerate(sources, 1):
+                for line in evidence_text(source.get('content', '')).splitlines():
+                    words = set(re.findall(r'[a-z]{3,}', line.casefold()))
+                    if (terms & words and 3 <= len(line.split()) <= 120
+                            and len(line) <= 900 and not wrong_script(line, question)):
+                        excerpts.append((number, line.strip()))
+                        break
+                if len(excerpts) == 2:
+                    break
+            if excerpts:
+                return self._response(
+                    'I could not verify a full explanation. These related excerpts are copied from your material:\n\n'
+                    + '\n\n'.join(f'“{text}” [{number}]' for number, text in excerpts),
+                    sources, {'valid': False, 'stage': 'verification_failed',
+                              'response_mode': 'extractive', 'attempts': history})
         return self._response(
             REFUSAL_MESSAGE if no_explanation else VERIFICATION_MESSAGE,
             sources,

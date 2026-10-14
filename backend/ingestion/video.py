@@ -1,102 +1,78 @@
+"""Timestamped speech and bounded visual sampling; originals remain unchanged."""
 import io
-
+import os
 import av
-
 from .audio import ingest_audio
-from typing import cast
+from .image import ingest_image
+from .utils import generate_unit_id
+from backend.preparation_progress import report
 
-import av
-from av.audio.frame import AudioFrame
-from av.container.input import InputContainer
 
-def ingest_video(
-    data: bytes,
-    filename: str,
-) -> tuple[list[dict], list[str]]:
-    """
-    Extract audio from a video and transcribe it using
-    the existing audio ingestion pipeline.
-    """
-    warnings: list[str] = []
-
+def ingest_video(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
     if not data:
-        return [], ["Video file is empty."]
-
+        return [], ['Video file is empty.']
+    units, warnings = [], []
+    # PyAV can decode the audio track directly: no second WAV in memory.
     try:
-        # Open the video directly from memory.
-        container = cast(
-            InputContainer,
-            av.open(io.BytesIO(data)),
-)
-        audio_streams = [
-            stream
-            for stream in container.streams
-            if stream.type == "audio"
-        ]
-
-        if not audio_streams:
-            container.close()
-            return [], ["The video contains no audio stream."]
-
-        audio_stream = audio_streams[0]
-        audio_chunks = []
-
-        # Decode audio frames and convert them to WAV.
-        resampler = av.AudioResampler(
-            format="s16",
-            layout="mono",
-            rate=16000,
-        )
-
-        output_buffer = io.BytesIO()
-        output_container = av.open(
-            output_buffer,
-            mode="w",
-            format="wav",
-        )
-        output_stream = output_container.add_stream(
-            "pcm_s16le",
-            rate=16000,
-        )
-
-        for frame in container.decode(audio_stream):
-            audio_frame = cast(AudioFrame, frame)
-
-            for resampled_frame in resampler.resample(audio_frame):
-                for packet in output_stream.encode(resampled_frame):
-                    output_container.mux(packet)
-
-        # Flush the resampler.
-        for resampled_frame in resampler.resample(None):
-            for packet in output_stream.encode(resampled_frame):
-                output_container.mux(packet)
-
-        for packet in output_stream.encode(None):
-            output_container.mux(packet)
-
-        output_container.close()
-        container.close()
-
-        wav_data = output_buffer.getvalue()
-        output_buffer.close()
-
-        if not wav_data:
-            return [], ["Could not extract audio from the video."]
-
-        # Reuse the existing Whisper transcription pipeline.
-        content_units, transcription_warnings = ingest_audio(
-            data=wav_data,
-            filename=filename,
-        )
-
-        warnings.extend(transcription_warnings)
-
-        # Mark these units as originating from video.
-        for unit in content_units:
-            unit["source"]["file_type"] = "mp4"
-            unit["source_location"]["kind"] = "video_segment"
-
-        return content_units, warnings
-
+        with av.open(io.BytesIO(data)) as container:
+            has_audio = any(s.type == 'audio' for s in container.streams)
+            duration = float(container.duration or 0) / av.time_base
+        if has_audio:
+            speech, speech_warnings = ingest_audio(data, filename)
+            for unit in speech:
+                unit['source']['file_type'] = 'mp4'
+                unit['source_location']['kind'] = 'video_segment'
+            units.extend(speech)
+            warnings.extend(speech_warnings)
+        else:
+            warnings.append('No audio track: preparation uses sampled visual frames only.')
     except Exception as error:
-        return [], [f"Video processing failed: {error}"]
+        return [], [f'Video decoding failed: {type(error).__name__}. Check that the file is a playable MP4.']
+    # Sample across the entire duration, rather than decoding every frame.
+    # A maximum of eight model calls bounds CPU and memory use. Explicitly
+    # disclose sampling; this does not establish motion between frames.
+    try:
+        with av.open(io.BytesIO(data)) as container:
+            streams = [s for s in container.streams if s.type == 'video']
+            if not streams:
+                warnings.append('No video stream was found.')
+                return units, warnings
+            stream = streams[0]
+            if duration <= 0 and stream.duration is not None:
+                duration = float(stream.duration * stream.time_base)
+            # Even a ten-second clip needs a middle/end frame: its first frame
+            # may be a black screen or title rather than the subject.
+            count = min(8, max(3 if duration > 0 else 1, int(duration // 30) + 1))
+            targets = [i * max(0, duration - 0.1) / max(1, count - 1) for i in range(count)]
+            seen = set()
+            report('reading_video_frames', 0, count)
+            for index, target in enumerate(targets):
+                container.seek(int(target * av.time_base), backward=True)
+                selected = None
+                for frame in container.decode(stream):
+                    if frame.time is not None and frame.time >= target:
+                        selected = frame
+                        break
+                if selected is None:
+                    continue
+                seconds = float(selected.time or 0)
+                if round(seconds, 2) in seen:
+                    continue
+                seen.add(round(seconds, 2))
+                buffer = io.BytesIO()
+                selected.to_image().save(buffer, format='PNG')
+                extracted, frame_warnings = ingest_image(buffer.getvalue(), f'{filename}-frame-{index}.png')
+                warnings.extend(f'Frame {seconds:.1f}s: {w}' for w in frame_warnings)
+                for unit in extracted:
+                    unit['unit_id'] = generate_unit_id(filename, 'video_frame', f'{seconds:.3f}-{unit["extraction_status"]}')
+                    unit['source'] = {'filename': filename, 'file_type': 'mp4'}
+                    unit['source_location'] = {**unit['source_location'], 'kind': 'video_segment',
+                        'start_seconds': seconds, 'end_seconds': seconds, 'sampled_frame': True}
+                    unit['source_location'].pop('page_number', None)
+                    unit['text'] = f'Sampled video frame at {seconds:.1f}s; a still image does not establish motion:\n' + unit['text']
+                    units.append(unit)
+                report('reading_video_frames', index + 1, count)
+            warnings.append(f'Visual content was sampled at {len(seen)} timestamps, not every frame. Speech is transcribed separately when available.')
+    except Exception as error:
+        warnings.append(f'Visual frame extraction failed ({type(error).__name__}); any extracted speech is preserved.')
+    return units, list(dict.fromkeys(warnings))

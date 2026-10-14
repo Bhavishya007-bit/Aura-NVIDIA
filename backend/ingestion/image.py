@@ -20,7 +20,7 @@ def ingest_image(data: bytes,filename: str) -> tuple[list[dict],list[str]]:
     if os.getenv('OLLAMA_VISION_MODEL','').strip():
         from backend.figure_tools import interpret_image
         try:
-            result=interpret_image(png,'Describe the visible educational content in English. Explain clearly visible figure labels, arrows and relationships; state any uncertainty.')
+            result=interpret_image(png,'Describe the actual visible subject in English, including text, diagrams, photos or scenes. Explain educational concepts when present, clearly visible labels and relationships; state uncertainty. Do not require the image to be a diagram.')
             if result['answerable']:
                 visual='\n'.join(result['observations'])+'\n'+result['explanation']
                 if result.get('limitations'):visual+='\nLimitations: '+'; '.join(result['limitations'])

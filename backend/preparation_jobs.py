@@ -81,14 +81,15 @@ class PreparationWorker:
                 else:
                     source_id = row['source_id']
                 if not result or result.get('status') not in {'success','partial'} or result.get('chunks_created',0) < 1:
-                    raise HTTPException(400, 'No readable content was found. Try another file.')
+                    warnings = '; '.join(str(w) for w in (result or {}).get('warnings', []))
+                    raise HTTPException(400, warnings or 'No readable content was found. Try another file.')
                 progress('loading_model')
                 self.legacy.generate_source_embeddings(source_id)
             self.change(job_id, state='ready', stage='ready', completed=1, total=1, error=None)
             Path(row['staged_path']).unlink(missing_ok=True)
         except Exception as error:
             logger.exception('Preparation job failed: %s', job_id)
-            message = ('No readable content was found. Try another file.'
+            message = (str(error.detail)[:1000]
                        if isinstance(error, HTTPException) and error.status_code == 400 else
                        'Preparation could not finish. Check the backend terminal, then retry.')
             self.change(job_id, state='failed', stage='failed', error=message)

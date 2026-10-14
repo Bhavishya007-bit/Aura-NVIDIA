@@ -176,6 +176,7 @@ export async function askTutor(
     citation_validation?: {
       valid?: boolean
       stage?: string
+      response_mode?: string
     }
   }
   const response = await requestApi(
@@ -242,7 +243,7 @@ export async function askTutor(
     },
   )
   const groundingStatus: TutorResponse['groundingStatus'] =
-    response.citation_validation?.valid === true
+    response.citation_validation?.valid === true && response.citation_validation?.response_mode !== 'extractive'
       ? 'grounded'
       : response.sources?.length
         ? 'partially_covered'
@@ -257,7 +258,7 @@ export async function askTutor(
     },
     citations,
     groundingStatus,
-    answerMode: response.citation_validation?.stage === 'source_plus_background' ? 'source_plus_background' : response.citation_validation?.stage === 'general_background' ? 'general_background' : response.citation_validation?.valid === true ? 'source' : undefined,
+    answerMode: response.citation_validation?.stage === 'visual_interpretation' ? 'visual' : response.citation_validation?.response_mode === 'extractive' ? 'excerpt' : response.citation_validation?.stage === 'source_plus_background' ? 'source_plus_background' : response.citation_validation?.stage === 'general_background' ? 'general_background' : response.citation_validation?.valid === true ? 'source' : undefined,
   }
 }
 export async function getStudyToolContent(

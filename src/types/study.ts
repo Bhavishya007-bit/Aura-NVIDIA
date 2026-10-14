@@ -82,7 +82,7 @@ export interface TutorRequest {
 }
 
 export interface TutorResponse {
-  answerMode?: 'source' | 'source_plus_background' | 'general_background'
+  answerMode?: 'source' | 'source_plus_background' | 'general_background' | 'visual' | 'excerpt'
   message: ChatMessage
   citations: Citation[]
   groundingStatus: 'grounded' | 'partially_covered' | 'not_covered' | 'unavailable'

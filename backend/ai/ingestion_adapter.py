@@ -70,14 +70,14 @@ def convert_ingestion_output(
         # Video
         # -------------------------------
 
-        elif location_kind == "timestamp":
+        elif location_kind in {"timestamp", "audio_segment", "video_segment"}:
 
             timestamp_start = location.get(
-                "timestamp_start"
+                "timestamp_start", location.get("start_seconds")
             )
 
             timestamp_end = location.get(
-                "timestamp_end"
+                "timestamp_end", location.get("end_seconds")
             )
 
         knowledge_unit = KnowledgeUnit(

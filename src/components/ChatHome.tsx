@@ -30,7 +30,7 @@ type Entry = {
   message: ChatMessage
   citations: Citation[]
   grounded?: boolean
-  answerMode?: 'source' | 'source_plus_background' | 'general_background'
+  answerMode?: 'source' | 'source_plus_background' | 'general_background' | 'visual' | 'excerpt'
   scope?: string
 }
 type UploadStage = 'idle' | 'uploading' | 'embedding' | 'ready' | 'failed'
@@ -288,7 +288,7 @@ export default function ChatHome({
           {entries.map(entry => <article key={entry.message.id} className={`aura-home__message aura-home__message--${entry.message.role}`}>
             <div className="aura-home__speaker">{entry.message.role === 'student' ? 'You' : '✦ Aura'}</div>
             <div className="aura-home__message-text">{entry.message.content}</div>
-            {entry.message.role === 'tutor' && entry.answerMode && <small>{entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : 'Source checked'}</small>}
+            {entry.message.role === 'tutor' && entry.answerMode && <small>{entry.answerMode === 'visual' ? 'Visual interpretation — check against the image' : entry.answerMode === 'excerpt' ? 'Quoted source excerpts — explanation unavailable' : entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : entry.grounded ? 'Source checked' : 'Answer could not be verified'}</small>}
             {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).length > 0 && <details className="aura-home__sources">
               <summary className="aura-home__source-heading">Sources</summary>
               {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).map(citation => <button key={`${citation.source_id}:${citation.id}`} className="aura-home__citation" type="button" onClick={() => setOpenCitation(citation)}>[{citation.referenceIds?.join(', ')}] {citation.title} · {citation.location}</button>)}

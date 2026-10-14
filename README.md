@@ -538,3 +538,63 @@ interpretations can be wrong. Ask a NEW question after restarting: saved answers
 are not rewritten. Response `pipeline_version` is `aura-image-english-tutor-v5`.
 No reindex is needed for the answer-language changes. New image support requires
 Pillow, included in requirements.txt. See docs/IMAGE_AND_ANSWER_QUALITY.md.
+
+
+### Multimodal answer reliability update
+
+The tutor uses full retrieved passages for PDF, presentations, Word, JPEG/PNG,
+audio transcripts and MP4 content. Short OCR labels and transcript fragments
+are retained rather than filtered out as incomplete sentences. Generated claims
+still require citation, grounding and question-relevance checks.
+
+Audio uses local faster-whisper with voice activity detection. CPU remains the
+default. `WHISPER_LANGUAGE=en` is the default; set it to an empty value for
+language detection. MP4 preparation combines speech transcription with up to
+eight visual frames sampled across the duration. Frame OCR works without Gemma;
+configured `OLLAMA_VISION_MODEL=gemma3:4b` adds checked visual interpretation.
+Sampling can miss events, and still frames do not establish motion. JPEG/PNG
+uses OCR and the same optional vision model. Neither Gemma nor a successful
+build guarantees factual correctness.
+
+Restart both servers after installing the patch. Previously prepared audio,
+video or images need preparation again to acquire improved extracted content.
+Upload a fresh copy and select that new material; keep the existing database
+and originals. For each format, ask a question about a fact you can manually
+verify, open its citation and check the page/image/timestamp. Extraction failures
+now show their diagnostic warnings. Do not initialize a fresh database.
+
+
+### Original-image tutor correction
+
+When a JPEG/PNG is selected and OLLAMA_VISION_MODEL is configured, chat sends
+the original image and current question to the vision model and checks the
+interpretation against the same image. This avoids answering image questions
+from a generic cached extraction header. The interface labels this as visual
+interpretation, not independently verified factual knowledge. If the original
+or vision configuration is unavailable, the text tutor can use existing OCR.
+Known extraction header lines are excluded from tutor evidence and quoted
+fallbacks, including previously indexed image chunks. Quoted excerpts receive
+a distinct label rather than Source checked. This correction does not require
+a database reset or reupload for existing images whose original is available.
+
+### Team multimodal repair v7
+
+Apply the same source update on every teammate backend. GET /health now reports
+`tutor_version: aura-team-multimodal-v7`. Run
+`.\.venv\Scripts\python.exe scripts/check_multimodal.py` from the project root
+for a read-only version, vision model and indexed-material report. Configuration
+on one laptop does not configure another laptop. JPG/PNG chat explicitly reports
+missing vision configuration instead of silently entering text verification.
+
+DOCX extraction now combines adjacent paragraphs, keeps table headers with row
+values, and reads embedded JPEG/PNG images using OCR and optional vision. MP4
+sampling now includes beginning/middle/end even for short clips. If a draft
+fails text verification, relevant exact excerpts can be returned with an explicit
+limitation and excerpt label; the failed draft is never approved as verified.
+
+Previously empty videos and previously indexed Word documents need fresh
+preparation to acquire this extraction. Reupload a fresh copy and select the new
+source. Empty sources have no evidence: generating embeddings or restarting
+cannot fill them. Existing JPG originals work through direct image chat without
+reupload when Gemma is installed/configured on that backend. Keep the database,
+accounts, original files and CPU/GPU settings. No new dependencies were added.

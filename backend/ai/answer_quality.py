@@ -3,6 +3,16 @@ import re
 
 CJK = re.compile(r'[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]')
 
+EXTRACTION_HEADER = re.compile(
+    r'^(?:Visual interpretation of uploaded image|Recognized text from uploaded image|'
+    r'(?:Image|Slide|Page) \d+ recognized text|Sampled video frame at )', re.I)
+
+
+def evidence_text(text: str) -> str:
+    """Remove known pipeline header lines, retaining the source content below."""
+    return '\n'.join(line for line in (text or '').splitlines()
+                     if not EXTRACTION_HEADER.match(line.strip())).strip()
+
 
 def english_requested(question: str) -> bool:
     if re.search(r'\b(?:answer|reply|respond|explain|write|translate)\b.{0,35}\b(?:in|into|to)\s+(?:Chinese|Mandarin|Japanese|Korean|Hindi|Tamil|Telugu|Bengali|Marathi|French|Spanish)\b', question, re.I):
@@ -18,7 +28,7 @@ def source_sentences(text: str, question: str = '') -> list[str]:
     """Select intact sentences; never delete characters inside a quoted sentence."""
     if not isinstance(text,str): return []
     result=[]
-    for sentence in re.split(r'\n+|(?<=[.!?])\s+(?=[A-Z“"(])',text):
+    for sentence in re.split(r'\n+|(?<=[.!?])\s+(?=[A-Z“"(])',evidence_text(text)):
         sentence=sentence.strip()
         if not 8 <= len(sentence.split()) <= 90 or len(sentence)>700: continue
         if wrong_script(sentence,question): continue
