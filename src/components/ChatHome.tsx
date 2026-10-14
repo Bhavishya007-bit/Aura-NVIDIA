@@ -18,13 +18,12 @@ type Props = {
   courseId: string
   coursesLoading: boolean
   coursesError: string
-  studentName?: string
+  studentName: string
   onCourseChange: (id: string) => void
-  onSignIn: () => void
   onSignOut?: () => void
   signingOut?: boolean
   sessionNotice?: string
-  workspaceKey?: string
+  workspaceKey: string
   onOpenWorkspace: () => void
 }
 type Entry = {
@@ -42,7 +41,7 @@ function errorMessage(error: unknown): string {
 
 export default function ChatHome({
   courseId, coursesLoading, coursesError, studentName,
-  onSignIn, onSignOut, signingOut, sessionNotice, workspaceKey = 'guest', onOpenWorkspace,
+  onSignOut, signingOut, sessionNotice, workspaceKey, onOpenWorkspace,
 }: Props) {
   const storageKey = `aura.chat.v1:${workspaceKey}:${courseId}`
   const [openCitation, setOpenCitation] = useState<ToolCitation | null>(null)
@@ -90,7 +89,7 @@ export default function ChatHome({
   const canEmbed = uploaded &&
     (uploaded.processingStatus === 'success' || uploaded.processingStatus === 'partial') &&
     uploaded.contentUnitCount > 0
-  const canSend = Boolean(courseId) && !coursesLoading && !coursesError && !busy &&
+  const canSend = Boolean(studentName && workspaceKey && courseId) && !coursesLoading && !coursesError && !busy &&
     (uploadStage === 'idle' || uploadStage === 'ready')
   const readySource = uploadStage === 'ready' ? uploaded : null
   const chatScope = `${courseId}:${readySource?.sourceId ?? ''}`
@@ -131,7 +130,7 @@ export default function ChatHome({
   }
   async function uploadFiles(files: File[]) {
     if (!files.length || !courseId || busyRef.current) return
-    if (!studentName) { onSignIn(); return }
+    if (!studentName || !workspaceKey) return
     busyRef.current = true
     const controller = new AbortController()
     uploadController.current = controller
@@ -272,10 +271,8 @@ export default function ChatHome({
         <nav className="aura-home__nav" aria-label="Aura navigation">
           <button type="button" onClick={onOpenWorkspace} disabled={sending}>Study tools</button>
           {hasConversation && <button type="button" onClick={newConversation} disabled={busy}>New chat</button>}
-          {studentName
-            ? <><span className="aura-home__account">{studentName}</span>
-                {onSignOut && <button type="button" onClick={onSignOut} disabled={sending || signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>}</>
-            : <button type="button" className="aura-home__signin" onClick={onSignIn} disabled={busy}>Sign in</button>}
+          <span className="aura-home__account">{studentName}</span>
+          {onSignOut && <button type="button" onClick={onSignOut} disabled={sending || signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>}
         </nav>
       </header>
 
@@ -352,7 +349,7 @@ export default function ChatHome({
               <button type="submit" className="aura-home__send" aria-label="Send question" disabled={!canSend || !question.trim()}>↑</button>
             </div>
           </form>
-          {!hasConversation && <p className="aura-home__footnote">{studentName ? 'Check the sources as you learn.' : 'Try Aura as a guest. No sign-up needed.'}</p>}
+          {!hasConversation && <p className="aura-home__footnote">Check the sources as you learn.</p>}
           {!hasConversation && <div className="aura-home__formats">PDF <span>·</span> PowerPoint <span>·</span> Notes <span>·</span> Audio & video</div>}
         </div>
       </main>

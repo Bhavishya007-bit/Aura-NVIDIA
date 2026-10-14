@@ -46,6 +46,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
     setCoursesLoading(true); setCoursesError(''); setCourses([])
+    if (!user) { setCoursesLoading(false); setCourseId(''); return }
     listCourses().then(items => {
       if (cancelled) return
       setCourses(items)
@@ -95,16 +96,16 @@ export default function App() {
   async function signOut() {
     if (signingOut) return
     setSigningOut(true); setSessionNotice('')
-    try { await logoutAccount(); setUser(null); setHomeOpen(true); setPendingWorkspace(false); navigate('/', true) }
+    try { await logoutAccount(); setUser(null); setHomeOpen(true); setPendingWorkspace(false); navigate('/login', true) }
     catch { setSessionNotice('Could not sign out. Please retry.') }
     finally { setSigningOut(false) }
   }
-  if (authChecking || restoreError || (user && coursesLoading)) return <main className="aura-auth" data-theme={theme}><section className="auth-card" aria-live="polite"><h1>{authChecking ? 'Signing you in…' : coursesLoading ? 'Loading your workspace…' : 'Connection interrupted'}</h1>{restoreError && <><p role="alert">{restoreError}</p><button type="button" onClick={() => setRestoreAttempt(value => value + 1)}>Retry</button><button type="button" onClick={() => { clearAuthToken(); setRestoreError(''); setUser(null); setHomeOpen(true); navigate('/', true) }}>Continue as guest</button></>}</section></main>
-  if (path === '/login' || path === '/signup') return <AuthPage key={path} mode={path === '/signup' ? 'signup' : 'login'} theme={theme} initialError={authError} onNavigate={next => { setAuthError(''); if (next === '/') { setHomeOpen(true); setPendingWorkspace(false) }; navigate(next) }} onSuccess={account => {
+  if (authChecking || restoreError || (user && coursesLoading)) return <main className="aura-auth" data-theme={theme}><section className="auth-card" aria-live="polite"><h1>{authChecking ? 'Signing you in…' : coursesLoading ? 'Loading your workspace…' : 'Connection interrupted'}</h1>{restoreError && <><p role="alert">{restoreError}</p><button type="button" onClick={() => setRestoreAttempt(value => value + 1)}>Retry</button><button type="button" onClick={() => { clearAuthToken(); setRestoreError(''); setUser(null); setHomeOpen(true); navigate('/login', true) }}>Back to sign in</button></>}</section></main>
+  if (!user || path === '/login' || path === '/signup') return <AuthPage key={path} mode={path === '/signup' ? 'signup' : 'login'} theme={theme} initialError={authError} onNavigate={next => { setAuthError(''); if (next === '/') { setHomeOpen(true); setPendingWorkspace(false) }; navigate(next) }} onSuccess={account => {
     setUser(account); setAuthError(''); restoreNavigation(account)
     if (pendingWorkspace) { setHomeOpen(false); setPendingWorkspace(false) }
     navigate('/', true)
   }} />
-  if (homeOpen || !user) return <ChatHome key={`${courseId}:${user?.id ?? 'guest'}`} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} studentName={user?.fullName} workspaceKey={user?.id ?? 'guest'} onCourseChange={setCourseId} onSignIn={() => navigate('/login')} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} onOpenWorkspace={openWorkspace} />
+  if (homeOpen) return <ChatHome key={`${courseId}:${user.id}`} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} studentName={user.fullName} workspaceKey={user.id} onCourseChange={setCourseId} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} onOpenWorkspace={openWorkspace} />
   return <StudyWorkspace key={`${user.id}:${courseId}`} user={user} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} theme={theme} onCourseChange={setCourseId} onThemeChange={() => setTheme(value => value === 'light' ? 'dark' : 'light')} onChatHome={() => setHomeOpen(true)} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} />
 }

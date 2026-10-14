@@ -95,7 +95,6 @@ export default function AuthPage({ mode, theme, onSuccess, initialError, onNavig
           else onNavigate(isSignup ? '/login' : '/signup')
         }}>{isSignup ? 'Log in' : 'Sign up'}</button>
       </p>
-      <button className="auth-back" type="button" disabled={busy} onClick={() => onNavigate('/')}>← Continue as guest</button>
       <dialog ref={signupDialog} className="auth-dialog" aria-labelledby="signup-prompt-title" onCancel={() => setNewUserPrompt(false)}>
         <h2 id="signup-prompt-title">New to Aura?</h2>
         <p>We couldn’t find an account for {email.trim()}. Create an account to save your learning progress.</p>

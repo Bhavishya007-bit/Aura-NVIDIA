@@ -16,8 +16,9 @@ Ollama. Internet is needed initially to install software and download models.
 6. Refresh to check saved work. Create another account to check material isolation.
 
 In Tutor, **Enter sends** and **Shift+Enter adds a line**. Messages scroll above
-the composer. Guest access supports general questions; uploaded material and
-study tools require an account. Source-backed claims show citations and source
+the composer. Sign-in is required for chat, uploaded materials and study tools.
+Signed-out users see the login/sign-up screen; logout and expired sessions return
+to sign-in. Source-backed claims show citations and source
 excerpts with page, slide or timestamp metadata. General background is explicitly
 labelled as unverified against the uploaded material.
 
