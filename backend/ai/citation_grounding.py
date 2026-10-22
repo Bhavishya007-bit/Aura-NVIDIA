@@ -93,6 +93,9 @@ class CitationGrounding:
         # exact source statements because of an unreliable model judgement.
         normalized_claim = " ".join(claim.casefold().split()).strip('"“”')
         passages = re.split(r"\n\n\[\d+\] ", source)
+        if any(normalized_claim == ' '.join(re.sub(r'^\[\d+\]\s*', '', passage).casefold().split()).strip(' \t.!?;:\"“”')
+               for passage in passages):
+            return True
         return bool(normalized_claim) and any(
             normalized_claim == " ".join(sentence.casefold().split()).strip(' \t.!?;:"“”')
             for passage in passages
@@ -173,6 +176,25 @@ Return JSON only.
         if not answer or not answer.strip() or not sources:
             return {"valid": False, "answer": answer, "results": [], "message": "Answer or sources are empty."}
         claims, uncited = self._parse_claims(answer)
+        return self._verify_claims(claims, uncited, sources, answer)
+
+    def verify_points(self, points: list[dict], sources: list[dict]) -> dict:
+        """Verify complete structured units; punctuation inside them is not a boundary."""
+        if not isinstance(points, list) or not 1 <= len(points) <= 192 or not sources:
+            return {'valid': False, 'results': [], 'message': 'Invalid structured claims.'}
+        claims = []
+        for point in points:
+            if (not isinstance(point, dict) or set(point) != {'text', 'citation_ids'}
+                or not isinstance(point['text'], str) or not point['text'].strip()
+                or len(point['text']) > 1000 or self._extract_citations(point['text'])
+                or not isinstance(point['citation_ids'], list) or not 1 <= len(point['citation_ids']) <= 8
+                or any(type(n) is not int for n in point['citation_ids'])):
+                return {'valid': False, 'results': [], 'message': 'Invalid structured claim shape.'}
+            claims.append({'claim': point['text'], 'citation': point['citation_ids'][0],
+                           'citations': point['citation_ids']})
+        return self._verify_claims(claims, [], sources, '')
+
+    def _verify_claims(self, claims, uncited, sources, answer):
         results = []
         pending = []
         for claim in uncited:

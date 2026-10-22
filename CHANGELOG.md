@@ -1,6 +1,19 @@
 
 # Changelog
 
+## 2026-10-22 — Preserve whole scientific claims and expand short long summaries
+
+- Verify structured summary points directly, preserving scientific abbreviations
+  such as `E. coli`; bind the checked units to the actual displayed answer.
+- Reject damaged recovered fragments and preserve whole-passage literal evidence.
+- Expand still-short long overviews through source-scoped sections, retaining
+  checked content and using two shared, targeted repairs within explicit bounds.
+- Keep native/OCR/vision representations of a slide together and reject section
+  citations to passages outside its assigned source set.
+- Add 13 regressions. The 104 relevant checks pass locally; successful live
+  requested-length generation and judge calibration remain unverified.
+- Broader shared-validator/retrieval checks: 126 passed, two optional OCR checks skipped.
+
 ## 2026-10-22 — Align summary drafts and coverage contracts
 
 - Permit coverage parts to reference up to the 96 supplied passages and send

@@ -11,6 +11,7 @@ from backend.ai.answer_contract import (
 )
 from backend.ai.lexical import topic_excerpt
 from backend.ai.llm import LLMResponseError
+from backend.ai.long_summary import expand_summary
 from backend.ai.summary_answer import SummaryDraft, SummaryDraftError, summary_contract, recover_summary
 from backend.ai.response_request import response_request, resolve_format_followup, length_check, length_distance, word_count
 
@@ -141,6 +142,7 @@ class SourceAwareTutor:
         best_checked = None
         for attempt in range(2):
             draft = None
+            points = None
             try:
                 if overview:
                     draft = client.generate_json(json.dumps(payload), max_retries=1,
@@ -151,10 +153,11 @@ class SourceAwareTutor:
                              word_count(' '.join(item.text for item in parsed.sentences)),
                              self.response_request['target_words'])
                     text = parsed.render(len(sources), self.response_request)
+                    points = parsed.points(len(sources), self.response_request)
                 else:
                     text = self.rag._normalize_citations(client.generate(
                         json.dumps(payload), max_retries=1, system_prompt=prompt("sourced_answer.txt")))
-                validation = self.rag._validate_answer(text, sources, question)
+                validation = self.rag._validate_answer(text, sources, question, structured_points=points)
                 checks.append(validation)
                 log.info("source_answer_check task=%s attempt=%s stage=%s valid=%s",
                          "summary" if overview else "answer", attempt + 1,
@@ -206,14 +209,28 @@ class SourceAwareTutor:
                             'sentences list. Previous drafts and feedback are not source evidence.')}
                 else:
                     payload["feedback"] = "Return the required JSON schema with valid passage IDs." if overview else "Generation was unavailable."
-        if best_checked:
-            best_checked[1]['stage'] = 'requested_length_not_met'
-            return best_checked
         if overview:
             section, recovered = recover_summary(sources, checks, question, self.response_request)
             if section:
                 recovered['draft_stages'] = [check.get('stage') for check in checks]
-                return section, recovered
+                recovered['length_validation'] = length_check(section.text, self.response_request)
+                if best_checked is None or length_distance(recovered['length_validation']) < length_distance(best_checked[1]['length_validation']):
+                    best_checked = section, recovered
+            # A checked subset is useful evidence, but it must not end a long
+            # request before scoped expansion has had a bounded chance to finish.
+            if (self.response_request['target_words'] and self.response_request['target_words'] >= 1200
+                and best_checked and not best_checked[1]['length_validation']['valid']
+                and any(item.get('supported') is True for check in checks
+                        for item in check.get('grounding_validation', {}).get('results', []))
+                and not any(check.get('stage') == 'verification_unavailable' for check in checks)):
+                expanded = expand_summary(self.rag, client, sources, question, self.response_request,
+                                          payload, _schema_errors)
+                if expanded and length_distance(expanded[1]['length_validation']) < length_distance(best_checked[1]['length_validation']):
+                    best_checked = expanded
+        if best_checked:
+            if not best_checked[1]['length_validation']['valid']:
+                best_checked[1]['stage'] = 'requested_length_not_met'
+            return best_checked
         return None, validation
 
     def answer(self, question, top_k=3, course_id=None, source_id=None, history=None):

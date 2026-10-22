@@ -71,13 +71,13 @@ class LLM:
         client.model_name = os.getenv(setting, "").strip() or self.model_name
         return client
 
-    def with_output_budget(self, tokens: int):
+    def with_output_budget(self, tokens: int, *, exact=False):
         """Bound larger generation budgets to this answer, not its small judges."""
         client = copy.copy(self)
         ceiling = max(4096, min(32768, int(os.getenv('AURA_MAX_ANSWER_TOKENS', '16384'))))
         budget = max(1, min(int(tokens), ceiling))
-        client.max_tokens = min(ceiling, max(self.max_tokens, budget))
-        client.json_max_tokens = min(ceiling, max(self.json_max_tokens, budget))
+        client.max_tokens = budget if exact else min(ceiling, max(self.max_tokens, budget))
+        client.json_max_tokens = budget if exact else min(ceiling, max(self.json_max_tokens, budget))
         return client
 
     def for_summary(self):

@@ -24,11 +24,11 @@ class SummarySentence(StrictModel):
 class SummaryDraft(StrictModel):
     sentences: list[SummarySentence] = Field(min_length=1, max_length=192)
 
-    def render(self, source_count, request=None):
+    def points(self, source_count, request=None):
         request = request or {'max_sentences': 8, 'long_form': False, 'layout': 'prose'}
         if len(self.sentences) > request['max_sentences']:
             raise SummaryDraftError('sentence_budget_exceeded')
-        sentences = []
+        points = []
         for index, item in enumerate(self.sentences):
             if any(not 1 <= n <= source_count for n in item.citation_ids):
                 raise SummaryDraftError('citation_out_of_range', sentence_index=index)
@@ -42,8 +42,15 @@ class SummaryDraft(StrictModel):
                 raise SummaryDraftError('empty_sentence', sentence_index=index)
             if inline:
                 text = re.sub(r'[ \t]+([.,;:!?])', r'\1', text)
-            refs = ''.join(f'[{n}]' for n in dict.fromkeys(item.citation_ids))
-            sentences.append(text.rstrip('.!?') + ' ' + refs + '.')
+            if not standalone_point(text, allow_anaphora=True):
+                raise SummaryDraftError('incomplete_sentence', sentence_index=index)
+            points.append({'text': text.rstrip('.!?'), 'citation_ids': list(dict.fromkeys(item.citation_ids))})
+        return points
+
+    def render(self, source_count, request=None):
+        request = request or {'max_sentences': 8, 'long_form': False, 'layout': 'prose'}
+        sentences = [item['text'] + ' ' + ''.join(f'[{n}]' for n in item['citation_ids']) + '.'
+                     for item in self.points(source_count, request)]
         if request.get('layout') == 'bullets':
             return '\n'.join('- ' + s for s in sentences)
         if request.get('layout') == 'table':
@@ -52,6 +59,21 @@ class SummaryDraft(StrictModel):
         groups = request.get('target_paragraphs') or (max(2, round(len(sentences) / 6)) if request.get('long_form') else 1)
         size = max(1, (len(sentences) + groups - 1) // groups)
         return '\n\n'.join(' '.join(sentences[i:i + size]) for i in range(0, len(sentences), size))
+
+
+def standalone_point(text, *, allow_anaphora=False):
+    """Reject obvious damaged fragments without splitting scientific abbreviations."""
+    if not allow_anaphora and re.match(r'^(?:it|this|these|those|they|their|such|therefore|thus|consequently)\b', text.strip(), re.I):
+        return False
+    balance = 0
+    for char in text:
+        if char == '(':
+            balance += 1
+        elif char == ')':
+            balance -= 1
+            if balance < 0:
+                return False
+    return balance == 0
 
 
 def summary_contract(request, source_count):
@@ -99,27 +121,33 @@ def literal_excerpt(content, question):
     return None
 
 
+def checked_points(sources, check, question, request=None):
+    """Retain whole approved units, never a substring split out of a sentence."""
+    sentences, seen = [], set()
+    for item in check.get('grounding_validation', {}).get('results', []):
+        claim = item.get('claim')
+        numbers = item.get('citations') or [item.get('citation')]
+        if (item.get('supported') is not True or not isinstance(claim, str)
+            or not claim.strip() or len(claim) > 1000 or citation_ids(claim)
+            or wrong_script(claim, question) or not numbers
+            or any(type(n) is not int or not 1 <= n <= len(sources) for n in numbers)
+            or not standalone_point(claim)):
+            continue
+        key = ' '.join(claim.casefold().split())
+        if key in seen:
+            continue
+        seen.add(key)
+        sentences.append({'text': claim.rstrip('.!?'), 'citation_ids': list(dict.fromkeys(numbers))})
+        if len(sentences) == (request['max_sentences'] if request and request['long_form'] else 6):
+            break
+    return sentences
+
+
 def recover_summary(sources, checks, question, request=None):
     # Each verifier result approves only its own sentence and citation list.
     # Do not concatenate a failed draft or inherit its uncited introductions.
     for check in reversed(checks):
-        sentences, seen = [], set()
-        for item in check.get('grounding_validation', {}).get('results', []):
-            claim = item.get('claim')
-            numbers = item.get('citations') or [item.get('citation')]
-            if (item.get('supported') is not True or not isinstance(claim, str)
-                or not claim.strip() or len(claim) > 1000 or citation_ids(claim)
-                or wrong_script(claim, question) or not numbers
-                or any(type(n) is not int or not 1 <= n <= len(sources) for n in numbers)
-                or re.match(r'^(?:it|this|these|those|they|their|such|therefore|thus|consequently)\b', claim, re.I)):
-                continue
-            key = ' '.join(claim.casefold().split())
-            if key in seen:
-                continue
-            seen.add(key)
-            sentences.append({'text': claim.rstrip('.!?'), 'citation_ids': list(dict.fromkeys(numbers))})
-            if len(sentences) == (request['max_sentences'] if request and request['long_form'] else 6):
-                break
+        sentences = checked_points(sources, check, question, request)
         if sentences:
             text = SummaryDraft.model_validate({'sentences': sentences}).render(len(sources), request)
             validation = {

@@ -30,9 +30,10 @@ The overview path also capped summaries at eight sentences and used a fixed
   longer cut to six sentences.
 - Word counts exclude numeric citation markers. Ordinary word targets allow
   10% variation. A checked draft that misses the target gets one bounded revision
-  with its measured count. If the target still cannot be met, Aura preserves the
-  checked content and reports the shortfall; it does not invent missing file
-  sections or fill the count with unsupported claims.
+  with its measured count. A still-short long overview with checked evidence may
+  then expand through source-scoped sections, as described below. If the target
+  still cannot be met, Aura preserves checked content and reports the shortfall;
+  it does not invent missing file sections or fill the count with unsupported claims.
 - Long answers check nonliteral claims in batches of at most 12, retaining an
   independent result and evidence for every claim. Missing, duplicate or invalid
   decisions cannot approve claims. Literal source statements retain their exact
@@ -183,3 +184,63 @@ facts despite normalized citation formatting. Run the prior suite plus
 `evaluation.check_summary_drafts`: all 91 relevant checks pass. These use controlled
 provider responses; the user endpoint still needs to demonstrate live requested
 length and quality after restart. No new upload or database migration is needed.
+
+## Follow-up: intact scientific claims and section expansion
+
+The latest visible answer retained only 498 words of checked points and included
+`coli) to 25%...`. The prose citation parser split the original statement at the
+period in `E. coli`, then checked/recovered only the tail. This failure is
+reproducible locally without a hosted model. It does not prove why every other
+point in the live draft was rejected; those judge decisions were not supplied.
+
+Structured summaries now keep each model point intact through verification.
+The rendered prose, bullets or table must match those exact structured units;
+the pipeline cannot verify one statement while displaying another. Each whole
+unit still needs valid citations and support for **all** its factual parts.
+Recovery rejects unbalanced-parenthesis fragments, keeps original qualifiers
+and does not infer missing text. Plain unstructured answers retain their
+existing parser. Exact whole-passage membership is also recognized without
+splitting scientific abbreviations.
+
+When a file overview requesting at least 1,200 words still falls short after
+the existing two draft attempts, and at least one point passed source checking,
+Aura can expand by section. It does not start this path when source verification
+is unavailable. Native text, OCR and image interpretations from the same slide
+or page stay together. Each section receives only its assigned passages with
+their original IDs; references to other sections are rejected. A 2,000-word
+request over the 39-slide fixture produces four 500-word section targets.
+
+Every section is generated and checked separately, including relevance and
+complete-point support. Checked points survive an imperfect section. The two
+shared repair calls target the largest remaining section deficits, rather than
+rewriting successful sections. Sections are assembled in source order,
+deduplicated, formatted using the overall request and counted again. If the
+result is worse than the previously checked answer, that prior answer survives.
+
+Expansion bounds:
+
+- At most eight sections and two shared repairs, with at most one repair per
+  section. A 2,000-word request uses at most six additional writing calls after
+  the two original attempts; a 5,000-word request uses at most ten additional
+  writing calls. Successful whole drafts return without any section calls.
+- Section writing uses a request-scoped 4,096-token budget within the operator
+  ceiling, preserving the summary reasoning control. Judge calls retain their
+  existing budgets. Extra calls consume credits and increase latency.
+- A 180-second elapsed-time check stops starting new expansion steps. An active
+  generation/check retains its existing provider timeout; this is not a hard
+  deadline that interrupts in-flight HTTP requests.
+- Failed schema checks, foreign references, unsupported points or unavailable
+  judges never approve content. A final shortfall remains explicitly visible.
+
+Thirteen new regressions cover intact `E. coli`/`Fig. 2`/decimal claims,
+display-to-proof binding, all section sources, targeted repair, unavailable
+verification, deadlines and exhausted repair budgets. The controlled sequence
+of two 200-word drafts now expands to 2,000 checked words across 39 fixture
+locations. This measures orchestration with controlled provider output, not
+live Nemotron quality or judge agreement.
+
+Run `evaluation.check_sectioned_summaries` with the earlier suites. The relevant
+suite contains 104 passing local checks. The broader retrieval/recovery suite
+reports 128 tests: 126 passed and two optional OCR checks skipped. Pull `main`, restart the backend and
+reuse the existing prepared presentation. New logs use `summary_section` for
+section attempts alongside `summary_draft` and `source_answer_check`.

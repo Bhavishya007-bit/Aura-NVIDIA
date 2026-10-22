@@ -238,7 +238,19 @@ CORRECTED ANSWER:
             pass
         return {"valid": False, "unavailable": True, "reason": "Question relevance could not be checked."}
 
-    def _validate_answer(self, answer: str, sources: list[dict], question: str = "") -> dict:
+    def _validate_answer(self, answer: str, sources: list[dict], question: str = "", *, structured_points=None) -> dict:
+        if structured_points is not None:
+            # The checked units must describe the exact rendered answer, including
+            # table escaping. Do not let callers verify A and display B.
+            from backend.ai.summary_answer import SummaryDraft
+            try:
+                draft = SummaryDraft.model_validate({'sentences': structured_points})
+                if not any(' '.join(answer.split()) == ' '.join(draft.render(len(sources), {
+                        'max_sentences': 192, 'layout': layout}).split())
+                        for layout in ('prose', 'bullets', 'table')):
+                    return {'valid': False, 'stage': 'structured_answer_mismatch'}
+            except (ValueError, TypeError):
+                return {'valid': False, 'stage': 'structured_answer_mismatch'}
         names = {source.get('source_name','') for source in sources if source.get('source_name')}
         self.selected_source_name = next(iter(names)) if len(names) == 1 else ''
         if wrong_script(answer, question):
@@ -259,9 +271,9 @@ CORRECTED ANSWER:
         if not relevance["valid"]:
             return {"valid": False, "stage": "verification_unavailable" if relevance.get("unavailable") else "question_relevance",
                     "question_validation": relevance, "number_validation": number_check}
-        grounding = self.citation_grounding.verify_answer(
-            answer=answer, sources=sources
-        )
+        grounding = (self.citation_grounding.verify_points(structured_points, sources)
+                     if structured_points is not None else
+                     self.citation_grounding.verify_answer(answer=answer, sources=sources))
         unavailable = any(
             result.get("error") == "verification_unavailable"
             for result in grounding.get("results", [])

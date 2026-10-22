@@ -111,7 +111,7 @@ class DocumentRetriever(Retriever):
 
 
 class LengthLLM(SummaryLLM):
-    def with_output_budget(self, tokens):
+    def with_output_budget(self, tokens, *, exact=False):
         self.calls.append(('budget', tokens))
         return copy.copy(self)
 
