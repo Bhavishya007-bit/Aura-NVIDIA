@@ -81,9 +81,26 @@ queries and exclusion of another owner's/source's/course's content. No user
 database or hosted model was accessed. Frontend production build passes; the two
 pre-existing missing decorative SVG warnings remain.
 
-The reported original presentation has not been provided in this workspace.
-Its exact membrane-protein slide and real model responses still need verification
-after fresh preparation. No claim of zero false negatives is justified.
+The original 39-slide presentation was subsequently tested locally. Its native
+slide 9 explains peripheral/integral membrane proteins. OCR recovered slide 18's
+FepA, OmpLA, Maltoporin, TolC and alpha-hemolysin labels. Preparation completed in
+132 seconds in the test environment with no reported extraction warnings; this
+does not establish perfect recognition or laptop performance.
+
+Testing the actual extracted content exposed a further ranking defect: shorter
+incidental mentions outranked slide 9's full explanation. An exact topic-heading
+tie-break now prioritizes that explanation. PostgreSQL checks on the freshly
+extracted deck confirm slide 9 retrieval for both singular/plural questions and
+slide 18 retrieval for beta-barrel questions. Live Nemotron answers and the user's
+existing local index remain untested. No claim of zero false negatives is justified.
+
+Three additional synthetic SQL regressions live in
+`evaluation/check_lexical_postgres.py`. To run them, install
+`@electric-sql/pglite` in a temporary directory, set `AURA_PGLITE_MODULE` to the
+absolute installed package directory, then run
+`python -m unittest evaluation.check_lexical_postgres -v`. These execute the
+retriever's actual queries in PostgreSQL without a user database. The supplied
+presentation and its extracted text are not included in the repository.
 
 Technical references: [python-pptx shape types](https://python-pptx.readthedocs.io/en/latest/user/understanding-shapes.html),
 [PyMuPDF page rendering](https://pymupdf.readthedocs.io/en/latest/recipes-images.html).

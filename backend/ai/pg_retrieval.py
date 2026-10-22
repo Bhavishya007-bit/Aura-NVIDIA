@@ -187,13 +187,19 @@ class PostgresRetriever:
                 normalized = "replace(replace(replace(lower(chunks.content),'β','beta'),'α','alpha'),'γ','gamma')"
                 patterns = [r'\m' + term + r'(s)?\M' for term in terms]
                 rank = " + ".join(f"CASE WHEN {normalized} ~ %s THEN 1 ELSE 0 END" for _ in terms)
+                # A complete topic heading beats shorter incidental mentions.
+                # Otherwise "Membrane integral proteins" crowds out the longer
+                # slide headed "Membrane Proteins" that actually explains it.
+                heading = r'(?n)^[[:blank:]]*' + r'[[:blank:]-]+'.join(
+                    term + r'(s)?' for term in terms) + r'[[:blank:]]*$'
                 anchor_limit = max(1, min(6, limit // 2))
                 selected = "chunk_id,source_id,source_name,source_type,content,page_number,slide_number,timestamp_seconds,timestamp_end,topic_name"
                 cursor.execute("WITH matches AS (SELECT " + fields + ",(" + rank + ") AS relevance," +
+                    f"CASE WHEN {normalized} ~ %s THEN 1 ELSE 0 END AS title_match," +
                     "ROW_NUMBER() OVER (PARTITION BY md5(lower(btrim(chunks.content))) ORDER BY chunks.chunk_id) AS copy_rank" +
                     base + f" AND {normalized} ~ ANY(%s)) SELECT " + selected +
-                    " FROM matches WHERE copy_rank=1 ORDER BY relevance DESC,length(content) ASC,chunk_id LIMIT %s",
-                    (*patterns, *scope, patterns, anchor_limit))
+                    " FROM matches WHERE copy_rank=1 ORDER BY relevance DESC,title_match DESC,length(content) ASC,chunk_id LIMIT %s",
+                    (*patterns, heading, *scope, patterns, anchor_limit))
                 hits = cursor.fetchall()
                 pages = sorted({row[5] for row in hits if row[5] is not None})
                 slides = sorted({row[6] for row in hits if row[6] is not None})
