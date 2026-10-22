@@ -141,7 +141,10 @@ class PipelineChecks(unittest.TestCase):
 
     def test_overview_does_not_invent_document_content(self):
         r = self.run_tutor([verdict("not_covered")], question="Summarize this presentation.")
-        self.assertEqual(r["sections"], [])
+        self.assertTrue(r['sections'])
+        self.assertTrue(all(s['kind'] == 'sourced' for s in r['sections']))
+        self.assertIn('The membrane is a lipid bilayer.', r['answer'])
+        self.assertNotIn('Beyond your material', r['answer'])
 
     def test_beyond_citations_are_rejected(self):
         r = self.run_tutor([verdict("not_covered")], beyond="Unrelated claim [1].")

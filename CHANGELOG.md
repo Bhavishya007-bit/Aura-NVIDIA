@@ -1,6 +1,18 @@
 
 # Changelog
 
+## 2026-10-22 — Recover useful summaries after checking failures
+
+- Give uploaded-file summaries a dedicated structured prompt and server-formatted citations.
+- Allow summaries of readable samples when the coverage check is partial or unavailable.
+- Preserve individually checked points from a rejected draft; otherwise return explicitly labelled exact source excerpts.
+- Keep wrapped source lines together and suppress misleading absence notices on successful summaries.
+- Log checking stages without logging private prompts, documents or credentials.
+- Add 15 regressions for the summary failure shown in the screenshot.
+
+This is an answer-path change; the current prepared upload can be reused. See
+`docs/TUTOR_RECOVERY.md` for test scope and limitations.
+
 ## 2026-10-22 — Conversation and slide-evidence recovery
 
 - Preserve background answers in scoped conversation history and resolve person pronouns.

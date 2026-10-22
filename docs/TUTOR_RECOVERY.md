@@ -1,5 +1,38 @@
 # Follow-up and slide-evidence recovery
 
+## Summary follow-up fix
+
+The subsequent screenshot of “summarize the ppt” showed that coverage was
+partially supported but no answer survived validation. The source-aware path
+discarded rejected summaries without invoking the earlier overview recovery.
+The precise live validation stage could not be inferred from the screenshot.
+
+Summaries now use `prompts/v1/summary_answer.txt`, a typed list of self-contained
+sentences and passage IDs. The server renders a paragraph with canonical
+citations before running the existing intent and factual support checks.
+Partial/unknown coverage of the entire file no longer blocks an overview of
+readable samples or produces a misleading “remaining parts not found” preamble.
+The identical overview lookup/judge is not repeated as a supposed broader retry.
+
+If a complete draft fails checking, the response retains individually supported,
+self-contained points and labels them as checked points. If none survive, it
+returns explicitly labelled, exact quotations from distinct source locations.
+Wrapped headings remain together; quote provenance is established by exact
+source membership. Quotes are never labeled as an AI-written summary or replaced
+with general knowledge. Empty/unreadable evidence can still prevent an answer.
+
+`python -m unittest evaluation.check_phase2 evaluation.check_summary_recovery evaluation.check_tutor_recovery -v`
+reports 60 checks, with two opt-in OCR/render checks skipped by default (58 run).
+The frontend production build passes. The reported failure was also forced on
+native text extracted from the supplied 39-slide deck: the response contained
+source quotations with valid references instead of notices alone. This check
+used controlled model responses and does not establish live Nemotron quality.
+Backend logs now include task, attempt, validation stage and valid/invalid status
+without document/answer text, making a future live rejection diagnosable.
+
+Pull and restart the backend, then retry the same question on the currently
+selected prepared upload. A new extraction is not required for this summary fix.
+
 This patch addresses two reported failures: a follow-up such as “Where is she
 from?” losing the person named in the preceding answer, and “Explain membrane
 proteins” receiving only background despite a relevant slide.

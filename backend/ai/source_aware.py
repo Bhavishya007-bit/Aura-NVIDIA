@@ -8,6 +8,7 @@ from backend.ai.answer_contract import (
     AnswerSection, CoverageDecision, SourceAwareFields, choose_depth, citation_ids,
 )
 from backend.ai.lexical import topic_excerpt
+from backend.ai.summary_answer import SummaryDraft, recover_summary
 
 log = logging.getLogger(__name__)
 PROMPTS = Path(__file__).with_name("prompts") / "v1"
@@ -92,20 +93,31 @@ class SourceAwareTutor:
                 self.rag.retriever.overview(**scope, limit=6), results[18:]))
         return self._merge([], results)
 
-    def _source_answer(self, question, sources, decision, client, depth_policy):
+    def _source_answer(self, question, sources, decision, client, depth_policy, overview=False):
         payload = {"passages": [{"id": i, "text": s["content"][:6000]}
                                 for i, s in enumerate(sources, 1)],
                    "supported_parts": [part.model_dump() for part in decision.covered_parts],
                    "missing_parts": decision.missing_parts,
                    "profile_style": self.rag.learning_style, "depth_policy": depth_policy,
                    "conversation_context": self.conversation_context,
+                   "selected_material": self.rag.selected_source_name,
                    "question": question}
         validation = {"valid": False, "stage": "generation_unavailable"}
+        checks = []
         for attempt in range(2):
             try:
-                text = self.rag._normalize_citations(client.generate(
-                    json.dumps(payload), max_retries=1, system_prompt=prompt("sourced_answer.txt")))
+                if overview:
+                    draft = client.generate_json(json.dumps(payload), max_retries=1,
+                        system_prompt=prompt("summary_answer.txt"))
+                    text = SummaryDraft.model_validate(draft).render(len(sources))
+                else:
+                    text = self.rag._normalize_citations(client.generate(
+                        json.dumps(payload), max_retries=1, system_prompt=prompt("sourced_answer.txt")))
                 validation = self.rag._validate_answer(text, sources, question)
+                checks.append(validation)
+                log.info("source_answer_check task=%s attempt=%s stage=%s valid=%s",
+                         "summary" if overview else "answer", attempt + 1,
+                         validation.get("stage"), validation.get("valid") is True)
                 if validation.get("valid") is True:
                     return AnswerSection(kind="sourced", text=text, provenance="uploaded_material",
                                          verified=True, citation_ids=citation_ids(text)), validation
@@ -116,7 +128,13 @@ class SourceAwareTutor:
             except Exception as error:
                 log.warning("source_answer=unavailable error_type=%s", type(error).__name__)
                 validation = {"valid": False, "stage": "generation_unavailable"}
-                break
+                checks.append(validation)
+                payload["feedback"] = "Return the required JSON schema with valid passage IDs." if overview else "Generation was unavailable."
+        if overview:
+            section, recovered = recover_summary(sources, checks, question)
+            if section:
+                recovered['draft_stages'] = [check.get('stage') for check in checks]
+                return section, recovered
         return None, validation
 
     def answer(self, question, top_k=3, course_id=None, source_id=None, history=None):
@@ -164,7 +182,9 @@ class SourceAwareTutor:
         self.retrieval_incomplete = False
         decision = self._unknown("No readable passages were retrieved; coverage is unknown.")
         supported_snapshot = None
-        for broaden in (False, True):
+        # Overview lookup already samples across the file. Repeating the exact
+        # same sample/judge call cannot establish more complete coverage.
+        for broaden in ((False,) if overview else (False, True)):
             attempts += 1
             try:
                 found = self._retrieve(search_question, scope, top_k, overview, broaden)
@@ -208,10 +228,12 @@ class SourceAwareTutor:
                 source_validation = {"valid": True, "stage": "exact_source_excerpt"}
                 mention_found = True
                 break
-        if decision.covered_parts:
-            section, source_validation = self._source_answer(question, sources, decision, client, policy)
+        if decision.covered_parts or (overview and sources):
+            section, source_validation = self._source_answer(question, sources, decision, client, policy, overview=overview)
             if section:
                 sections.append(section)
+                if overview and decision.status == 'not_covered':
+                    decision = self._unknown('A source-based overview was produced from readable samples; whole-file coverage has not been established.')
         # An overview is about the uploaded file, so general knowledge cannot fill
         # missing document content. Unknown coverage is never labeled not covered.
         if mode == "intelligence" and not overview and decision.status != "fully_covered":
@@ -228,7 +250,12 @@ class SourceAwareTutor:
                 # and presenting the same unsupported text with a cleaner label.
                 log.warning("background_answer=unavailable error_type=%s", type(error).__name__)
         notices = []
-        if decision.status == "not_covered":
+        if overview and sections:
+            if source_validation.get('response_mode') == 'extractive':
+                notices.append("I couldn't check a complete summary, so here are selected excerpts from your material.")
+            elif source_validation.get('response_mode') == 'checked_points':
+                notices.append("Here are the points I could verify from your material.")
+        elif decision.status == "not_covered":
             notices.append("I couldn't find this in the material passages I checked.")
         elif decision.status == "partially_covered":
             notices.append("Your material covers part of this question. The remaining parts were not found in the passages checked.")
@@ -255,6 +282,7 @@ class SourceAwareTutor:
         response = self.rag._response("\n\n".join(blocks), sources, {
             "valid": has_source and not has_beyond, "stage": stage,
             "source_validation": source_validation, "background_verified": False,
+            "response_mode": source_validation.get('response_mode', 'generated'),
         })
         fields = SourceAwareFields.model_validate({
             "coverage": {**decision.model_dump(), "scope": "retrieved_passages", "retrieval_attempts": attempts},
