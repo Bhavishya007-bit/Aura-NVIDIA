@@ -1,6 +1,20 @@
 
 # Changelog
 
+## 2026-10-22 — Recover truncated citation checks before summary expansion
+
+- The live 809-word result followed a 1,374-word draft whose citation judge
+  exhausted all 4,096 output tokens on reasoning. Verification unavailability
+  stopped the expansion path; the material was not established to be missing.
+- Apply model-scoped reasoning controls to citation and intent judges. Give a
+  truncated judge request one targeted retry, reserving measured reasoning
+  overhead up to 8,192 tokens and respecting the existing operator ceiling.
+- Keep successful batches, valid negative decisions and strict citation checks;
+  repeated truncation or malformed decisions still fail closed.
+- Eight controlled regressions pass, including recovery followed by checked
+  expansion to 2,010 words. Broader suite: 143 passed, two optional OCR checks
+  skipped. Hosted output and judge quality need live validation.
+
 ## 2026-10-22 — Extend checked summaries and validate section intent locally
 
 - Carry checked summary units forward in their original order and request only

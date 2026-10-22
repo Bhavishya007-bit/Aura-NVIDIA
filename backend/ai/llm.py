@@ -30,6 +30,25 @@ class LLMResponseError(RuntimeError):
         self.reasoning_tokens = reasoning_tokens
 
 
+def generate_verification_json(llm, prompt):
+    """One judge call, plus one targeted recovery for a truncated response only."""
+    configure = getattr(type(llm), 'for_verification', None)
+    client = configure(llm) if callable(configure) else llm
+    try:
+        return client.generate_json(prompt, max_retries=1)
+    except LLMResponseError as error:
+        if error.failure_code != 'output_truncated' or not isinstance(client, LLM):
+            raise
+        # Never parse partial decisions or rejudge valid negative verdicts.
+        # Reserve only measured reasoning overhead, within a small judge cap
+        # and the operator's existing overall ceiling.
+        budget = min(8192, error.max_tokens + (error.reasoning_tokens or 0))
+        retry = client.with_output_budget(budget, exact=True)
+        logger.warning('verification_retry failure_code=output_truncated max_tokens=%s',
+                       retry.json_max_tokens)
+        return retry.generate_json(prompt, max_retries=1)
+
+
 class LLM:
     """Nebius Token Factory client with Aura's existing public interface."""
 
@@ -82,14 +101,23 @@ class LLM:
 
     def for_summary(self):
         """Reserve output for long-form writing, without changing judge/deep clients."""
+        return self._with_reasoning('NEBIUS_SUMMARY_REASONING_EFFORT')
+
+    def for_verification(self):
+        """Keep small structured judges from spending their output on reasoning."""
+        client = self._with_reasoning('NEBIUS_VERIFICATION_REASONING_EFFORT')
+        client.task = 'verification'
+        return client
+
+    def _with_reasoning(self, setting):
         client = copy.copy(self)
         # This default addresses the model/endpoint failure observed in live logs.
         # Other routed models keep provider defaults unless explicitly configured.
         default = ("none" if self.model_name.lower() ==
                    "nvidia/nemotron-3-super-120b-a12b" else "provider")
-        effort = os.getenv("NEBIUS_SUMMARY_REASONING_EFFORT", "").strip().lower() or default
+        effort = os.getenv(setting, "").strip().lower() or default
         if effort not in {"provider", "none", "minimal", "low", "medium", "high", "xhigh"}:
-            raise ValueError("Invalid NEBIUS_SUMMARY_REASONING_EFFORT.")
+            raise ValueError(f"Invalid {setting}.")
         client.reasoning_effort = None if effort == "provider" else effort
         return client
 

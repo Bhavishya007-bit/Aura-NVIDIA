@@ -3,7 +3,7 @@ import json
 from backend.ai.response_request import resolve_format_followup, is_format_followup
 from typing import Any
 
-from backend.ai.llm import LLM
+from backend.ai.llm import LLM, generate_verification_json
 from backend.ai.citation_validator import CitationValidator
 from backend.ai.citation_grounding import CitationGrounding
 from backend.ai.grounded_expansion import topic_evidence, allow_expansion, related_background, topic_terms
@@ -222,7 +222,7 @@ CORRECTED ANSWER:
 
     def _question_relevance(self, question: str, answer: str, *, intent_context=None) -> dict:
         try:
-            result = self.llm.generate_json(
+            result = generate_verification_json(self.llm,
                 "Check whether the proposed answer actually addresses the student's question. "
                 "This is an intent check, not a factual-source check. A true statement about a different topic is NOT an answer. "
                 "For example, an answer about cytoskeleton does not answer a question about ChatGPT. "

@@ -290,3 +290,38 @@ small-batch independence and missing-decision failure. This is controlled model
 output, not a live generation benchmark. The full suite reports 137 tests:
 135 passed and two optional OCR checks skipped. Provider compliance with word
 targets and live content quality remain unverified after this change.
+
+## Follow-up: verifier reasoning exhausted its output budget
+
+The next attached run returned 809 words. Its first writer generated 1,374 words
+in 30 structured points. One citation-check request then consumed all 4,096
+completion tokens as reasoning (`finish_reason=length`,
+`reasoning_effort=provider_default`). The summary stopped at
+`verification_unavailable`; no expansion calls ran. This was an unavailable
+checker, not proof that the uploaded deck lacked sufficient material.
+
+Citation batch checks, single-claim checks and intent checks now use a separate
+verification client. On the exact tested Nemotron Super ID it defaults to
+`reasoning_effort=none`, matching the working summary-writing control. Other
+models retain provider defaults. `NEBIUS_VERIFICATION_REASONING_EFFORT` can
+explicitly select a level or `provider` to opt out. Coverage routing, deep
+reasoning and ordinary answer clients remain unchanged. Logs identify these
+requests with `task=verification`.
+
+A typed `output_truncated` error triggers at most one retry of that exact judge
+request, with `max_retries=1` on each provider call. Its output budget adds only
+reported reasoning tokens, capped at 8,192 and the existing operator ceiling;
+missing reasoning usage does not invent extra headroom. Successful batches are
+not rechecked, and valid negative decisions are never retried into approval.
+Partial JSON is never accepted. A second truncation, malformed or missing
+decisions, nonboolean support, duplicate IDs or other provider errors continue
+to fail closed. Every new summary addition still requires source checks.
+
+Eight new controlled regressions cover the observed 4,096-reasoning-token
+failure, targeted batch recovery with an independent negative verdict, repeated
+failure and token caps, strict batch decisions, single-claim and intent recovery,
+operator/model scoping, and checked expansion to 2,010 words after recovery.
+These tests exercise real HTTP-response parsing with mocked provider responses;
+they do not establish live requested-length reliability or judge calibration.
+The broader suite reports 145 tests: 143 passed and two optional OCR checks
+skipped.
