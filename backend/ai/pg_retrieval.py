@@ -225,6 +225,64 @@ class PostgresRetriever:
         finally:
             connection.close()
 
+    def document_context(self, course_id: int, source_id: int, owner_student_id: int,
+                         limit: int = 96) -> dict:
+        """Read across the owned file for long explanations, without embeddings."""
+        if not course_id or not source_id or not owner_student_id:
+            raise ValueError('Document context requires course, source and owner.')
+        limit = max(1, min(96, int(limit)))
+        connection = self._get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('''SELECT chunks.chunk_id,chunks.source_id,sources.source_name,
+                    sources.source_type,chunks.content,chunks.page_number,chunks.slide_number,
+                    chunks.timestamp_seconds,chunks.timestamp_end,topics.topic_name,
+                    chunks.metadata->>'extraction_status'
+                    FROM chunks JOIN sources ON chunks.source_id=sources.source_id
+                    JOIN courses ON courses.course_id=sources.course_id
+                    LEFT JOIN topics ON topics.topic_id=chunks.topic_id
+                    WHERE sources.course_id=%s AND sources.source_id=%s
+                    AND sources.owner_student_id=%s AND courses.owner_student_id=%s
+                    AND chunks.content IS NOT NULL AND btrim(chunks.content)<>''
+                    ORDER BY chunks.page_number NULLS LAST,chunks.slide_number NULLS LAST,
+                    chunks.timestamp_seconds NULLS LAST,chunks.chunk_id LIMIT 2048''',
+                    (course_id, source_id, owner_student_id, owner_student_id))
+                rows = cursor.fetchall()
+        finally:
+            connection.close()
+        groups, seen = {}, set()
+        for row in rows:
+            key = ' '.join(row[4].casefold().split())
+            if key in seen:
+                continue
+            seen.add(key)
+            location = tuple(row[5:8])
+            if location == (None, None, None):
+                location = ('chunk', row[0])
+            groups.setdefault(location, []).append(row)
+        # Cover every location before spending remaining context on its figures
+        # and additional chunks. Prefer native teaching text to screenshot menus.
+        for location, group in groups.items():
+            groups[location] = sorted(group, key=lambda r: (
+                not (r[10] == 'extracted' and len(r[4].split()) >= 12), -len(r[4].split())))
+        selected, used_chars = [], 0
+        for rank in range(max((len(g) for g in groups.values()), default=0)):
+            for group in groups.values():
+                if rank < len(group) and len(selected) < limit:
+                    row = group[rank]
+                    if used_chars + len(row[4]) <= 80_000:
+                        selected.append(row)
+                        used_chars += len(row[4])
+            if len(selected) >= limit:
+                break
+        locations = {tuple(r[5:8]) if tuple(r[5:8]) != (None, None, None) else ('chunk', r[0]) for r in selected}
+        return {'results': [RetrievedChunk(chunk=Chunk(chunk_id=str(r[0]),source_id=r[1],
+                    source_name=r[2],source_type=r[3],content=r[4],page=r[5],slide=r[6],
+                    timestamp_start=r[7],timestamp_end=r[8],topic=r[9]),score=0.0) for r in selected],
+                'locations_available': len(groups), 'locations_selected': len(locations),
+                'all_chunks_included': len(selected) == len(seen) and len(rows) < 2048,
+                'scope': 'all_available_locations' if len(locations) == len(groups) and len(rows) < 2048 else 'sampled_locations'}
+
     def overview(
         self,
         course_id: int,

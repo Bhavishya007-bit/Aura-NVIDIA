@@ -1,5 +1,9 @@
 # Follow-up and slide-evidence recovery
 
+Length/style follow-ups and long explanations were subsequently corrected in
+[Length and format follow-ups](LONG_ANSWERS.md). That note contains the current
+test totals and the `in 2000 words` reproduction.
+
 ## Summary follow-up fix
 
 The subsequent screenshot of “summarize the ppt” showed that coverage was

@@ -4,6 +4,7 @@ import re
 from pydantic import Field
 from backend.ai.answer_contract import StrictModel, AnswerSection, citation_ids
 from backend.ai.answer_quality import wrong_script
+from backend.ai.response_request import length_check
 
 
 class SummarySentence(StrictModel):
@@ -12,9 +13,12 @@ class SummarySentence(StrictModel):
 
 
 class SummaryDraft(StrictModel):
-    sentences: list[SummarySentence] = Field(min_length=1, max_length=8)
+    sentences: list[SummarySentence] = Field(min_length=1, max_length=192)
 
-    def render(self, source_count):
+    def render(self, source_count, request=None):
+        request = request or {'max_sentences': 8, 'long_form': False, 'layout': 'prose'}
+        if len(self.sentences) > request['max_sentences']:
+            raise ValueError('Summary exceeded the requested sentence budget.')
         sentences = []
         for item in self.sentences:
             if not item.text.strip() or citation_ids(item.text) or any(
@@ -23,7 +27,14 @@ class SummaryDraft(StrictModel):
                 raise ValueError('Invalid summary text or source number.')
             refs = ''.join(f'[{n}]' for n in dict.fromkeys(item.citation_ids))
             sentences.append(item.text.strip().rstrip('.!?') + ' ' + refs + '.')
-        return ' '.join(sentences)
+        if request.get('layout') == 'bullets':
+            return '\n'.join('- ' + s for s in sentences)
+        if request.get('layout') == 'table':
+            return '| Point | Explanation |\n| --- | --- |\n' + '\n'.join(
+                f'| {i} | {s.replace("|", " / ")} |' for i, s in enumerate(sentences, 1))
+        groups = request.get('target_paragraphs') or (max(2, round(len(sentences) / 6)) if request.get('long_form') else 1)
+        size = max(1, (len(sentences) + groups - 1) // groups)
+        return '\n\n'.join(' '.join(sentences[i:i + size]) for i in range(0, len(sentences), size))
 
 
 def source_section(text):
@@ -53,7 +64,7 @@ def literal_excerpt(content, question):
     return None
 
 
-def recover_summary(sources, checks, question):
+def recover_summary(sources, checks, question, request=None):
     # Each verifier result approves only its own sentence and citation list.
     # Do not concatenate a failed draft or inherit its uncited introductions.
     for check in reversed(checks):
@@ -71,14 +82,18 @@ def recover_summary(sources, checks, question):
             if key in seen:
                 continue
             seen.add(key)
-            sentences.append(claim.rstrip('.!?') + ' ' + ''.join(f'[{n}]' for n in dict.fromkeys(numbers)) + '.')
-            if len(sentences) == 6:
+            sentences.append({'text': claim.rstrip('.!?'), 'citation_ids': list(dict.fromkeys(numbers))})
+            if len(sentences) == (request['max_sentences'] if request and request['long_form'] else 6):
                 break
         if sentences:
-            return source_section(' '.join(sentences)), {
+            text = SummaryDraft.model_validate({'sentences': sentences}).render(len(sources), request)
+            validation = {
                 'valid': True, 'stage': 'summary_checked_points',
                 'response_mode': 'checked_points', 'supported_sentence_count': len(sentences),
             }
+            if request:
+                validation['length_validation'] = length_check(text, request)
+            return source_section(text), validation
 
     # When a judge/model is down, literal membership still proves a quote's
     # origin. Excerpts are explicitly labelled and never passed off as synthesis.

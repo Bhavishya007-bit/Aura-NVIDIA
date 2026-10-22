@@ -1,5 +1,6 @@
 import re
 import json
+from backend.ai.response_request import resolve_format_followup, is_format_followup
 from typing import Any
 
 from backend.ai.llm import LLM
@@ -559,6 +560,8 @@ Return JSON only: {{"excerpts": [{{"citation": 1, "text": "Exact complete senten
 
     def _resolve_followup(self, question: str, history: list[dict]) -> str:
         """Resolve references for retrieval; history is never source evidence."""
+        if is_format_followup(question):
+            return resolve_format_followup(question, history)
         turns = [
             item
             for item in history[-8:]

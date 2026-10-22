@@ -55,6 +55,15 @@ class LLM:
         client.model_name = os.getenv(setting, "").strip() or self.model_name
         return client
 
+    def with_output_budget(self, tokens: int):
+        """Bound larger generation budgets to this answer, not its small judges."""
+        client = copy.copy(self)
+        ceiling = max(4096, min(32768, int(os.getenv('AURA_MAX_ANSWER_TOKENS', '16384'))))
+        budget = max(1, min(int(tokens), ceiling))
+        client.max_tokens = min(ceiling, max(self.max_tokens, budget))
+        client.json_max_tokens = min(ceiling, max(self.json_max_tokens, budget))
+        return client
+
     def _request(self, prompt: str, max_retries: int, json_mode: bool,
                  system_prompt: str | None = None) -> str:
         # Preserve the old client's meaning: max_retries limits total attempts.

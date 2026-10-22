@@ -295,6 +295,10 @@ def create_private_app(legacy):
                 profile = learner_profile(cursor, student["student_id"], body.course_id, body.source_id)
 
         class OwnedRetriever:
+            def document_context(self, **kwargs):
+                return legacy.get_retriever().document_context(
+                    owner_student_id=student['student_id'], **kwargs)
+
             def reading_warnings(self, course_id, source_id):
                 if source_id is None:
                     return []

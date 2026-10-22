@@ -9,6 +9,7 @@ from backend.ai.answer_contract import (
 )
 from backend.ai.lexical import topic_excerpt
 from backend.ai.summary_answer import SummaryDraft, recover_summary
+from backend.ai.response_request import response_request, resolve_format_followup, length_check, length_distance
 
 log = logging.getLogger(__name__)
 PROMPTS = Path(__file__).with_name("prompts") / "v1"
@@ -29,6 +30,9 @@ class SourceAwareTutor:
         self.requested_depth = depth
         self.coverage_llm = rag.llm.for_task("coverage")
         self.conversation_context = []
+        self.response_request = response_request('')
+        self.context_limit = 24
+        self.material_context = {'scope': 'sampled_passages'}
 
     @staticmethod
     def _unknown(reason):
@@ -47,8 +51,7 @@ class SourceAwareTutor:
             log.warning("coverage_check=unavailable error_type=%s", type(error).__name__)
             return self._unknown("Coverage checking is unavailable; absence has not been established.")
 
-    @staticmethod
-    def _merge(existing, incoming):
+    def _merge(self, existing, incoming):
         combined, seen = [], set()
         for item in list(existing) + list(incoming):
             text = " ".join(item.chunk.content.split())
@@ -57,7 +60,7 @@ class SourceAwareTutor:
                 continue
             seen.add(key)
             combined.append(item)
-            if len(combined) == 24:
+            if len(combined) == self.context_limit:
                 break
         return combined
 
@@ -65,7 +68,13 @@ class SourceAwareTutor:
         results = []
         # A failed required retrieval is not evidence that a topic is absent.
         if overview:
-            results = self.rag.retriever.overview(**scope, limit=16)
+            full_context = getattr(self.rag.retriever, 'document_context', None)
+            if self.response_request['long_form'] and full_context:
+                context = full_context(**scope, limit=self.context_limit)
+                results = context['results']
+                self.material_context = {k: v for k, v in context.items() if k != 'results'}
+            else:
+                results = self.rag.retriever.overview(**scope, limit=16)
         else:
             # Lexical evidence remains usable when the embedding service fails.
             # Reserve room for exact-topic headings and their same-slide labels.
@@ -101,15 +110,18 @@ class SourceAwareTutor:
                    "profile_style": self.rag.learning_style, "depth_policy": depth_policy,
                    "conversation_context": self.conversation_context,
                    "selected_material": self.rag.selected_source_name,
+                   "response_request": self.response_request,
+                   "material_context": self.material_context,
                    "question": question}
         validation = {"valid": False, "stage": "generation_unavailable"}
         checks = []
+        best_checked = None
         for attempt in range(2):
             try:
                 if overview:
                     draft = client.generate_json(json.dumps(payload), max_retries=1,
                         system_prompt=prompt("summary_answer.txt"))
-                    text = SummaryDraft.model_validate(draft).render(len(sources))
+                    text = SummaryDraft.model_validate(draft).render(len(sources), self.response_request)
                 else:
                     text = self.rag._normalize_citations(client.generate(
                         json.dumps(payload), max_retries=1, system_prompt=prompt("sourced_answer.txt")))
@@ -119,8 +131,18 @@ class SourceAwareTutor:
                          "summary" if overview else "answer", attempt + 1,
                          validation.get("stage"), validation.get("valid") is True)
                 if validation.get("valid") is True:
-                    return AnswerSection(kind="sourced", text=text, provenance="uploaded_material",
-                                         verified=True, citation_ids=citation_ids(text)), validation
+                    section = AnswerSection(kind="sourced", text=text, provenance="uploaded_material",
+                                            verified=True, citation_ids=citation_ids(text))
+                    length = length_check(text, self.response_request)
+                    validation['length_validation'] = length
+                    if length['valid']:
+                        return section, validation
+                    if best_checked is None or length_distance(length) < length_distance(best_checked[1]['length_validation']):
+                        best_checked = (section, dict(validation))
+                    payload['previous_draft'] = text
+                    payload['feedback'] = {'length_validation': length,
+                        'instruction': 'Revise the checked explanation to meet the requested word/sentence/paragraph targets using the supplied passages. Do not claim the full file is missing or pad with invented facts.'}
+                    continue
                 payload["previous_draft"] = text
                 payload["feedback"] = self.rag._short_feedback(validation)
                 if validation.get("stage") == "verification_unavailable":
@@ -130,8 +152,11 @@ class SourceAwareTutor:
                 validation = {"valid": False, "stage": "generation_unavailable"}
                 checks.append(validation)
                 payload["feedback"] = "Return the required JSON schema with valid passage IDs." if overview else "Generation was unavailable."
+        if best_checked:
+            best_checked[1]['stage'] = 'requested_length_not_met'
+            return best_checked
         if overview:
-            section, recovered = recover_summary(sources, checks, question)
+            section, recovered = recover_summary(sources, checks, question, self.response_request)
             if section:
                 recovered['draft_stages'] = [check.get('stage') for check in checks]
                 return section, recovered
@@ -152,24 +177,25 @@ class SourceAwareTutor:
             if m.get("role") in {"user", "assistant"} and isinstance(m.get("content"), str)
         ]
         question = self.rag._resolve_material_correction(original_question, history or []) if source_id else original_question
-        # Keep short depth-only follow-ups tied to the latest user topic without
-        # treating the assistant's previous answer as factual evidence.
-        if re.fullmatch(r"\s*(go deeper|make it simpler|explain simply|more detail)[.!?]*\s*", question, re.I):
-            previous = next((m["content"] for m in reversed(history or [])
-                             if m.get("role") == "user" and isinstance(m.get("content"), str)), None)
-            if previous:
-                question = previous + "\nFollow-up request: " + original_question
-        question = self.rag._resolve_followup(question, history or [])
+        question = resolve_format_followup(question, history or [],
+            fallback='Explain the selected material.' if source_id else None)
+        if question == original_question:
+            question = self.rag._resolve_followup(question, history or [])
+        self.response_request = response_request(question)
+        self.context_limit = 96 if self.response_request['long_form'] else 24
         search_question = re.split(r"\n(?:Answer format requested now|Follow-up request):", question)[0].strip()
         self.rag.retrieval_question = search_question
         overview = source_id is not None and self.rag._is_material_overview(question)
         explicit_grounding = bool(re.search(
             r"\b(?:use only|only use|using only|strictly from|solely from)\b|\bonly (?:my|the|this|these|your) (?:sources?|material|slides?|presentation|documents?|deck)\b",
-            original_question, re.I))
+            question, re.I))
         mode = "grounded" if explicit_grounding else self.mode
         depth = choose_depth(original_question, self.requested_depth)
         policy = json.loads(prompt("depth_policy.json"))[depth]
+        policy += ' Explicit length and format requests override the usual brief-answer default.'
         client = self.rag.llm.for_task("deep" if depth == "advanced" else "answer")
+        if self.response_request['target_words'] and hasattr(client, 'with_output_budget'):
+            client = client.with_output_budget(self.response_request['token_budget'])
         scope = {"course_id": course_id, "source_id": source_id}
         reading_warnings = []
         health = getattr(self.rag.retriever, "reading_warnings", None)
@@ -240,6 +266,7 @@ class SourceAwareTutor:
             try:
                 extra = client.generate(json.dumps({"missing_parts": decision.missing_parts,
                     "coverage_status": decision.status, "depth_policy": policy,
+                    "response_request": self.response_request,
                     "conversation_context": self.conversation_context,
                     "profile_style": self.rag.learning_style, "question": question}),
                     max_retries=1, system_prompt=prompt("beyond_material.txt")).strip()
@@ -264,6 +291,14 @@ class SourceAwareTutor:
                            if mention_found else "I couldn't determine whether your material covers this question. This does not mean it is absent.")
         if reading_warnings and decision.status != "fully_covered":
             notices.append("Some parts of this file could not be read completely. Review its reading notices; image or diagram details may need a clearer upload.")
+        length = length_check('\n'.join(s.text for s in sections), self.response_request) if sections else None
+        if length and not length['valid']:
+            if length['requested_words']:
+                notices.append(f"This response is {length['actual_words']} words; the requested target was approximately {length['requested_words']} words.")
+            else:
+                notices.append('The checked explanation does not fully match the requested sentence or paragraph count.')
+        if self.response_request['requested_words'] != self.response_request['target_words']:
+            notices.append(f"This response uses a maximum target of {self.response_request['target_words']} words; the requested length was {self.response_request['requested_words']}.")
         if decision.covered_parts and not any(s.kind == "sourced" for s in sections):
             notices.append("I found related evidence, but couldn't verify a source-backed explanation right now.")
         if not sections and not notices:
@@ -290,5 +325,8 @@ class SourceAwareTutor:
             "clarifying_question": clarification,
             "follow_up_options": ["Explain simply", "Go deeper"] if sections else [],
         })
-        response.update(fields.model_dump(), pipeline_version="aura-source-aware-v1")
+        response.update(fields.model_dump(), pipeline_version="aura-source-aware-v1",
+            response_request=self.response_request,
+            length_validation=length_check('\n'.join(s.text for s in sections), self.response_request),
+            material_context=self.material_context)
         return response

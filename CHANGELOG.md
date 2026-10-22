@@ -1,6 +1,16 @@
 
 # Changelog
 
+## 2026-10-22 — Honor length and format follow-ups
+
+- Resolve `in 2000 words` and chained style/length modifiers against the preceding topic.
+- Scale summary sentence limits, answer token budgets and owned document context.
+- Measure the generated length, request one bounded revision, and report unmet targets.
+- Batch long-answer claim checks with independent, strictly validated per-claim results.
+- Add 23 response regressions and three PostgreSQL document-context checks.
+
+See `docs/LONG_ANSWERS.md` for measured behavior, limits and validation scope.
+
 ## 2026-10-22 — Recover useful summaries after checking failures
 
 - Give uploaded-file summaries a dedicated structured prompt and server-formatted citations.
