@@ -20,6 +20,16 @@ def _token_count(value):
     return value if type(value) is int and value >= 0 else None
 
 
+class LLMResponseError(RuntimeError):
+    """Safe, structured provider failure metadata for bounded recovery."""
+
+    def __init__(self, code, *, max_tokens, reasoning_tokens=None):
+        super().__init__(f"Nebius returned an unusable response. See failure_code={code} in the backend log.")
+        self.failure_code = code
+        self.max_tokens = max_tokens
+        self.reasoning_tokens = reasoning_tokens
+
+
 class LLM:
     """Nebius Token Factory client with Aura's existing public interface."""
 
@@ -27,6 +37,7 @@ class LLM:
         self.api_key = os.getenv("NEBIUS_API_KEY", "").strip()
         self.model_name = os.getenv("NEBIUS_MODEL", "").strip()
         self.task = "answer"
+        self.reasoning_effort = None
 
         base = os.getenv(
             "NEBIUS_BASE_URL",
@@ -69,6 +80,19 @@ class LLM:
         client.json_max_tokens = min(ceiling, max(self.json_max_tokens, budget))
         return client
 
+    def for_summary(self):
+        """Reserve output for long-form writing, without changing judge/deep clients."""
+        client = copy.copy(self)
+        # This default addresses the model/endpoint failure observed in live logs.
+        # Other routed models keep provider defaults unless explicitly configured.
+        default = ("none" if self.model_name.lower() ==
+                   "nvidia/nemotron-3-super-120b-a12b" else "provider")
+        effort = os.getenv("NEBIUS_SUMMARY_REASONING_EFFORT", "").strip().lower() or default
+        if effort not in {"provider", "none", "minimal", "low", "medium", "high", "xhigh"}:
+            raise ValueError("Invalid NEBIUS_SUMMARY_REASONING_EFFORT.")
+        client.reasoning_effort = None if effort == "provider" else effort
+        return client
+
     def _request(self, prompt: str, max_retries: int, json_mode: bool,
                  system_prompt: str | None = None) -> str:
         # Preserve the old client's meaning: max_retries limits total attempts.
@@ -95,6 +119,8 @@ class LLM:
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
+        if self.reasoning_effort is not None:
+            payload["reasoning_effort"] = self.reasoning_effort
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -193,7 +219,7 @@ class LLM:
                     "provider=nebius model=%s json=%s attempt=%s "
                     "latency_s=%.2f prompt_tokens=%s completion_tokens=%s "
                     "task=%s cached_tokens=%s cache_hit=%s status=success "
-                    "max_tokens=%s reasoning_tokens=%s",
+                    "max_tokens=%s reasoning_tokens=%s reasoning_effort=%s",
                     self.model_name,
                     json_mode,
                     attempt + 1,
@@ -205,6 +231,7 @@ class LLM:
                     None if cached is None else int(cached > 0),
                     payload["max_tokens"],
                     reasoning_tokens,
+                    self.reasoning_effort or "provider_default",
                 )
                 return content.strip()
 
@@ -256,7 +283,8 @@ class LLM:
                     "provider=nebius model=%s attempt=%s "
                     "latency_s=%.2f status=invalid_response error_type=%s "
                     "failure_code=%s task=%s json=%s finish_reason=%s "
-                    "max_tokens=%s prompt_tokens=%s completion_tokens=%s reasoning_tokens=%s",
+                    "max_tokens=%s prompt_tokens=%s completion_tokens=%s reasoning_tokens=%s "
+                    "reasoning_effort=%s",
                     self.model_name,
                     attempt + 1,
                     time.perf_counter() - started,
@@ -269,10 +297,10 @@ class LLM:
                     input_tokens,
                     output_tokens,
                     reasoning_tokens,
+                    self.reasoning_effort or "provider_default",
                 )
-                raise RuntimeError(
-                    "Nebius returned an unusable response. "
-                    f"See failure_code={failure_code} in the backend log."
+                raise LLMResponseError(
+                    failure_code, max_tokens=payload["max_tokens"], reasoning_tokens=reasoning_tokens,
                 ) from error
 
             time.sleep(retry_delay)

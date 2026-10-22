@@ -87,8 +87,12 @@ Nemotron output on the user's database remains the final integration check.
 
 The supplied live log shows coverage JSON failing schema validation and two
 answer calls rejected as invalid provider responses, before source checking.
-Those older log lines do not identify why the responses were rejected. They
-do not establish truncation or a reasoning-budget problem.
+Those older log lines did not identify why the responses were rejected.
+The subsequent diagnostic reproduction established `finish_reason=length`:
+of an 8,192-token allowance, 7,524 tokens were reasoning in one attempt and
+all 8,192 were reasoning in the next. Coverage completed without a schema
+warning in that reproduction. This establishes answer-generation truncation,
+not a new failure to retrieve the presentation.
 
 New `provider=nebius status=invalid_response` lines include `failure_code`, task,
 JSON mode, the requested token budget, a bounded finish reason, and numeric
@@ -101,8 +105,43 @@ Coverage and summary schema failures log the error count and at most eight
 field paths/types. Unknown field names, input values and validation messages
 are omitted; private model responses and credentials are not logged.
 
-After pulling, restart the backend and repeat the request against the existing
-prepared presentation. Use these diagnostic lines to choose a targeted fix;
-the diagnostic update itself does not establish that live 2,000-word output
-now succeeds. Eight controlled failure/redaction regressions are available via
+Eight controlled failure/redaction regressions are available via
 `python -m unittest evaluation.check_llm_diagnostics -v`.
+
+## Reserve output for the long summary
+
+Long file summaries now clone the writing client and request
+`reasoning_effort: "none"` for the exact model
+`nvidia/nemotron-3-super-120b-a12b`. This is a top-level request field in the
+[Nebius chat API](https://docs.tokenfactory.nebius.com/api-reference/inference/create-chat-completion).
+It is not an OpenAI SDK `extra_body` wrapper or an assumed NVIDIA NIM parameter.
+Short summaries, coverage checks, source verification and non-summary deep
+answers retain their existing settings. Other routed models keep provider
+defaults unless explicitly configured.
+
+Optional `NEBIUS_SUMMARY_REASONING_EFFORT` overrides that policy for long
+summaries. Blank uses the model-specific default; `provider` omits the field;
+other accepted API values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`.
+No environment change is required for the observed model.
+
+If the first draft still truncates and the provider reports reasoning usage,
+the existing single retry adds those measured reasoning tokens to the writing
+allowance, respecting `AURA_MAX_ANSWER_TOKENS`. The observed allowances become
+15,716 or 16,384 tokens on that retry. Unknown usage is not guessed. Incomplete
+JSON remains rejected, and a second failure still returns the honest fallback.
+There is no additional retry loop or unbounded output increase. Logs include
+the requested effort and actual usage so ignored controls remain detectable.
+
+Eight new controlled regressions exercise the real HTTP parser with both
+reported truncations, successful checked 2,000-word recovery, cap enforcement,
+missing usage, client isolation and rejection of complete-looking JSON returned
+with a truncated finish reason. Run:
+
+```powershell
+python -m unittest evaluation.check_summary_reasoning evaluation.check_llm_diagnostics evaluation.check_phase2 evaluation.check_summary_recovery evaluation.check_long_answers -q
+```
+
+These 81 checks pass locally. No hosted call was made: model-specific compliance
+with the documented effort field and live generation quality still require a
+run on the user's configured endpoint. Pull `main`, restart the backend and
+repeat the two-turn request using the already prepared presentation.

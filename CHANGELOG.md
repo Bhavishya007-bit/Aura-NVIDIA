@@ -1,6 +1,18 @@
 
 # Changelog
 
+## 2026-10-22 — Reserve tokens for long Nemotron summaries
+
+- Use the documented Nebius `reasoning_effort=none` request field for long
+  summaries on the observed Nemotron 3 Super model, with an optional override.
+- Keep short summaries, coverage/verification clients and other answers unchanged.
+- Replace an identical truncation retry with a measured reasoning-token reserve,
+  within the existing two-attempt limit and configured global output cap.
+- Add eight controlled regressions, including the two supplied live truncation
+  patterns and recovery to 2,000 checked words. All 81 relevant checks pass.
+- Live provider acceptance/control compliance remains to be verified; no hosted
+  model call was made for this update. See `docs/LONG_ANSWERS.md`.
+
 ## 2026-10-22 — Exclude backend runtime files from Vite watching
 
 - Ignore the backend directory and descendants so LibreOffice's locked preview

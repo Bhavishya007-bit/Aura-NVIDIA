@@ -10,6 +10,7 @@ from backend.ai.answer_contract import (
     AnswerSection, CoverageDecision, SourceAwareFields, choose_depth, citation_ids,
 )
 from backend.ai.lexical import topic_excerpt
+from backend.ai.llm import LLMResponseError
 from backend.ai.summary_answer import SummaryDraft, recover_summary
 from backend.ai.response_request import response_request, resolve_format_followup, length_check, length_distance
 
@@ -119,6 +120,8 @@ class SourceAwareTutor:
         return self._merge([], results)
 
     def _source_answer(self, question, sources, decision, client, depth_policy, overview=False):
+        if overview and self.response_request['long_form'] and hasattr(client, 'for_summary'):
+            client = client.for_summary()
         payload = {"passages": [{"id": i, "text": s["content"][:6000]}
                                 for i, s in enumerate(sources, 1)],
                    "supported_parts": [part.model_dump() for part in decision.covered_parts],
@@ -169,7 +172,17 @@ class SourceAwareTutor:
                             type(error).__name__, _schema_errors(error))
                 validation = {"valid": False, "stage": "generation_unavailable"}
                 checks.append(validation)
-                payload["feedback"] = "Return the required JSON schema with valid passage IDs." if overview else "Generation was unavailable."
+                if (overview and self.response_request['long_form'] and
+                    isinstance(error, LLMResponseError) and error.failure_code == 'output_truncated'):
+                    # Keep the existing two-attempt limit. Reserve the requested
+                    # writing allowance plus measured reasoning, within the global cap.
+                    if attempt == 0 and error.reasoning_tokens and hasattr(client, 'with_output_budget'):
+                        client = client.with_output_budget(error.max_tokens + error.reasoning_tokens)
+                    payload['feedback'] = ('The previous completion exhausted its output budget. '
+                        'Produce the final supported answer directly in the required format. '
+                        'Keep the requested length; omit planning and commentary.')
+                else:
+                    payload["feedback"] = "Return the required JSON schema with valid passage IDs." if overview else "Generation was unavailable."
         if best_checked:
             best_checked[1]['stage'] = 'requested_length_not_met'
             return best_checked
