@@ -82,3 +82,27 @@ index. No hosted model or user database was accessed for these checks.
 Pull `main`, restart the backend, select the already prepared presentation, and
 repeat the two-turn request. Existing indexed material can be reused. Live
 Nemotron output on the user's database remains the final integration check.
+
+## Diagnose provider failures
+
+The supplied live log shows coverage JSON failing schema validation and two
+answer calls rejected as invalid provider responses, before source checking.
+Those older log lines do not identify why the responses were rejected. They
+do not establish truncation or a reasoning-budget problem.
+
+New `provider=nebius status=invalid_response` lines include `failure_code`, task,
+JSON mode, the requested token budget, a bounded finish reason, and numeric
+prompt/completion/reasoning usage when reported. Codes distinguish
+`output_truncated`, `empty_content`, `content_json`, `content_shape`,
+`response_json`, `response_shape`, `completion_shape`, `unexpected_redirect`
+and `unexpected_finish_reason`. Missing usage remains unknown.
+
+Coverage and summary schema failures log the error count and at most eight
+field paths/types. Unknown field names, input values and validation messages
+are omitted; private model responses and credentials are not logged.
+
+After pulling, restart the backend and repeat the request against the existing
+prepared presentation. Use these diagnostic lines to choose a targeted fix;
+the diagnostic update itself does not establish that live 2,000-word output
+now succeeds. Eight controlled failure/redaction regressions are available via
+`python -m unittest evaluation.check_llm_diagnostics -v`.

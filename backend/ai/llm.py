@@ -15,6 +15,11 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 logger = logging.getLogger(__name__)
 
 
+def _token_count(value):
+    """Keep provider diagnostics numeric; never log arbitrary response values."""
+    return value if type(value) is int and value >= 0 else None
+
+
 class LLM:
     """Nebius Token Factory client with Aura's existing public interface."""
 
@@ -99,6 +104,9 @@ class LLM:
         for attempt in range(attempts):
             started = time.perf_counter()
             retry_delay = min(2 ** attempt, 8)
+            failure_code = "transport"
+            finish = None
+            input_tokens = output_tokens = reasoning_tokens = None
 
             try:
                 response = requests.post(
@@ -110,16 +118,29 @@ class LLM:
                 )
 
                 if 300 <= response.status_code < 400:
+                    failure_code = "unexpected_redirect"
                     raise RuntimeError(
                         "Unexpected redirect. Check NEBIUS_BASE_URL."
                     )
 
                 response.raise_for_status()
+                failure_code = "response_json"
                 data = response.json()
 
+                failure_code = "response_shape"
                 if not isinstance(data, dict):
                     raise RuntimeError("Nebius returned an invalid response.")
 
+                usage = data.get("usage")
+                if not isinstance(usage, dict):
+                    usage = {}
+                input_tokens = _token_count(usage.get("prompt_tokens"))
+                output_tokens = _token_count(usage.get("completion_tokens"))
+                completion_details = usage.get("completion_tokens_details")
+                if isinstance(completion_details, dict):
+                    reasoning_tokens = _token_count(completion_details.get("reasoning_tokens"))
+
+                failure_code = "completion_shape"
                 choices = data.get("choices")
                 if not isinstance(choices, list) or not choices:
                     raise RuntimeError("Nebius returned no completion.")
@@ -128,14 +149,18 @@ class LLM:
                     raise RuntimeError("Nebius returned an invalid completion.")
 
                 finish_reason = choice.get("finish_reason")
+                finish = (finish_reason if isinstance(finish_reason, str) and finish_reason in
+                          {"stop", "length", "content_filter", "tool_calls", "function_call"} else "other")
                 if finish_reason == "length":
+                    failure_code = "output_truncated"
                     raise RuntimeError(
                         "Model output was truncated. Review the token limit "
                         "and the selected model's reasoning settings."
                     )
                 if finish_reason != "stop":
+                    failure_code = "unexpected_finish_reason"
                     raise RuntimeError(
-                        f"Unexpected completion finish reason: {finish_reason!r}"
+                        "Unexpected completion finish reason."
                     )
 
                 message = choice.get("message")
@@ -145,18 +170,18 @@ class LLM:
                     else None
                 )
                 if not isinstance(content, str) or not content.strip():
+                    failure_code = "empty_content"
                     raise RuntimeError("Nebius returned no answer text.")
 
                 if json_mode:
+                    failure_code = "content_json"
                     parsed = json.loads(content)
                     if not isinstance(parsed, dict):
+                        failure_code = "content_shape"
                         raise RuntimeError(
                             "Nebius verification JSON must be an object."
                         )
 
-                usage = data.get("usage")
-                if not isinstance(usage, dict):
-                    usage = {}
                 details = usage.get("prompt_tokens_details")
                 cached = details.get("cached_tokens") if isinstance(details, dict) else None
                 total_input = usage.get("prompt_tokens")
@@ -167,16 +192,19 @@ class LLM:
                 logger.info(
                     "provider=nebius model=%s json=%s attempt=%s "
                     "latency_s=%.2f prompt_tokens=%s completion_tokens=%s "
-                    "task=%s cached_tokens=%s cache_hit=%s status=success",
+                    "task=%s cached_tokens=%s cache_hit=%s status=success "
+                    "max_tokens=%s reasoning_tokens=%s",
                     self.model_name,
                     json_mode,
                     attempt + 1,
                     time.perf_counter() - started,
-                    usage.get("prompt_tokens"),
-                    usage.get("completion_tokens"),
+                    input_tokens,
+                    output_tokens,
                     self.task,
                     cached,
                     None if cached is None else int(cached > 0),
+                    payload["max_tokens"],
+                    reasoning_tokens,
                 )
                 return content.strip()
 
@@ -226,15 +254,25 @@ class LLM:
             except (requests.RequestException, ValueError, RuntimeError) as error:
                 logger.warning(
                     "provider=nebius model=%s attempt=%s "
-                    "latency_s=%.2f status=invalid_response error_type=%s",
+                    "latency_s=%.2f status=invalid_response error_type=%s "
+                    "failure_code=%s task=%s json=%s finish_reason=%s "
+                    "max_tokens=%s prompt_tokens=%s completion_tokens=%s reasoning_tokens=%s",
                     self.model_name,
                     attempt + 1,
                     time.perf_counter() - started,
                     type(error).__name__,
+                    failure_code,
+                    self.task,
+                    json_mode,
+                    finish,
+                    payload["max_tokens"],
+                    input_tokens,
+                    output_tokens,
+                    reasoning_tokens,
                 )
                 raise RuntimeError(
                     "Nebius returned an unusable response. "
-                    "Inspect the exception cause in the backend log."
+                    f"See failure_code={failure_code} in the backend log."
                 ) from error
 
             time.sleep(retry_delay)

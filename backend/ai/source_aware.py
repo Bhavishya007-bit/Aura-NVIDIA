@@ -4,6 +4,8 @@ import logging
 import re
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from backend.ai.answer_contract import (
     AnswerSection, CoverageDecision, SourceAwareFields, choose_depth, citation_ids,
 )
@@ -17,6 +19,19 @@ PROMPTS = Path(__file__).with_name("prompts") / "v1"
 
 def prompt(name):
     return (PROMPTS / name).read_text(encoding="utf-8")
+
+
+def _schema_errors(error):
+    """Log schema paths/types without model text, input values or unknown field names."""
+    if not isinstance(error, ValidationError):
+        return None
+    known = {"status", "covered_parts", "missing_parts", "reason", "ambiguous",
+             "clarifying_question", "part", "citation_ids", "sentences", "text"}
+    return {"count": error.error_count(), "errors": [
+        {"path": [p if type(p) is int or p in known else "<field>" for p in item["loc"]],
+         "type": item["type"]}
+        for item in error.errors(include_input=False, include_context=False, include_url=False)[:8]
+    ]}
 
 
 class SourceAwareTutor:
@@ -48,7 +63,8 @@ class SourceAwareTutor:
             )
             return CoverageDecision.model_validate(data).check_citations(len(sources))
         except Exception as error:
-            log.warning("coverage_check=unavailable error_type=%s", type(error).__name__)
+            log.warning("coverage_check=unavailable error_type=%s schema_errors=%s",
+                        type(error).__name__, _schema_errors(error))
             return self._unknown("Coverage checking is unavailable; absence has not been established.")
 
     def _merge(self, existing, incoming):
@@ -148,7 +164,9 @@ class SourceAwareTutor:
                 if validation.get("stage") == "verification_unavailable":
                     break
             except Exception as error:
-                log.warning("source_answer=unavailable error_type=%s", type(error).__name__)
+                log.warning("source_answer=unavailable task=%s attempt=%s error_type=%s schema_errors=%s",
+                            "summary" if overview else "answer", attempt + 1,
+                            type(error).__name__, _schema_errors(error))
                 validation = {"valid": False, "stage": "generation_unavailable"}
                 checks.append(validation)
                 payload["feedback"] = "Return the required JSON schema with valid passage IDs." if overview else "Generation was unavailable."

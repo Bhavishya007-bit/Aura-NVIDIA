@@ -1,6 +1,18 @@
 
 # Changelog
 
+## 2026-10-22 — Exclude backend runtime files from Vite watching
+
+- Ignore the backend directory and descendants so LibreOffice's locked preview
+  profile files cannot enter the frontend watcher.
+- Verify with a running Vite server that existing/new backend files are ignored,
+  frontend add/change events remain active, and the UI returns HTTP 200. This
+  check ran on Linux; the reported Windows file lock was not reproduced here.
+- Add private-data-safe provider failure codes, token usage and schema paths
+  for diagnosing the still-unresolved live long-summary failure.
+- Eight new diagnostics regressions pass; 73 relevant Python checks and the
+  frontend build pass. No hosted model call was made for this update.
+
 ## 2026-10-22 — Honor length and format follow-ups
 
 - Resolve `in 2000 words` and chained style/length modifiers against the preceding topic.

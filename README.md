@@ -364,6 +364,7 @@ Measure extraction and indexing timings on your own laptop.
 | `extension vector is not available` | Use the supplied Docker image or install pgvector on native PostgreSQL |
 | Port 5433 occupied | Change `DB_PORT` before starting the new Docker database |
 | `.ppt` conversion unavailable | Install LibreOffice or use `.pptx` |
+| Vite crashes with `EBUSY` watching `backend/.local_storage/.../profile/...tmp` | Pull the watcher fix on `main` and restart `npm run dev`. The frontend watcher excludes the backend directory, including LibreOffice profiles and uploads; existing prepared files can stay in place |
 | Very slow first upload | Model downloads, OCR and CPU embeddings can take time; preload and use a shorter deck |
 | Summary says it cannot verify | Check that the selected material is ready and its extracted text supports the request |
 | `vision_configured: false` or image chat asks for a model | Run `scripts/setup_multimodal.ps1` on that backend laptop, stop the old backend and restart it |
@@ -625,3 +626,4 @@ Prepare fresh copies of poorly transcribed or empty videos, then select the new
 source. Existing JPG originals can be queried again without reupload. Do not
 reset the database. The setup script is for English recordings; preserve or
 restore a multilingual Whisper setting when your recordings are not English.
+

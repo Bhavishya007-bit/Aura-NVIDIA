@@ -52,7 +52,12 @@ export default defineConfig({
   optimizeDeps: { include: ['react', 'react-dom/client'] },
   server: {
     proxy,
-    watch: { ignored: ['**/.venv/**', '**/venv/**', '**/backend/uploads/**', '**/aura-update-backups/**'] },
+    watch: {
+      // Backend uploads and LibreOffice preview profiles contain locked temp files.
+      // Ignore the directory itself as well as its contents to avoid traversing it.
+      ignored: ['**/backend', '**/backend/**', '**/.venv/**', '**/venv/**', '**/aura-update-backups/**'],
+    },
   },
   preview: { host: '127.0.0.1', port: 5173, strictPort: true, proxy },
 })
+
