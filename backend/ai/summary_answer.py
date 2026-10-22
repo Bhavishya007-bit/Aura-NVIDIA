@@ -2,9 +2,18 @@
 import re
 
 from pydantic import Field
-from backend.ai.answer_contract import StrictModel, AnswerSection, citation_ids
+from backend.ai.answer_contract import StrictModel, AnswerSection, citation_ids, CITATIONS
 from backend.ai.answer_quality import wrong_script
 from backend.ai.response_request import length_check
+
+
+class SummaryDraftError(ValueError):
+    """Safe format feedback: codes/indices only, never document or model text."""
+
+    def __init__(self, code, *, sentence_index=None):
+        super().__init__(code)
+        self.failure_code = code
+        self.feedback = {'code': code, 'sentence_index': sentence_index}
 
 
 class SummarySentence(StrictModel):
@@ -18,15 +27,23 @@ class SummaryDraft(StrictModel):
     def render(self, source_count, request=None):
         request = request or {'max_sentences': 8, 'long_form': False, 'layout': 'prose'}
         if len(self.sentences) > request['max_sentences']:
-            raise ValueError('Summary exceeded the requested sentence budget.')
+            raise SummaryDraftError('sentence_budget_exceeded')
         sentences = []
-        for item in self.sentences:
-            if not item.text.strip() or citation_ids(item.text) or any(
-                not 1 <= n <= source_count for n in item.citation_ids
-            ):
-                raise ValueError('Invalid summary text or source number.')
+        for index, item in enumerate(self.sentences):
+            if any(not 1 <= n <= source_count for n in item.citation_ids):
+                raise SummaryDraftError('citation_out_of_range', sentence_index=index)
+            inline = citation_ids(item.text)
+            if any(n not in item.citation_ids for n in inline):
+                raise SummaryDraftError('citation_metadata_mismatch', sentence_index=index)
+            # Redundant matching markers are formatting, not new evidence.
+            # Canonicalize them before the unchanged factual-support checks.
+            text = CITATIONS.sub('', item.text).strip()
+            if not text:
+                raise SummaryDraftError('empty_sentence', sentence_index=index)
+            if inline:
+                text = re.sub(r'[ \t]+([.,;:!?])', r'\1', text)
             refs = ''.join(f'[{n}]' for n in dict.fromkeys(item.citation_ids))
-            sentences.append(item.text.strip().rstrip('.!?') + ' ' + refs + '.')
+            sentences.append(text.rstrip('.!?') + ' ' + refs + '.')
         if request.get('layout') == 'bullets':
             return '\n'.join('- ' + s for s in sentences)
         if request.get('layout') == 'table':
@@ -35,6 +52,24 @@ class SummaryDraft(StrictModel):
         groups = request.get('target_paragraphs') or (max(2, round(len(sentences) / 6)) if request.get('long_form') else 1)
         size = max(1, (len(sentences) + groups - 1) // groups)
         return '\n\n'.join(' '.join(sentences[i:i + size]) for i in range(0, len(sentences), size))
+
+
+def summary_contract(request, source_count):
+    """Expose the same bounds to generation and validation, including long requests."""
+    schema = SummaryDraft.model_json_schema()
+    schema['properties']['sentences']['maxItems'] = request['max_sentences']
+    items = schema['$defs']['SummarySentence']['properties']['citation_ids']['items']
+    items.update(minimum=1, maximum=source_count)
+    target = request.get('target_words')
+    return {'output_schema': schema, 'target_words': target,
+            'minimum_words': max(1, int(target * .9)) if target else None,
+            'maximum_words': int(target * 1.1) if target else None,
+            'suggested_sentence_count': min(request['max_sentences'], max(1, round(target / 25))) if target else None,
+            'instruction': ('Write a connected explanation at the requested length using only supported '
+                'points from the supplied passages. Word counts apply to all text fields combined, '
+                'excluding citations and JSON syntax. Do not return an empty sentences list. '
+                'A length request does not mean the material is missing. Prefer substantive teaching '
+                'content to OCR headers, copyright notices and extraction metadata.')}
 
 
 def source_section(text):

@@ -20,7 +20,7 @@ class StrictModel(BaseModel):
 
 class CoveredPart(StrictModel):
     part: str = Field(min_length=1, max_length=1000)
-    citation_ids: list[int] = Field(min_length=1, max_length=24)
+    citation_ids: list[int] = Field(min_length=1, max_length=96)
 
 
 class CoverageDecision(StrictModel):

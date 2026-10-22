@@ -23,6 +23,10 @@ Partially covered: both lists nonempty. Not covered: no supported part; missing_
 Unknown: insufficient readable evidence to make the determination. Never confuse
 unreadable or failed retrieval with proof of absence from the entire document.
 Numbers refer only to the supplied passage IDs. Cite each covered part's evidence.
+Follow the supplied output_schema: at most 12 covered parts and 12 missing parts,
+at most 96 citation IDs per covered part, and a reason of at most 1000 characters.
+Use only integer IDs in source_id_range. Prefer the few IDs needed to establish
+each part; a file overview may legitimately use evidence from more than 24 passages.
 Set ambiguous=true only if multiple plausible meanings materially change the answer.
 Clear prompts get no clarifying question. For ambiguity, ask at most ONE short
 question and identify a reasonable interpretation so an answer can still be given.

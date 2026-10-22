@@ -145,3 +145,41 @@ These 81 checks pass locally. No hosted call was made: model-specific compliance
 with the documented effort field and live generation quality still require a
 run on the user's configured endpoint. Pull `main`, restart the backend and
 repeat the two-turn request using the already prepared presentation.
+
+## Follow-up: successful generation, rejected drafts
+
+The next live run confirmed `reasoning_effort=none` was honored: both writing
+calls reported zero reasoning tokens. The first returned 809 completion tokens
+and raised a plain `ValueError` while rendering; the second returned an empty
+`sentences` list. The old log cannot distinguish which render rule failed, so
+it does not prove the first draft's exact contents or cause. Coverage separately
+failed because one part referenced more than the previous 24-ID schema limit.
+
+Coverage now permits at most 96 IDs per part, matching the maximum supplied
+context, and receives its actual schema and valid ID range. All IDs must still
+resolve within the owned passages; booleans, out-of-range IDs and oversized
+lists remain invalid. This coverage change does not approve answer claims.
+
+Summary generation receives a `draft_contract` with the actual schema,
+per-request sentence cap, allowed source range and total word bounds. A
+2,000-word target explicitly requests 1,800–2,200 prose words and suggests about
+80 developed sentences. The prompt states that this overrides the brief default.
+
+Redundant inline numeric citations are now canonicalized when all appear in the
+point's structured citation IDs. Conflicting or foreign IDs remain errors; the
+resulting prose still undergoes the same source-support checks. Render errors
+have safe codes: `citation_metadata_mismatch`, `citation_out_of_range`,
+`empty_sentence` and `sentence_budget_exceeded`.
+
+Repairs receive the rejected draft and its specific error, with source evidence
+kept separate. Schema messages contain paths/types only. A valid short draft
+gets measured expansion feedback; if the retry is empty, that checked short
+answer survives with an explicit length shortfall. Empty or unverified output
+cannot replace it. Draft logs report sentence/word counts without private text.
+
+Ten new regressions cover these failure modes, including 96 valid coverage
+references, 2,000-word repair, preserved short drafts and rejection of unsupported
+facts despite normalized citation formatting. Run the prior suite plus
+`evaluation.check_summary_drafts`: all 91 relevant checks pass. These use controlled
+provider responses; the user endpoint still needs to demonstrate live requested
+length and quality after restart. No new upload or database migration is needed.

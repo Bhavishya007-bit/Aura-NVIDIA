@@ -7,6 +7,12 @@ sentences as needed, up to max_sentences. A 2000-word explanation should develop
 the source-supported ideas in depth, not repeat a brief summary or ask for the
 same file again. Explain supported mechanisms, comparisons and terms across the
 supplied passages. Do not pad or fabricate facts to hit a count.
+The supplied draft_contract gives the actual output_schema, total word bounds
+and a suggested sentence count. These bounds override the brief-summary default.
+For example, a 2000-word target typically needs about 80 developed sentences;
+five short points do not meet that request. Count the prose across all text fields,
+not the JSON keys or citation IDs. Never return an empty sentences list to repair
+a rejected draft. Use the specific feedback and preserve supported content.
 If detailed=true without a word count, give an extended explanation, up to
 max_sentences. Honor target_sentences and target_paragraphs when present.
 Follow the requested language, format and depth. Prefer teaching points to screenshot menus,

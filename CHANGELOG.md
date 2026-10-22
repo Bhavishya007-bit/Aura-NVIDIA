@@ -1,6 +1,19 @@
 
 # Changelog
 
+## 2026-10-22 — Align summary drafts and coverage contracts
+
+- Permit coverage parts to reference up to the 96 supplied passages and send
+  the actual coverage schema and valid ID range to the judge.
+- Normalize redundant inline summary citations only when they match structured
+  IDs; keep rejecting foreign IDs and checking every resulting source claim.
+- Preserve rejected drafts with specific format/schema repair feedback instead
+  of discarding them. Keep a checked short draft if the next draft is empty.
+- Send explicit word bounds, sentence targets and schema limits to summary
+  generation. Log safe draft counts and distinct render failure codes.
+- Ten new regressions pass; all 91 relevant local checks pass. Live hosted
+  generation at the requested length remains an integration check.
+
 ## 2026-10-22 — Reserve tokens for long Nemotron summaries
 
 - Use the documented Nebius `reasoning_effort=none` request field for long

@@ -11,8 +11,8 @@ from backend.ai.answer_contract import (
 )
 from backend.ai.lexical import topic_excerpt
 from backend.ai.llm import LLMResponseError
-from backend.ai.summary_answer import SummaryDraft, recover_summary
-from backend.ai.response_request import response_request, resolve_format_followup, length_check, length_distance
+from backend.ai.summary_answer import SummaryDraft, SummaryDraftError, summary_contract, recover_summary
+from backend.ai.response_request import response_request, resolve_format_followup, length_check, length_distance, word_count
 
 log = logging.getLogger(__name__)
 PROMPTS = Path(__file__).with_name("prompts") / "v1"
@@ -59,7 +59,9 @@ class SourceAwareTutor:
             data = self.coverage_llm.generate_json(
                 json.dumps({"passages": [{"id": i, "text": s["content"][:6000]}
                                         for i, s in enumerate(sources, 1)], "question": question,
-                            "conversation_context": self.conversation_context}),
+                            "conversation_context": self.conversation_context,
+                            "output_schema": CoverageDecision.model_json_schema(),
+                            "source_id_range": {"minimum": 1, "maximum": len(sources)}}),
                 max_retries=1, system_prompt=prompt("coverage_judge.txt"),
             )
             return CoverageDecision.model_validate(data).check_citations(len(sources))
@@ -132,15 +134,23 @@ class SourceAwareTutor:
                    "response_request": self.response_request,
                    "material_context": self.material_context,
                    "question": question}
+        if overview:
+            payload['draft_contract'] = summary_contract(self.response_request, len(sources))
         validation = {"valid": False, "stage": "generation_unavailable"}
         checks = []
         best_checked = None
         for attempt in range(2):
+            draft = None
             try:
                 if overview:
                     draft = client.generate_json(json.dumps(payload), max_retries=1,
                         system_prompt=prompt("summary_answer.txt"))
-                    text = SummaryDraft.model_validate(draft).render(len(sources), self.response_request)
+                    parsed = SummaryDraft.model_validate(draft)
+                    log.info('summary_draft attempt=%s sentences=%s actual_words=%s target_words=%s',
+                             attempt + 1, len(parsed.sentences),
+                             word_count(' '.join(item.text for item in parsed.sentences)),
+                             self.response_request['target_words'])
+                    text = parsed.render(len(sources), self.response_request)
                 else:
                     text = self.rag._normalize_citations(client.generate(
                         json.dumps(payload), max_retries=1, system_prompt=prompt("sourced_answer.txt")))
@@ -167,10 +177,13 @@ class SourceAwareTutor:
                 if validation.get("stage") == "verification_unavailable":
                     break
             except Exception as error:
-                log.warning("source_answer=unavailable task=%s attempt=%s error_type=%s schema_errors=%s",
+                code = (error.failure_code if isinstance(error, (SummaryDraftError, LLMResponseError))
+                        else 'schema_validation' if isinstance(error, ValidationError) else 'unexpected_error')
+                log.warning("source_answer=unavailable task=%s attempt=%s error_type=%s failure_code=%s schema_errors=%s",
                             "summary" if overview else "answer", attempt + 1,
-                            type(error).__name__, _schema_errors(error))
-                validation = {"valid": False, "stage": "generation_unavailable"}
+                            type(error).__name__, code, _schema_errors(error))
+                validation = {"valid": False, "stage": "summary_draft_invalid" if overview and draft is not None
+                              else "generation_unavailable", 'failure_code': code}
                 checks.append(validation)
                 if (overview and self.response_request['long_form'] and
                     isinstance(error, LLMResponseError) and error.failure_code == 'output_truncated'):
@@ -181,6 +194,16 @@ class SourceAwareTutor:
                     payload['feedback'] = ('The previous completion exhausted its output budget. '
                         'Produce the final supported answer directly in the required format. '
                         'Keep the requested length; omit planning and commentary.')
+                elif overview and draft is not None:
+                    # The model must see what needs repair; generic instructions
+                    # previously discarded the draft and often elicited an empty list.
+                    payload['previous_draft'] = draft
+                    payload['feedback'] = {
+                        'draft_error': error.feedback if isinstance(error, SummaryDraftError) else _schema_errors(error),
+                        'instruction': ('Repair the previous draft using draft_contract and the original passages. '
+                            'Keep supported teaching points, correct only invalid formatting or source IDs, '
+                            'and develop the explanation to the requested word target. Return a nonempty '
+                            'sentences list. Previous drafts and feedback are not source evidence.')}
                 else:
                     payload["feedback"] = "Return the required JSON schema with valid passage IDs." if overview else "Generation was unavailable."
         if best_checked:
