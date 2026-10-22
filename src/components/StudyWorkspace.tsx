@@ -202,7 +202,7 @@ export default function StudyWorkspace(props: Props) {
     setChats(current => ({ ...current, [sourceId]: [...entries, { role: 'user', text }] }))
     try {
       const response = await askTutor({ courseId, materialId: sourceId, question: text,
-        history: entries.filter(item => item.role === 'user' || item.grounded).slice(-8).map(item => ({ role: item.role, content: item.text })) })
+        history: entries.slice(-8).map(item => ({ role: item.role, content: item.text.slice(0, 12000) })) })
       const citations: ToolCitation[] = response.citations.map((citation, index) => {
         const location = citation.location
         const label = location.kind === 'pdf_page' ? (/\.(png|jpe?g)$/i.test(material?.title ?? '') ? 'Image' : `Page ${location.page}`) : location.kind === 'slide' ? `Slide ${location.slide}` : `${Math.floor(location.seconds / 60)}:${String(Math.floor(location.seconds % 60)).padStart(2, '0')}`

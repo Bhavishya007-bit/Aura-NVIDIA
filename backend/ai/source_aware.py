@@ -7,6 +7,7 @@ from pathlib import Path
 from backend.ai.answer_contract import (
     AnswerSection, CoverageDecision, SourceAwareFields, choose_depth, citation_ids,
 )
+from backend.ai.lexical import topic_excerpt
 
 log = logging.getLogger(__name__)
 PROMPTS = Path(__file__).with_name("prompts") / "v1"
@@ -26,6 +27,7 @@ class SourceAwareTutor:
         self.mode = mode
         self.requested_depth = depth
         self.coverage_llm = rag.llm.for_task("coverage")
+        self.conversation_context = []
 
     @staticmethod
     def _unknown(reason):
@@ -35,7 +37,8 @@ class SourceAwareTutor:
         try:
             data = self.coverage_llm.generate_json(
                 json.dumps({"passages": [{"id": i, "text": s["content"][:6000]}
-                                        for i, s in enumerate(sources, 1)], "question": question}),
+                                        for i, s in enumerate(sources, 1)], "question": question,
+                            "conversation_context": self.conversation_context}),
                 max_retries=1, system_prompt=prompt("coverage_judge.txt"),
             )
             return CoverageDecision.model_validate(data).check_citations(len(sources))
@@ -63,14 +66,30 @@ class SourceAwareTutor:
         if overview:
             results = self.rag.retriever.overview(**scope, limit=16)
         else:
-            results = self.rag.retriever.search(question, **scope, top_k=16 if broaden else max(6, top_k))
+            # Lexical evidence remains usable when the embedding service fails.
+            # Reserve room for exact-topic headings and their same-slide labels.
+            errors = []
+            semantic, lexical = [], []
+            try:
+                semantic = self.rag.retriever.search(question, **scope, top_k=16 if broaden else max(6, top_k))
+            except Exception as error:
+                errors.append(error)
             if scope["source_id"] is not None:
-                results = self._merge(results, self.rag.retriever.concept_context(
-                    question, **scope, limit=10 if broaden else 6))
+                try:
+                    lexical = self.rag.retriever.concept_context(question, **scope, limit=14 if broaden else 10)
+                except Exception as error:
+                    errors.append(error)
+            results = self._merge(lexical, semantic)
+            if errors:
+                self.retrieval_incomplete = True
+                log.warning("retrieval_branch=unavailable successful_candidates=%s", len(results))
+                if not results:
+                    raise errors[0]
         if broaden and scope["source_id"] is not None and not overview:
             # Reserve room for diverse locations before adding more ranked hits;
             # otherwise top-K candidates can crowd out the broader document scan.
-            results = self._merge(self.rag.retriever.overview(**scope, limit=10), results)
+            results = self._merge(results[:18], self._merge(
+                self.rag.retriever.overview(**scope, limit=6), results[18:]))
         return self._merge([], results)
 
     def _source_answer(self, question, sources, decision, client, depth_policy):
@@ -79,6 +98,7 @@ class SourceAwareTutor:
                    "supported_parts": [part.model_dump() for part in decision.covered_parts],
                    "missing_parts": decision.missing_parts,
                    "profile_style": self.rag.learning_style, "depth_policy": depth_policy,
+                   "conversation_context": self.conversation_context,
                    "question": question}
         validation = {"valid": False, "stage": "generation_unavailable"}
         for attempt in range(2):
@@ -106,6 +126,13 @@ class SourceAwareTutor:
         if not original_question:
             raise ValueError("Question cannot be empty.")
         self.rag.requested_question = original_question
+        # Retain background assistant turns for referents, without promoting
+        # their claims into source evidence. Bound context independently of API input.
+        self.conversation_context = [
+            {"role": m["role"], "content": m["content"][:3000]}
+            for m in (history or [])[-8:]
+            if m.get("role") in {"user", "assistant"} and isinstance(m.get("content"), str)
+        ]
         question = self.rag._resolve_material_correction(original_question, history or []) if source_id else original_question
         # Keep short depth-only follow-ups tied to the latest user topic without
         # treating the assistant's previous answer as factual evidence.
@@ -126,26 +153,61 @@ class SourceAwareTutor:
         policy = json.loads(prompt("depth_policy.json"))[depth]
         client = self.rag.llm.for_task("deep" if depth == "advanced" else "answer")
         scope = {"course_id": course_id, "source_id": source_id}
+        reading_warnings = []
+        health = getattr(self.rag.retriever, "reading_warnings", None)
+        if health:
+            try:
+                reading_warnings = health(**scope)
+            except Exception:
+                reading_warnings = ["Material reading status is unavailable."]
         sources, results, attempts, retrieval_error = [], [], 0, False
+        self.retrieval_incomplete = False
         decision = self._unknown("No readable passages were retrieved; coverage is unknown.")
+        supported_snapshot = None
         for broaden in (False, True):
             attempts += 1
             try:
                 found = self._retrieve(search_question, scope, top_k, overview, broaden)
-                results = self._merge(results, found)
+                # Each retry is a fresh, bounded candidate set. Appending to a
+                # full first-pass set previously discarded all rescued evidence.
+                results = self._merge(found, results) if broaden else found
                 sources = self.rag._build_sources(results)
                 if sources:
                     decision = self._judge(question, sources)
+                    if decision.covered_parts:
+                        supported_snapshot = (decision, sources)
             except Exception as error:
                 retrieval_error = True
                 log.warning("source_retrieval=unavailable error_type=%s", type(error).__name__)
                 decision = self._unknown("Retrieval failed; source coverage cannot be determined.")
             if decision.status == "fully_covered":
                 break
-        if retrieval_error and decision.status == "not_covered":
+        # A failed broader lookup/check must not erase evidence already checked
+        # on the first pass. Restore its matching citation list as one unit.
+        if not decision.covered_parts and supported_snapshot is not None:
+            decision, sources = supported_snapshot
+        if (retrieval_error or self.retrieval_incomplete) and decision.status == "not_covered":
             decision = self._unknown("Retrieval was incomplete; absence has not been established.")
+        if reading_warnings and decision.status == "not_covered":
+            decision = self._unknown("Some material could not be read completely; source absence has not been established.")
         sections = []
         source_validation = {"valid": False, "stage": "coverage_unknown"}
+        mention_found = False
+        if decision.status in {"not_covered", "unknown"} and not decision.covered_parts:
+            for number, source in enumerate(sources, 1):
+                excerpt = topic_excerpt(search_question, source["content"])
+                if not excerpt or citation_ids(excerpt):
+                    continue
+                # Exact quotes establish presence only. They never turn labels
+                # into a claimed mechanism or override the coverage judge.
+                quoted = "\n".join("> " + line for line in excerpt.splitlines())
+                sections.append(AnswerSection(kind="sourced",
+                    text=f"The material includes this text:\n{quoted} [{number}]",
+                    provenance="uploaded_material", verified=True, citation_ids=[number]))
+                decision = self._unknown("The topic is explicitly mentioned, but sufficient explanatory coverage could not be verified.")
+                source_validation = {"valid": True, "stage": "exact_source_excerpt"}
+                mention_found = True
+                break
         if decision.covered_parts:
             section, source_validation = self._source_answer(question, sources, decision, client, policy)
             if section:
@@ -156,6 +218,7 @@ class SourceAwareTutor:
             try:
                 extra = client.generate(json.dumps({"missing_parts": decision.missing_parts,
                     "coverage_status": decision.status, "depth_policy": policy,
+                    "conversation_context": self.conversation_context,
                     "profile_style": self.rag.learning_style, "question": question}),
                     max_retries=1, system_prompt=prompt("beyond_material.txt")).strip()
                 section = AnswerSection(kind="beyond", text=extra, provenance="model_knowledge", verified=False)
@@ -170,7 +233,10 @@ class SourceAwareTutor:
         elif decision.status == "partially_covered":
             notices.append("Your material covers part of this question. The remaining parts were not found in the passages checked.")
         elif decision.status == "unknown":
-            notices.append("I couldn't determine whether your material covers this question. This does not mean it is absent.")
+            notices.append("I found this topic in your material, but couldn't verify a full explanation from the available text and labels."
+                           if mention_found else "I couldn't determine whether your material covers this question. This does not mean it is absent.")
+        if reading_warnings and decision.status != "fully_covered":
+            notices.append("Some parts of this file could not be read completely. Review its reading notices; image or diagram details may need a clearer upload.")
         if decision.covered_parts and not any(s.kind == "sourced" for s in sections):
             notices.append("I found related evidence, but couldn't verify a source-backed explanation right now.")
         if not sections and not notices:

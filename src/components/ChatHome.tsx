@@ -157,7 +157,7 @@ export default function ChatHome({
     const source: SourceUploadResult = {
       sourceId: String(job.source_id), courseId: String(job.course_id), filename: result.source_name,
       fileType: result.source_type, uploadStatus: 'uploaded', processingStatus: result.status,
-      contentUnitCount: result.content_units, warnings: [], createdAt: new Date().toISOString(),
+      contentUnitCount: result.content_units, warnings: result.warnings ?? [], createdAt: new Date().toISOString(),
     }
     setUploaded(source); setUploadStage('ready'); setPreparationId('')
     setFileNames(current => ({ ...current, [source.sourceId]: source.filename }))
@@ -206,7 +206,9 @@ export default function ChatHome({
         question: text,
         courseId,
         materialId: readySource?.sourceId,
-        history: entries.filter(entry => entry.scope === chatScope && (entry.message.role === 'student' || entry.grounded))
+        // Background answers also establish conversational subjects. The backend
+        // treats history as context, never as uploaded-source evidence.
+        history: entries.filter(entry => entry.scope === chatScope)
           .slice(-8).map(entry => ({
             role: entry.message.role === 'student' ? 'user' as const : 'assistant' as const,
             content: entry.message.content.slice(0, 12000),

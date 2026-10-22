@@ -1,6 +1,7 @@
 from backend.preparation_progress import report
 import pymupdf
 from .ocr import extract_image_text
+from .page_render import render_for_ocr
 from .utils import generate_unit_id, has_pdf_signature
 
 
@@ -30,7 +31,7 @@ def ingest_pdf(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
                                   'source_location': {'kind': 'page', 'page_number': number},
                                   'extraction_status': 'extracted', 'warnings': []})
                 if not text or page.get_images() or page.get_drawings():
-                    image = page.get_pixmap(dpi=150, alpha=False).tobytes('png')
+                    image = render_for_ocr(page)
                     ocr_text, metadata, ocr_warnings = extract_image_text(image)
                     warnings.extend(f'Page {number}: {warning}' for warning in ocr_warnings)
                     if ocr_text:
@@ -47,3 +48,4 @@ def ingest_pdf(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
     finally:
         document.close()
     return units, list(dict.fromkeys(warnings))
+

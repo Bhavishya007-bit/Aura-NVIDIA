@@ -57,14 +57,21 @@ export default function PreparationStatus({ courseId, refreshKey, pendingId, pen
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not retry preparation.') }
     finally { setRetrying('') }
   }
-  const visible = jobs.filter(job => job.state !== 'ready' && !dismissed.includes(job.id)).slice(0, 5)
+  const visible = jobs.filter(job => (job.state !== 'ready' || !!job.result?.warnings?.length) && !dismissed.includes(job.id))
+    .sort((a, b) => Number(a.state === 'ready') - Number(b.state === 'ready')).slice(0, 5)
   if (!visible.length && !error) return null
   return <section className="aura-preparation" aria-label="Material preparation">
     {error && <p className="aura-preparation-error" role="alert">{error}</p>}
     {visible.map(job => <div key={job.id} className="aura-preparation-item">
       <div><strong>{job.filename}</strong><span role="status">{preparationLabels[job.stage] ?? 'Preparing material'}{job.percentage !== null && job.state === 'processing' ? ` · ${job.percentage}% of this step` : ''}</span></div>
       {job.state === 'processing' && <progress max={100} value={job.percentage ?? undefined} aria-label={preparationLabels[job.stage] ?? 'Preparing material'} />}
+      {job.state === 'ready' && !!job.result?.warnings?.length && <>
+        <p>Ready with reading limitations. Some image or diagram details may be missing.</p>
+        <details><summary>Reading notices</summary><ul>{job.result.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>
+        <button type="button" onClick={() => setDismissed(current => [...current, job.id])}>Dismiss</button>
+      </>}
       {job.state === 'failed' && <><p>{job.error}</p><button type="button" disabled={retrying === job.id} onClick={() => void retry(job.id)}>{retrying === job.id ? 'Retrying…' : 'Retry preparation'}</button><button type="button" onClick={() => setDismissed(current => [...current, job.id])}>Dismiss</button></>}
     </div>)}
   </section>
 }
+

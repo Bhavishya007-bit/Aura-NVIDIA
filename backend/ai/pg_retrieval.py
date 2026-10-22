@@ -7,7 +7,7 @@ import psycopg2
 
 from backend.ai.embeddings import EmbeddingModel, get_embedding_model, LEGACY_MODEL
 from backend.ai.models import Chunk, RetrievedChunk
-from backend.ai.grounded_expansion import topic_terms
+from backend.ai.lexical import terms_for
 
 load_dotenv("backend/.env")
 
@@ -165,7 +165,7 @@ class PostgresRetriever:
     def concept_context(self, query: str, course_id: int, source_id: int,
                         owner_student_id: int, limit: int = 6) -> list[RetrievedChunk]:
         """Literal concept matches plus nearby locations, within the owned file."""
-        terms = topic_terms(query)
+        terms = terms_for(query)
         if not terms or not course_id or not source_id or not owner_student_id:
             return []
         connection = self._get_connection()
@@ -181,15 +181,30 @@ class PostgresRetriever:
                           AND sources.owner_student_id=%s AND courses.owner_student_id=%s
                           AND chunks.content IS NOT NULL AND btrim(chunks.content)<>''"""
                 scope = (course_id, source_id, owner_student_id, owner_student_id)
-                cursor.execute("SELECT " + fields + base + " AND chunks.content ILIKE ANY(%s) ORDER BY length(chunks.content) DESC,chunks.chunk_id LIMIT %s",
-                               (*scope, ['%' + term + '%' for term in terms], min(4, limit)))
+                # Short titles must outrank long passages mentioning just one
+                # generic word. Match count precedes length; Greek labels and
+                # singular/plural queries use the same normalized roots.
+                normalized = "replace(replace(replace(lower(chunks.content),'β','beta'),'α','alpha'),'γ','gamma')"
+                patterns = [r'\m' + term + r'(s)?\M' for term in terms]
+                rank = " + ".join(f"CASE WHEN {normalized} ~ %s THEN 1 ELSE 0 END" for _ in terms)
+                anchor_limit = max(1, min(6, limit // 2))
+                selected = "chunk_id,source_id,source_name,source_type,content,page_number,slide_number,timestamp_seconds,timestamp_end,topic_name"
+                cursor.execute("WITH matches AS (SELECT " + fields + ",(" + rank + ") AS relevance," +
+                    "ROW_NUMBER() OVER (PARTITION BY md5(lower(btrim(chunks.content))) ORDER BY chunks.chunk_id) AS copy_rank" +
+                    base + f" AND {normalized} ~ ANY(%s)) SELECT " + selected +
+                    " FROM matches WHERE copy_rank=1 ORDER BY relevance DESC,length(content) ASC,chunk_id LIMIT %s",
+                    (*patterns, *scope, patterns, anchor_limit))
                 hits = cursor.fetchall()
-                pages = sorted({row[5] + offset for row in hits if row[5] is not None for offset in (-1, 0, 1) if row[5] + offset > 0})
-                slides = sorted({row[6] + offset for row in hits if row[6] is not None for offset in (-1, 0, 1) if row[6] + offset > 0})
+                pages = sorted({row[5] for row in hits if row[5] is not None})
+                slides = sorted({row[6] for row in hits if row[6] is not None})
                 nearby = []
                 if hits and (pages or slides):
-                    cursor.execute("SELECT " + fields + base + " AND (chunks.page_number=ANY(%s) OR chunks.slide_number=ANY(%s)) ORDER BY length(chunks.content) DESC,chunks.chunk_id LIMIT %s",
-                                   (*scope, pages, slides, 6))
+                    # Round-robin same-location passages: a short heading needs
+                    # its OCR labels, not a long unrelated adjacent slide.
+                    cursor.execute("WITH same_location AS (SELECT " + fields +
+                        ",ROW_NUMBER() OVER (PARTITION BY chunks.page_number,chunks.slide_number ORDER BY chunks.chunk_id) AS location_rank" +
+                        base + " AND (chunks.page_number=ANY(%s) OR chunks.slide_number=ANY(%s))) SELECT * FROM same_location ORDER BY location_rank,chunk_id LIMIT %s",
+                        (*scope, pages, slides, max(12, limit * 2)))
                     nearby = cursor.fetchall()
             results, seen = [], set()
             for row in hits + nearby:
@@ -306,3 +321,4 @@ class PostgresRetriever:
             query=query, top_k=1, topic=topic, course_id=course_id, source_id=source_id
         )
         return bool(results) and results[0].score >= threshold
+

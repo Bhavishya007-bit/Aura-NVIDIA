@@ -6,6 +6,13 @@ equations and directly supported calculations. Topic similarity alone is not
 coverage. OCR labels alone do not establish diagram relationships. Do not mark
 a question uncovered just because the exact wording is missing. A document
 overview concerns only the supplied document evidence, never generic knowledge.
+Conversation context may identify what a pronoun refers to; neither user nor
+assistant turns establish source facts. Judge coverage using ONLY the passages.
+For a broad request such as "Explain membrane proteins", an explicit heading
+and named examples or structural labels support a LIMITED description of what
+the slide lists: mark partially_covered if a full explanation is missing. Do not
+mark not_covered just because the slide uses labels rather than full sentences.
+Never infer arrows, mechanisms or visual geometry from label order.
 Return exactly this JSON shape:
 {"status":"fully_covered|partially_covered|not_covered|unknown",
  "covered_parts":[{"part":"requested part supported by evidence","citation_ids":[1]}],

@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 from backend.auth_routes import get_current_student
 from backend.source_viewer import owned_original, pdf_for, run_pdf, source_kind
 from backend.image_processing import image_png
-from backend.ai.llm import LLM
 
 router = APIRouter(prefix='/study/sources', tags=['Figure interpretation'])
 
@@ -24,7 +23,11 @@ def vision_json(image: bytes, prompt: str, tokens=1300) -> dict:
     if not model:
         raise HTTPException(503, 'Set OLLAMA_VISION_MODEL in backend/.env to an installed vision-capable Ollama model, then restart the backend. Your text model stays unchanged.')
     try:
-        response = requests.post(LLM().base_url, json={'model':model,'messages':[{
+        # Vision uses its own local Ollama endpoint. LLM().base_url is now a
+        # Nebius text endpoint and cannot accept Ollama's image request format.
+        base = os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
+        endpoint = base if base.endswith('/api/chat') else base + '/api/chat'
+        response = requests.post(endpoint, json={'model':model,'messages':[{
             'role':'user','content':prompt,'images':[base64.b64encode(image).decode('ascii')]}],
             'format':'json','stream':False,'options':{'temperature':0,'num_predict':tokens,'num_ctx':8192}}, timeout=(5,300))
         response.raise_for_status()
@@ -128,3 +131,4 @@ def explain_figure(source_id: int, request: FigureRequest, student=Depends(get_c
     return {**result,'source_id':source_id,'position':request.position,
             'citation':{'source_id':source_id,'title':source['title'],'position':request.position},
             'notice':'Model interpretation of the displayed original page/slide; verify small labels and values against the image.'}
+

@@ -699,6 +699,10 @@ async def upload_course_source(
                 VALUES %s
             """, [(*chunk, None) for chunk in chunks_to_insert], page_size=128)
 
+        # Keep reading limitations with the source, not only the transient job.
+        cursor.execute("UPDATE sources SET metadata=COALESCE(metadata,'{}'::jsonb) || %s WHERE source_id=%s",
+                       (Json({"extraction_version": "slide-context-v2", "reading_warnings": result.get("warnings", [])}), source_id))
+
         # 7. Commit the database transaction.
         connection.commit()
 
@@ -3620,3 +3624,4 @@ def get_learner_events(
 import sys as _private_sys
 from backend.private_app import create_private_app
 app = create_private_app(_private_sys.modules[__name__])
+

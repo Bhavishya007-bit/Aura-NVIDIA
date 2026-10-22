@@ -154,6 +154,9 @@ criterion. Never commit private evaluation responses or API credentials.
 
 ## Operational note
 
+Follow-up continuity and slide extraction were subsequently corrected. See
+[Tutor recovery](TUTOR_RECOVERY.md) for current checks and re-upload instructions.
+
 A credential-like value was removed from the tracked environment template.
 Revoke/rotate that key: deleting it from the latest tree does not remove history.
 Keep the replacement only in untracked local configuration. Git history was not

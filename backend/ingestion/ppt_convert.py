@@ -13,6 +13,32 @@ class PptConversionError(RuntimeError):
     pass
 
 
+def convert_presentation_to_pdf(data: bytes) -> bytes:
+    """Render PPTX including hidden slides; visual order must match citations."""
+    validate_file_size(data)
+    executable = _find_soffice()
+    with tempfile.TemporaryDirectory(prefix='aura-slide-ocr-') as temporary:
+        folder = Path(temporary)
+        source = folder / 'slides.pptx'
+        source.write_bytes(data)
+        output = folder / 'converted'
+        output.mkdir()
+        export = 'pdf:impress_pdf_Export:{"ExportHiddenSlides":{"type":"boolean","value":"true"}}'
+        command = [executable, f'-env:UserInstallation={(folder / "profile").as_uri()}',
+                   '--headless', '--nologo', '--nodefault', '--norestore',
+                   '--convert-to', export, '--outdir', str(output), str(source)]
+        try:
+            result = subprocess.run(command, capture_output=True, timeout=120, check=False, shell=False)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise PptConversionError('Whole-slide rendering failed or timed out.') from error
+        converted = output / 'slides.pdf'
+        if result.returncode or not converted.is_file():
+            raise PptConversionError('Whole-slide rendering did not produce a PDF.')
+        if converted.stat().st_size > 100 * 1024 * 1024:
+            raise PptConversionError('Rendered presentation exceeds 100 MiB.')
+        return converted.read_bytes()
+
+
 def _find_soffice() -> str:
     configured = os.getenv('LIBREOFFICE_PATH', '').strip().strip('"')
     if configured:
@@ -72,3 +98,4 @@ def convert_ppt_to_pptx(data: bytes) -> bytes:
             raise PptConversionError('LibreOffice did not produce a valid PPTX file.')
     print(f'[PPT] Conversion completed in {time.perf_counter() - started:.1f} seconds.', flush=True)
     return converted_data
+

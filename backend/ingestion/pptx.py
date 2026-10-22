@@ -1,9 +1,12 @@
 from backend.preparation_progress import report
 import io
+import os
+import pymupdf
 from pptx import Presentation
-from .ocr import extract_images_text
+from .ocr import extract_images_text, extract_image_text
+from .page_render import render_for_ocr
 from .utils import generate_unit_id, has_zip_signature
-from .ppt_convert import convert_ppt_to_pptx, PptConversionError
+from .ppt_convert import convert_ppt_to_pptx, convert_presentation_to_pdf, PptConversionError
 
 
 def _shapes(shapes):
@@ -29,6 +32,18 @@ def ingest_pptx(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
     except Exception as error:
         return [], [f'Failed to open PPTX: {error}']
     units, warnings = [], []
+    # Whole-slide rendering catches SmartArt, vector labels, picture fills and
+    # layout context that embedded-image extraction cannot see. If unavailable,
+    # native text and embedded OCR still run and the limitation is explicit.
+    rendered = None
+    try:
+        rendered = pymupdf.open(stream=convert_presentation_to_pdf(data), filetype='pdf')
+        if len(rendered) != len(presentation.slides):
+            rendered.close()
+            rendered = None
+            raise PptConversionError('Rendered slide count does not match the original.')
+    except Exception:
+        warnings.append('Whole-slide reading unavailable. Native text and embedded pictures were read; some vector/SmartArt labels may be missing. Install LibreOffice or upload a PDF exported with all slides, then prepare again.')
     report("reading_slides", 0, len(presentation.slides))
     for slide_number, slide in enumerate(presentation.slides, start=1):
         text_parts, images = [], []
@@ -65,9 +80,50 @@ def ingest_pptx(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
                                            'width': int(shape.width), 'height': int(shape.height)}, **metadata}
             units.append({'unit_id': generate_unit_id(filename, 'slide_image', f'{slide_number}-{image_number}'),
                           'source': source,
-                          'text': f'Slide {slide_number}: {title}\nImage {image_number} recognized text (OCR; diagram relationships are not inferred):\n{text}',
+                          'text': f'Slide {slide_number}: {title}\nSlide text:\n{native[:450]}\nImage {image_number} recognized text (OCR; diagram relationships are not inferred):\n{text}',
                           'source_location': location, 'extraction_status': 'ocr', 'warnings': image_warnings})
         if not native and len(units) == before:
             warnings.append(f'Slide {slide_number} contains no recognized text.')
         report("reading_slides", slide_number, len(presentation.slides))
+    if rendered is not None:
+        try:
+            for index, page in enumerate(rendered):
+                number = index + 1
+                report('reading_slide_images', index, len(rendered))
+                try:
+                    png = render_for_ocr(page)
+                    text, metadata, notices = extract_image_text(png)
+                    warnings.extend(f'Slide {number}: {notice}' for notice in notices)
+                    # Extract text rendered by LibreOffice too: some SmartArt
+                    # labels become PDF text even when OCR cannot read them.
+                    visible_text = page.get_text('text').strip()
+                    combined = '\n'.join(dict.fromkeys(t for t in (visible_text, text) if t))
+                    if combined:
+                        units.append({'unit_id': generate_unit_id(filename, 'slide_render', str(number)),
+                            'source': {'filename': filename, 'file_type': 'pptx'},
+                            'text': f'Slide {number} recognized text (OCR; diagram relationships are not inferred):\n{combined}',
+                            'source_location': {'kind': 'slide', 'slide_number': number,
+                                                'whole_slide_render': True, **metadata},
+                            'extraction_status': 'rendered_slide_ocr', 'warnings': notices})
+                    if os.getenv('OLLAMA_VISION_MODEL', '').strip() and (page.get_images() or page.get_drawings()):
+                        # Optional, already-configured vision reads the actual
+                        # slide, never guesses relationships from OCR ordering.
+                        from backend.figure_tools import interpret_image
+                        visual = interpret_image(png, 'Describe the visible educational content, labels and diagram relationships on this slide. Mark uncertainty; do not add textbook facts.')
+                        if visual['answerable']:
+                            units.append({'unit_id': generate_unit_id(filename, 'slide_vision', str(number)),
+                                'source': {'filename': filename, 'file_type': 'pptx'},
+                                'text': f'Model interpretation of slide {number} (not independently verified; preserve these limitations):\n' +
+                                    '\n'.join(visual['observations']) + '\n' + visual['explanation'] +
+                                    '\nLimitations: ' + '; '.join(visual.get('limitations', [])),
+                                'source_location': {'kind': 'slide', 'slide_number': number, 'visual_interpretation': True},
+                                'extraction_status': 'vision_model_checked', 'warnings': []})
+                        else:
+                            warnings.append(f'Slide {number}: diagram interpretation could not be verified.')
+                except Exception as error:
+                    warnings.append(f'Slide {number}: whole-slide reading was incomplete ({type(error).__name__}).')
+                report('reading_slide_images', number, len(rendered))
+        finally:
+            rendered.close()
     return units, list(dict.fromkeys(warnings))
+

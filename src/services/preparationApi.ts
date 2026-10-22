@@ -8,7 +8,7 @@ export type PreparationJob = {
   state: 'queued' | 'processing' | 'ready' | 'failed'
   stage: string
   percentage: number | null
-  result: { source_id: number; course_id: number; source_name: string; source_type: string; status: 'success' | 'partial'; content_units: number } | null
+  result: { source_id: number; course_id: number; source_name: string; source_type: string; status: 'success' | 'partial'; content_units: number; warnings?: string[] } | null
   error: string | null
 }
 
@@ -26,6 +26,9 @@ function decodeJob(value: unknown): PreparationJob {
         || typeof result.source_type !== 'string' || typeof result.content_units !== 'number'
         || !['success', 'partial', 'empty', 'error', 'not_configured'].includes(String(result.status))) {
       throw new ApiResponseError('Aura returned an invalid prepared material.')
+    }
+    if (result.warnings !== undefined && (!Array.isArray(result.warnings) || !result.warnings.every(item => typeof item === 'string'))) {
+      throw new ApiResponseError('Aura returned invalid material reading notices.')
     }
   }
   return row as unknown as PreparationJob
@@ -85,6 +88,8 @@ export const preparationLabels: Record<string, string> = {
   reading_image: 'Reading your image',
   queued: 'File uploaded · Waiting to prepare', reading: 'Reading your material',
   reading_pages: 'Reading pages and images', reading_slides: 'Reading slides and images',
+  reading_slide_images: 'Reading complete slide images',
   saving: 'Saving your material', loading_model: 'Getting the tutor ready',
   indexing: 'Making your material searchable', ready: 'Ready', failed: 'Needs attention',
 }
+

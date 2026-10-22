@@ -20,7 +20,8 @@ establish the quality of the new coverage classifier.
 - Source-aware answers with verified document and unverified background sections.
 - Grounded/Intelligence settings, per-answer depth policies and versioned prompts.
 - Explicit model-role configuration and per-request cache-usage logs.
-- 27 offline regressions, synthetic coverage fixtures and an updated live API collector.
+- 45 checks including real synthetic slide/PDF OCR, synthetic coverage fixtures and an updated live API collector.
+- Conversation continuity for background answers, source-heading recovery, whole-slide reading and visible extraction notices.
 
 ## Not yet demonstrated
 
@@ -30,3 +31,4 @@ tool execution, agent loops, persistent memory, reminders, production hosting
 and the final submission package. Offline tests are not model benchmarks.
 
 Full details: [Phase 2 implementation](docs/PHASE2_SOURCE_AWARE.md).
+Reported-failure fixes: [Follow-ups and slide evidence](docs/TUTOR_RECOVERY.md).

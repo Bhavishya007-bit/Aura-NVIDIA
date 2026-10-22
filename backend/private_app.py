@@ -295,6 +295,19 @@ def create_private_app(legacy):
                 profile = learner_profile(cursor, student["student_id"], body.course_id, body.source_id)
 
         class OwnedRetriever:
+            def reading_warnings(self, course_id, source_id):
+                if source_id is None:
+                    return []
+                with database() as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute('''SELECT s.metadata->'reading_warnings' FROM sources s
+                            JOIN courses c ON c.course_id=s.course_id
+                            WHERE s.source_id=%s AND s.course_id=%s
+                            AND s.owner_student_id=%s AND c.owner_student_id=%s''',
+                            (source_id, course_id, student['student_id'], student['student_id']))
+                        row = cursor.fetchone()
+                return row[0] if row and isinstance(row[0], list) else []
+
             def concept_context(self, query, **kwargs):
                 return legacy.get_retriever().concept_context(query, owner_student_id=student["student_id"], **kwargs)
 
