@@ -325,3 +325,45 @@ These tests exercise real HTTP-response parsing with mocked provider responses;
 they do not establish live requested-length reliability or judge calibration.
 The broader suite reports 145 tests: 143 passed and two optional OCR checks
 skipped.
+
+## Follow-up: whole-file task relevance was blocking factual checking
+
+The next attached log shows the updated verification client working:
+`task=verification`, `reasoning_effort=none`, no truncation. Each of two writer
+attempts produced 21 points and 916 words. Both returned
+`stage=question_relevance` before any grounding batches ran. With no checked
+points to retain, recovery selected 264 words of literal excerpts. The precise
+reasons for the two topic rejections are absent from the log; they cannot be
+attributed conclusively to word count or to an incorrectly identified subject.
+
+For a generic request such as "summarize the ppt", task relevance can be
+established by grounding the proposed summary in that selected file. It does
+not need a second model to infer the task from the filename and answer alone.
+`generic_material_summary` recognizes only whole-file requests and presentation
+modifiers. Named subjects, focus restrictions and new topics after an apparent
+format marker are excluded. This is deliberately narrower than overview retrieval.
+
+The validation path applies only to structured points whose rendered text
+matches the displayed answer, with an explicit overview context bound to the
+source ID requested in `answer()`. Every retrieved source must have that ID.
+Language and citation-number checks run first. Every complete point must still
+pass the unchanged per-claim factual verifier against its cited evidence. A
+foreign-topic claim with a selected-file citation, unavailable support checker
+or negative support result remains a failure. Successful factual support in the
+selected file establishes relevance for this generic overview task; it does not
+establish external scientific accuracy or completeness of the summary.
+
+Named/focused questions and unstructured or unbound answers continue through
+the semantic intent judge. Section checks retain their scoped local questions
+and topic validation. Word count remains a separate server-side check, and
+short checked drafts can proceed to the existing bounded expansion. Logs now
+identify `intent_method=bound_material_overview` on this narrow path.
+
+Ten controlled regressions include two 21-point, 916-word drafts progressing to
+1,991 source-checked words, rather than the quote fallback. They also cover
+focused-topic rejection, foreign claims, mismatched/mixed source bindings,
+rendered-answer mismatch and verification unavailability. All provider decisions
+in these tests are controlled fixtures. Live requested-length generation and
+judge calibration remain unverified.
+The broader suite reports 155 tests: 153 passed and two optional OCR checks
+skipped.

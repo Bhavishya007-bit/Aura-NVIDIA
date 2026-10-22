@@ -50,6 +50,7 @@ class SourceAwareTutor:
         self.response_request = response_request('')
         self.context_limit = 24
         self.material_context = {'scope': 'sampled_passages'}
+        self.selected_source_id = None
 
     @staticmethod
     def _unknown(reason):
@@ -157,11 +158,15 @@ class SourceAwareTutor:
                 else:
                     text = self.rag._normalize_citations(client.generate(
                         json.dumps(payload), max_retries=1, system_prompt=prompt("sourced_answer.txt")))
-                validation = self.rag._validate_answer(text, sources, question, structured_points=points)
+                intent_context = ({'scope': 'selected_material_overview',
+                                   'source_id': self.selected_source_id} if overview and sources else None)
+                validation = self.rag._validate_answer(text, sources, question,
+                    structured_points=points, intent_context=intent_context)
                 checks.append(validation)
-                log.info("source_answer_check task=%s attempt=%s stage=%s valid=%s",
+                log.info("source_answer_check task=%s attempt=%s stage=%s valid=%s intent_method=%s",
                          "summary" if overview else "answer", attempt + 1,
-                         validation.get("stage"), validation.get("valid") is True)
+                         validation.get("stage"), validation.get("valid") is True,
+                         validation.get('question_validation', {}).get('method', 'semantic_judge'))
                 if validation.get("valid") is True:
                     section = AnswerSection(kind="sourced", text=text, provenance="uploaded_material",
                                             verified=True, citation_ids=citation_ids(text))
@@ -241,6 +246,7 @@ class SourceAwareTutor:
         if not original_question:
             raise ValueError("Question cannot be empty.")
         self.rag.requested_question = original_question
+        self.selected_source_id = source_id
         # Retain background assistant turns for referents, without promoting
         # their claims into source evidence. Bound context independently of API input.
         self.conversation_context = [

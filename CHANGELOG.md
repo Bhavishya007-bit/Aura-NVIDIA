@@ -1,6 +1,21 @@
 
 # Changelog
 
+## 2026-10-22 — Check generic file summaries through selected-file support
+
+- The next live run generated two 916-word, 21-point drafts, but both were
+  rejected by the topic judge before factual checking. It returned 264 words
+  of excerpts. Checker truncation did not recur; rejection reasons were not logged.
+- Recognize generic whole-file summary requests narrowly. With structured
+  claims bound to the requested source ID, establish overview task relevance
+  through mandatory per-point evidence checks instead of another model veto.
+- Keep semantic intent checks for named topics, focused summaries, sections,
+  unstructured answers and unbound or mixed-source contexts. Keep rendered-text
+  binding, language, citation and factual checks mandatory.
+- Add ten controlled regressions, including the two 916-word drafts expanding
+  to 1,991 checked words. Broader suite: 153 passed, two optional OCR checks
+  skipped. Hosted behavior still requires verification.
+
 ## 2026-10-22 — Recover truncated citation checks before summary expansion
 
 - The live 809-word result followed a 1,374-word draft whose citation judge

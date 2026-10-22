@@ -6,6 +6,7 @@ from typing import Any
 from backend.ai.llm import LLM, generate_verification_json
 from backend.ai.citation_validator import CitationValidator
 from backend.ai.citation_grounding import CitationGrounding
+from backend.ai.summary_intent import generic_material_summary
 from backend.ai.grounded_expansion import topic_evidence, allow_expansion, related_background, topic_terms
 from backend.ai.answer_quality import english_requested, wrong_script, compact_evidence, evidence_text
 
@@ -272,7 +273,25 @@ CORRECTED ANSWER:
         )
         if number_check.get("valid") is not True:
             return {"valid": False, "stage": "citation_number", "details": number_check}
-        relevance = self._question_relevance(question, answer, intent_context=intent_context) if question else {"valid": True}
+        # A generic overview asks for the selected file's content. Complete
+        # structured units grounded in that very file establish task relevance;
+        # a second model cannot use length/completeness as a topic veto. Named
+        # topics and focused summaries still require the semantic intent judge.
+        selected_id = (intent_context or {}).get('source_id')
+        bound_overview = (
+            structured_points is not None
+            and (intent_context or {}).get('scope') == 'selected_material_overview'
+            and type(selected_id) in (str, int) and bool(selected_id)
+            and all(source.get('source_id') == selected_id for source in sources)
+            and generic_material_summary(question)
+        )
+        if bound_overview:
+            relevance = {'valid': True, 'method': 'bound_material_overview',
+                         'reason': 'Generic overview of the selected file; per-point source support is checked below.'}
+        elif question:
+            relevance = self._question_relevance(question, answer, intent_context=intent_context)
+        else:
+            relevance = {'valid': True}
         if not relevance["valid"]:
             return {"valid": False, "stage": "verification_unavailable" if relevance.get("unavailable") else "question_relevance",
                     "question_validation": relevance, "number_validation": number_check}
