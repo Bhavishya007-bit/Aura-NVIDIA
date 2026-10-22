@@ -172,6 +172,7 @@ export async function askTutor(
   }
   type BackendChatResponse = {
     answer: string
+    coverage?: { status?: string }
     sources?: BackendSource[]
     citation_validation?: {
       valid?: boolean
@@ -190,6 +191,8 @@ export async function askTutor(
         course_id: courseId,
         source_id: sourceId,
         history: request.history?.slice(-8) ?? [],
+        answer_mode: request.answerMode,
+        depth: request.depth,
       }),
     },
     (value) => {
@@ -243,7 +246,13 @@ export async function askTutor(
     },
   )
   const groundingStatus: TutorResponse['groundingStatus'] =
-    response.citation_validation?.valid === true && response.citation_validation?.response_mode !== 'extractive'
+    response.coverage?.status === 'unknown'
+      ? 'unavailable'
+      : response.coverage?.status === 'not_covered'
+      ? 'not_covered'
+      : response.coverage?.status === 'partially_covered'
+      ? 'partially_covered'
+      : response.citation_validation?.valid === true && response.citation_validation?.response_mode !== 'extractive'
       ? 'grounded'
       : response.sources?.length
         ? 'partially_covered'
@@ -429,3 +438,4 @@ export type {
   TutorRequest,
   TutorResponse,
 }
+

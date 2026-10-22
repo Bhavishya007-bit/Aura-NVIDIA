@@ -1,10 +1,291 @@
 [
-  {"id":"treadmilling_definition","question":"What is treadmilling? Use only the presentation.","reference":"Treadmilling maintains near-constant filament length by adding subunits at the plus end and losing subunits at the minus end.","expected_positions":[1],"off_material":false},
-  {"id":"treadmilling_balance","question":"How is treadmilling different from net filament growth? Use only the presentation.","reference":"During treadmilling equal addition and loss maintain length; greater addition than loss causes net growth.","expected_positions":[1],"off_material":false},
-  {"id":"dynamic_instability","question":"What is dynamic instability? Use only the presentation.","reference":"Dynamic instability is switching between microtubule growth and shrinkage; it differs from balanced turnover at constant length.","expected_positions":[2],"off_material":false},
-  {"id":"speed_formula","question":"What formula relates speed, distance and time? Use only the presentation.","reference":"Speed equals distance divided by elapsed time: v = d/t.","expected_positions":[3],"off_material":false},
-  {"id":"speed_calculation","question":"Calculate speed for 12 metres travelled in 2 seconds. Use only the presentation.","reference":"v = d/t = 12/2 = 6 m/s.","expected_positions":[3],"off_material":false},
-  {"id":"force_formula","question":"How do force, mass and acceleration relate? Use only the presentation.","reference":"Force equals mass multiplied by acceleration: F = m*a.","expected_positions":[4],"off_material":false},
-  {"id":"off_material_bitcoin","question":"What is today's Bitcoin price? Use only the presentation.","reference":"The material does not cover Bitcoin prices.","expected_positions":[],"off_material":true},
-  {"id":"off_material_ribosome","question":"Explain ribosome assembly. Use only the presentation.","reference":"The material does not cover ribosome assembly.","expected_positions":[],"off_material":true}
+  {
+    "id": "treadmilling_definition",
+    "question": "What is treadmilling?",
+    "reference": "Balanced addition at the plus end and loss at the minus end maintain near-constant filament length.",
+    "expected_positions": [
+      1
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "development"
+  },
+  {
+    "id": "treadmilling_balance",
+    "question": "How does treadmilling differ from net growth?",
+    "reference": "Equal addition and loss maintain length; greater addition causes net growth.",
+    "expected_positions": [
+      1
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "development"
+  },
+  {
+    "id": "dynamic_instability",
+    "question": "What is dynamic instability?",
+    "reference": "Switching between microtubule growth and shrinkage.",
+    "expected_positions": [
+      2
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "development"
+  },
+  {
+    "id": "compare_turnover",
+    "question": "Compare treadmilling and dynamic instability.",
+    "reference": "Balanced turnover differs from switching between growth and shrinkage.",
+    "expected_positions": [
+      1,
+      2
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "development"
+  },
+  {
+    "id": "speed_formula",
+    "question": "What formula relates speed, distance and time?",
+    "reference": "v=d/t.",
+    "expected_positions": [
+      3
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "development"
+  },
+  {
+    "id": "speed_example",
+    "question": "What speed does the example give for 12 metres in 2 seconds?",
+    "reference": "6 m/s.",
+    "expected_positions": [
+      3
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "development"
+  },
+  {
+    "id": "speed_units",
+    "question": "What units does the material use for speed?",
+    "reference": "Metres per second.",
+    "expected_positions": [
+      3
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "development"
+  },
+  {
+    "id": "force_formula",
+    "question": "How do force, mass and acceleration relate?",
+    "reference": "F=m*a.",
+    "expected_positions": [
+      4
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "development"
+  },
+  {
+    "id": "force_example",
+    "question": "What force does the example give for 2 kg at 3 m/s squared?",
+    "reference": "6 N.",
+    "expected_positions": [
+      4
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "holdout"
+  },
+  {
+    "id": "force_units",
+    "question": "What units does the material use for force and mass?",
+    "reference": "Newtons and kilograms.",
+    "expected_positions": [
+      4
+    ],
+    "off_material": false,
+    "expected_coverage": "fully_covered",
+    "split": "holdout"
+  },
+  {
+    "id": "treadmilling_atp",
+    "question": "Explain treadmilling and ATP hydrolysis.",
+    "reference": "Treadmilling is covered; the hydrolysis mechanism is not.",
+    "expected_positions": [
+      1
+    ],
+    "off_material": false,
+    "expected_coverage": "partially_covered",
+    "split": "development"
+  },
+  {
+    "id": "dynamic_drugs",
+    "question": "Explain dynamic instability and drugs affecting it.",
+    "reference": "Growth/shrinkage switching is covered; drugs are not.",
+    "expected_positions": [
+      2
+    ],
+    "off_material": false,
+    "expected_coverage": "partially_covered",
+    "split": "development"
+  },
+  {
+    "id": "speed_acceleration",
+    "question": "Explain speed and how acceleration changes with time.",
+    "reference": "Speed formula is covered; time-varying acceleration is not.",
+    "expected_positions": [
+      3
+    ],
+    "off_material": false,
+    "expected_coverage": "partially_covered",
+    "split": "development"
+  },
+  {
+    "id": "force_gravity",
+    "question": "Explain F=m*a and derive universal gravitation.",
+    "reference": "F=m*a is covered; gravitation is not.",
+    "expected_positions": [
+      4
+    ],
+    "off_material": false,
+    "expected_coverage": "partially_covered",
+    "split": "development"
+  },
+  {
+    "id": "actin_motors",
+    "question": "Explain balanced actin turnover and myosin motor action.",
+    "reference": "Balanced turnover is covered; myosin is not.",
+    "expected_positions": [
+      1
+    ],
+    "off_material": false,
+    "expected_coverage": "partially_covered",
+    "split": "development"
+  },
+  {
+    "id": "microtubule_structure",
+    "question": "Explain dynamic instability and microtubule protofilament structure.",
+    "reference": "Dynamic instability is covered; protofilament structure is not.",
+    "expected_positions": [
+      2
+    ],
+    "off_material": false,
+    "expected_coverage": "partially_covered",
+    "split": "development"
+  },
+  {
+    "id": "units_relativity",
+    "question": "Give the speed units and explain relativistic velocity addition.",
+    "reference": "Speed units are covered; relativistic addition is not.",
+    "expected_positions": [
+      3
+    ],
+    "off_material": false,
+    "expected_coverage": "partially_covered",
+    "split": "holdout"
+  },
+  {
+    "id": "newtons_friction",
+    "question": "Explain force units and the coefficient of friction.",
+    "reference": "Force units are covered; friction coefficients are not.",
+    "expected_positions": [
+      4
+    ],
+    "off_material": false,
+    "expected_coverage": "partially_covered",
+    "split": "holdout"
+  },
+  {
+    "id": "not_covered_ribosome",
+    "question": "Explain ribosome assembly.",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "development"
+  },
+  {
+    "id": "not_covered_bcnf",
+    "question": "Explain Boyce-Codd normal form.",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "development"
+  },
+  {
+    "id": "not_covered_transformer",
+    "question": "How does transformer attention work?",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "development"
+  },
+  {
+    "id": "not_covered_tcp",
+    "question": "Explain TCP congestion control.",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "development"
+  },
+  {
+    "id": "not_covered_mitosis",
+    "question": "Describe all phases of mitosis.",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "development"
+  },
+  {
+    "id": "not_covered_caching",
+    "question": "What is prompt caching?",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "development"
+  },
+  {
+    "id": "not_covered_gravity",
+    "question": "Derive the law of universal gravitation.",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "development"
+  },
+  {
+    "id": "not_covered_friction",
+    "question": "Explain static and kinetic friction.",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "development"
+  },
+  {
+    "id": "not_covered_enzymes",
+    "question": "Explain Michaelis-Menten kinetics.",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "holdout"
+  },
+  {
+    "id": "not_covered_quicksort",
+    "question": "Explain quicksort partitioning.",
+    "reference": "This topic is not covered in the complete four-page synthetic fixture. Background must be separately labeled.",
+    "expected_positions": [],
+    "off_material": true,
+    "expected_coverage": "not_covered",
+    "split": "holdout"
+  }
 ]

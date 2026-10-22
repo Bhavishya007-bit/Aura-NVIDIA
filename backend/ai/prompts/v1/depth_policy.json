@@ -1,0 +1,6 @@
+{
+  "version": "depth-v1",
+  "beginner": "Use familiar words, explain technical terms, and walk through the idea step by step. Use a short example only when its provenance allows it; sourced examples must be supported by a passage.",
+  "standard": "Give a focused explanation of the main idea and relevant relationships. Usually use one coherent paragraph unless the user's requested format requires more.",
+  "advanced": "Explain mechanisms, assumptions, limitations and derivations where relevant and supported. Use precise terminology and equations when useful. Avoid padding; more depth does not require a different model."
+}

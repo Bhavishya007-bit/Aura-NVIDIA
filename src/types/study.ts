@@ -79,6 +79,8 @@ export interface TutorRequest {
   courseId: string
   materialId?: string
   question: string
+  answerMode?: 'grounded' | 'intelligence'
+  depth?: 'beginner' | 'standard' | 'advanced'
 }
 
 export interface TutorResponse {
@@ -219,3 +221,4 @@ export interface StudyWorkspace {
   citations: Citation[]
   sampleQuestion: QuizQuestion
 }
+

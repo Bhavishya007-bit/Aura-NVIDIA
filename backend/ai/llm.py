@@ -1,4 +1,5 @@
 import json
+import copy
 import logging
 import os
 import time
@@ -20,6 +21,7 @@ class LLM:
     def __init__(self):
         self.api_key = os.getenv("NEBIUS_API_KEY", "").strip()
         self.model_name = os.getenv("NEBIUS_MODEL", "").strip()
+        self.task = "answer"
 
         base = os.getenv(
             "NEBIUS_BASE_URL",
@@ -42,19 +44,29 @@ class LLM:
         if min(self.max_tokens, self.json_max_tokens, self.read_timeout) <= 0:
             raise RuntimeError("Token limits and timeout must be positive.")
 
-    def _request(self, prompt: str, max_retries: int, json_mode: bool) -> str:
+    def for_task(self, task: str):
+        """Select an explicitly configured tier; unconfigured roles use the tested model."""
+        setting = {"coverage": "NEBIUS_COVERAGE_MODEL", "answer": "NEBIUS_ANSWER_MODEL",
+                   "deep": "NEBIUS_DEEP_MODEL"}.get(task)
+        if setting is None:
+            raise ValueError("Unknown LLM task.")
+        client = copy.copy(self)
+        client.task = task
+        client.model_name = os.getenv(setting, "").strip() or self.model_name
+        return client
+
+    def _request(self, prompt: str, max_retries: int, json_mode: bool,
+                 system_prompt: str | None = None) -> str:
         # Preserve the old client's meaning: max_retries limits total attempts.
         attempts = max(1, min(int(max_retries), 3))
         messages = []
 
+        instructions = system_prompt or ""
         if json_mode:
-            messages.append({
-                "role": "system",
-                "content": (
-                    "Return exactly one valid JSON object matching the "
-                    "requested fields. Do not include Markdown or commentary."
-                ),
-            })
+            instructions += ("\nReturn exactly one valid JSON object matching the "
+                             "requested fields. Do not include Markdown or commentary.")
+        if instructions:
+            messages.append({"role": "system", "content": instructions.strip()})
 
         messages.append({"role": "user", "content": prompt})
 
@@ -136,17 +148,26 @@ class LLM:
                 usage = data.get("usage")
                 if not isinstance(usage, dict):
                     usage = {}
+                details = usage.get("prompt_tokens_details")
+                cached = details.get("cached_tokens") if isinstance(details, dict) else None
+                total_input = usage.get("prompt_tokens")
+                if (type(cached) is not int or cached < 0
+                    or (type(total_input) is int and cached > total_input)):
+                    cached = None
 
                 logger.info(
                     "provider=nebius model=%s json=%s attempt=%s "
                     "latency_s=%.2f prompt_tokens=%s completion_tokens=%s "
-                    "status=success",
+                    "task=%s cached_tokens=%s cache_hit=%s status=success",
                     self.model_name,
                     json_mode,
                     attempt + 1,
                     time.perf_counter() - started,
                     usage.get("prompt_tokens"),
                     usage.get("completion_tokens"),
+                    self.task,
+                    cached,
+                    None if cached is None else int(cached > 0),
                 )
                 return content.strip()
 
@@ -211,9 +232,9 @@ class LLM:
 
         raise RuntimeError("Nebius request failed.")
 
-    def generate(self, prompt: str, max_retries: int = 3) -> str:
-        return self._request(prompt, max_retries, json_mode=False)
+    def generate(self, prompt: str, max_retries: int = 3, *, system_prompt: str | None = None) -> str:
+        return self._request(prompt, max_retries, json_mode=False, system_prompt=system_prompt)
 
-    def generate_json(self, prompt: str, max_retries: int = 2) -> dict:
-        response = self._request(prompt, max_retries, json_mode=True)
+    def generate_json(self, prompt: str, max_retries: int = 2, *, system_prompt: str | None = None) -> dict:
+        response = self._request(prompt, max_retries, json_mode=True, system_prompt=system_prompt)
         return json.loads(response)

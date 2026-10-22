@@ -1,7 +1,9 @@
 """Account-scoped API for the existing local models and extraction pipeline."""
 
 import asyncio
+import logging
 import time
+from typing import Literal
 from contextlib import contextmanager
 
 from fastapi import FastAPI, Depends, File, HTTPException, Request, UploadFile
@@ -20,6 +22,7 @@ from backend.source_viewer import router as source_viewer_router
 from backend.figure_tools import router as figure_router
 from backend.figure_tools import image_tutor_answer
 from backend.learning import install_learning, learner_profile, tutor_style
+from backend.ai.source_aware import SourceAwareTutor
 
 
 @contextmanager
@@ -107,12 +110,15 @@ class PrivateChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=12000)
     top_k: int = Field(default=3, ge=1, le=10)
     include_related_background: bool = True
+    answer_mode: Literal["grounded", "intelligence"] | None = None
+    depth: Literal["beginner", "standard", "advanced"] | None = None
     course_id: int | None = None
     source_id: int | None = None
     history: list[ChatMessage] = Field(default_factory=list, max_length=8)
 
 
 def create_private_app(legacy):
+    logging.basicConfig(level=logging.INFO)
     app = FastAPI(title="Aura — private local workspaces")
     app.add_middleware(
         CORSMiddleware,
@@ -306,7 +312,8 @@ def create_private_app(legacy):
             tutor = legacy.RAG(retriever=OwnedRetriever(), llm=legacy.LLM(),
                                learning_style=tutor_style(profile, body.question),
                                include_related_background=body.include_related_background, source_first_mode=True)
-            return tutor.answer(
+            mode = body.answer_mode or ("intelligence" if body.include_related_background else "grounded")
+            return SourceAwareTutor(tutor, mode=mode, depth=body.depth).answer(
                 question=body.question,
                 top_k=body.top_k,
                 course_id=body.course_id,
@@ -317,7 +324,7 @@ def create_private_app(legacy):
             raise
         except Exception as error:
             raise HTTPException(
-                503, "The tutor is temporarily unavailable. Check Ollama and retry."
+                503, "The tutor is temporarily unavailable. Check the backend model connection and retry."
             ) from error
 
     app.include_router(study_router, dependencies=[Depends(protect_study_scope)])
@@ -327,3 +334,4 @@ def create_private_app(legacy):
     from backend.preparation_jobs import install_preparation_jobs
     install_preparation_jobs(app, legacy, database, require_course, require_source)
     return app
+

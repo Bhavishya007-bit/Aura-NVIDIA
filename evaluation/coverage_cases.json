@@ -1,0 +1,298 @@
+{
+  "version": "coverage-fixture-v1",
+  "note": "Hand-authored labels apply only to this complete synthetic fixture, not to arbitrary user documents. Holdout cases must not be used for prompt tuning. Live judge agreement has not been measured.",
+  "passages": [
+    {
+      "id": 1,
+      "topic": "primary_key",
+      "text": "A primary key uniquely identifies each row in a table and cannot contain null values."
+    },
+    {
+      "id": 2,
+      "topic": "binary_search",
+      "text": "Binary search halves the search interval at each step and requires sorted input."
+    },
+    {
+      "id": 3,
+      "topic": "insertion_sort",
+      "text": "Insertion sort grows a sorted prefix by inserting the next element into its correct position."
+    },
+    {
+      "id": 4,
+      "topic": "stack",
+      "text": "A stack removes the most recently added item first: last in, first out."
+    },
+    {
+      "id": 5,
+      "topic": "queue",
+      "text": "A queue removes the earliest added item first: first in, first out."
+    },
+    {
+      "id": 6,
+      "topic": "foreign_key",
+      "text": "A foreign key references a key in another table and enforces referential integrity."
+    },
+    {
+      "id": 7,
+      "topic": "process",
+      "text": "A process is a running program with its own execution state and address space."
+    },
+    {
+      "id": 8,
+      "topic": "lexing",
+      "text": "Lexical analysis groups source characters into tokens before parsing."
+    },
+    {
+      "id": 9,
+      "topic": "bfs",
+      "text": "Breadth-first search visits a graph level by level and finds shortest paths in unweighted graphs."
+    },
+    {
+      "id": 10,
+      "topic": "test_set",
+      "text": "A held-out test set estimates how a trained model performs on unseen data."
+    }
+  ],
+  "cases": [
+    {
+      "id": "full_01",
+      "question": "What identifies each table row and excludes nulls?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        1
+      ],
+      "split": "development"
+    },
+    {
+      "id": "full_02",
+      "question": "Why must input be sorted for binary search?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        2
+      ],
+      "split": "development"
+    },
+    {
+      "id": "full_03",
+      "question": "How does insertion sort grow its sorted part?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        3
+      ],
+      "split": "development"
+    },
+    {
+      "id": "full_04",
+      "question": "Which item does a stack remove first?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        4
+      ],
+      "split": "development"
+    },
+    {
+      "id": "full_05",
+      "question": "Which item does a queue remove first?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        5
+      ],
+      "split": "development"
+    },
+    {
+      "id": "full_06",
+      "question": "What does a foreign key do?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        6
+      ],
+      "split": "development"
+    },
+    {
+      "id": "full_07",
+      "question": "What is a process?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        7
+      ],
+      "split": "development"
+    },
+    {
+      "id": "full_08",
+      "question": "What happens in lexical analysis?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        8
+      ],
+      "split": "development"
+    },
+    {
+      "id": "full_09",
+      "question": "How does BFS explore an unweighted graph?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        9
+      ],
+      "split": "holdout"
+    },
+    {
+      "id": "full_10",
+      "question": "Why keep a test set separate from training?",
+      "expected": "fully_covered",
+      "expected_citations": [
+        10
+      ],
+      "split": "holdout"
+    },
+    {
+      "id": "partial_01",
+      "question": "What is a primary key, and how is it physically indexed?",
+      "expected": "partially_covered",
+      "expected_citations": [
+        1
+      ],
+      "missing_part": "Physical index implementation",
+      "split": "development"
+    },
+    {
+      "id": "partial_02",
+      "question": "Explain binary search and give its proof using loop invariants.",
+      "expected": "partially_covered",
+      "expected_citations": [
+        2
+      ],
+      "missing_part": "Loop-invariant proof",
+      "split": "development"
+    },
+    {
+      "id": "partial_03",
+      "question": "Explain insertion sort and implement a linked-list variant.",
+      "expected": "partially_covered",
+      "expected_citations": [
+        3
+      ],
+      "missing_part": "Linked-list implementation",
+      "split": "development"
+    },
+    {
+      "id": "partial_04",
+      "question": "Explain a stack and a lock-free implementation.",
+      "expected": "partially_covered",
+      "expected_citations": [
+        4
+      ],
+      "missing_part": "Lock-free implementation",
+      "split": "development"
+    },
+    {
+      "id": "partial_05",
+      "question": "Explain FIFO queues and how a priority queue differs.",
+      "expected": "partially_covered",
+      "expected_citations": [
+        5
+      ],
+      "missing_part": "Priority queue behavior",
+      "split": "development"
+    },
+    {
+      "id": "partial_06",
+      "question": "Explain foreign keys and SQL cascade rules.",
+      "expected": "partially_covered",
+      "expected_citations": [
+        6
+      ],
+      "missing_part": "Cascade rules",
+      "split": "development"
+    },
+    {
+      "id": "partial_07",
+      "question": "Define a process and explain Linux scheduling policies.",
+      "expected": "partially_covered",
+      "expected_citations": [
+        7
+      ],
+      "missing_part": "Linux scheduling policies",
+      "split": "holdout"
+    },
+    {
+      "id": "partial_08",
+      "question": "Explain lexical analysis and LR parsing.",
+      "expected": "partially_covered",
+      "expected_citations": [
+        8
+      ],
+      "missing_part": "LR parsing",
+      "split": "holdout"
+    },
+    {
+      "id": "none_01",
+      "question": "Explain Boyce-Codd normal form.",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "development"
+    },
+    {
+      "id": "none_02",
+      "question": "What is a database deadlock?",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "development"
+    },
+    {
+      "id": "none_03",
+      "question": "Explain quicksort partitioning.",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "development"
+    },
+    {
+      "id": "none_04",
+      "question": "Describe Dijkstra's algorithm.",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "development"
+    },
+    {
+      "id": "none_05",
+      "question": "How does gradient descent work?",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "development"
+    },
+    {
+      "id": "none_06",
+      "question": "Explain attention in transformers.",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "development"
+    },
+    {
+      "id": "none_07",
+      "question": "What is virtual memory paging?",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "development"
+    },
+    {
+      "id": "none_08",
+      "question": "How does TCP congestion control work?",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "development"
+    },
+    {
+      "id": "none_09",
+      "question": "Explain public-key encryption.",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "holdout"
+    },
+    {
+      "id": "none_10",
+      "question": "What is prompt caching?",
+      "expected": "not_covered",
+      "expected_citations": [],
+      "split": "holdout"
+    }
+  ]
+}

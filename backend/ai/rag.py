@@ -2,7 +2,6 @@ import re
 import json
 from typing import Any
 
-from backend.ai.pg_retrieval import PostgresRetriever
 from backend.ai.llm import LLM
 from backend.ai.citation_validator import CitationValidator
 from backend.ai.citation_grounding import CitationGrounding
@@ -1105,3 +1104,4 @@ CORRECTED OVERVIEW:
                 "attempts": history,
             },
         )
+
