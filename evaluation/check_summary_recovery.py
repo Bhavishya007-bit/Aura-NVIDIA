@@ -1,5 +1,6 @@
 """Exercise the screenshot failure through real orchestration and validators."""
 import copy
+import json
 import unittest
 
 from backend.ai.rag import RAG
@@ -20,6 +21,10 @@ class SummaryLLM(FakeLLM):
             if isinstance(self.draft, Exception):
                 raise self.draft
             return copy.deepcopy(self.draft)
+        if 'BATCH_CLAIMS_DATA: ' in data:
+            items = json.loads(data.split('BATCH_CLAIMS_DATA: ', 1)[1])
+            return {'results': [{'id': item['id'], 'supported': 'gold' not in item['claim'].casefold(),
+                                 'reason': 'Controlled claim check.'} for item in items]}
         if 'CLAIM:' in data:
             claim = data.split('CLAIM:', 1)[1].split('EVIDENCE:', 1)[0]
             return {'supported': 'gold' not in claim.casefold(), 'reason': 'Controlled claim check.'}

@@ -153,6 +153,8 @@ def recover_summary(sources, checks, question, request=None):
             validation = {
                 'valid': True, 'stage': 'summary_checked_points',
                 'response_mode': 'checked_points', 'supported_sentence_count': len(sentences),
+                'grounding_validation': {'valid': True, 'results': [
+                    {'claim': p['text'], 'citations': p['citation_ids'], 'supported': True} for p in sentences]},
             }
             if request:
                 validation['length_validation'] = length_check(text, request)

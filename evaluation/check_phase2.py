@@ -70,6 +70,10 @@ class FakeLLM:
             return value
         if "answers_question" in data:
             return {"answers_question": True, "reason": "Relevant fixture."}
+        if 'BATCH_CLAIMS_DATA: ' in data:
+            items = json.loads(data.split('BATCH_CLAIMS_DATA: ', 1)[1])
+            return {'results': [{'id': item['id'], 'supported': self.supported, 'reason': 'Fixture judgement.'}
+                                for item in items]}
         if "supported" in data:
             return {"supported": self.supported, "reason": "Fixture judgement."}
         return {"question": "Explain membrane structure."}

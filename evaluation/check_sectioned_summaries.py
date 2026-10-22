@@ -126,7 +126,8 @@ class SectionExpansionChecks(unittest.TestCase):
         self.assertEqual(len([c for c in llm.calls if c[0] == 'whole']), 2)
         parts = [c[1] for c in llm.calls if c[0] == 'part']
         self.assertEqual(len(parts), 4)
-        self.assertEqual([p['section_request']['target_words'] for p in parts], [500] * 4)
+        self.assertEqual([p['section_request']['target_words'] for p in parts], [300, 500, 500, 450])
+        self.assertEqual([p['section_request']['section_total_target_words'] for p in parts], [500] * 4)
         ids = [n for p in parts for n in p['section_request']['source_ids']]
         self.assertEqual(sorted(ids), list(range(1, 40)))
         self.assertEqual(len(ids), len(set(ids)))

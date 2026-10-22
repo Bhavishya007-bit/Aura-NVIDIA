@@ -220,11 +220,12 @@ class SourceAwareTutor:
             # request before scoped expansion has had a bounded chance to finish.
             if (self.response_request['target_words'] and self.response_request['target_words'] >= 1200
                 and best_checked and not best_checked[1]['length_validation']['valid']
+                and best_checked[1]['length_validation']['actual_words'] < int(self.response_request['target_words'] * .9)
                 and any(item.get('supported') is True for check in checks
                         for item in check.get('grounding_validation', {}).get('results', []))
                 and not any(check.get('stage') == 'verification_unavailable' for check in checks)):
                 expanded = expand_summary(self.rag, client, sources, question, self.response_request,
-                                          payload, _schema_errors)
+                                          payload, _schema_errors, seed_check=best_checked[1])
                 if expanded and length_distance(expanded[1]['length_validation']) < length_distance(best_checked[1]['length_validation']):
                     best_checked = expanded
         if best_checked:

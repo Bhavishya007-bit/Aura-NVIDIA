@@ -192,9 +192,9 @@ Return JSON only.
                 return {'valid': False, 'results': [], 'message': 'Invalid structured claim shape.'}
             claims.append({'claim': point['text'], 'citation': point['citation_ids'][0],
                            'citations': point['citation_ids']})
-        return self._verify_claims(claims, [], sources, '')
+        return self._verify_claims(claims, [], sources, '', prefer_batch=True)
 
-    def _verify_claims(self, claims, uncited, sources, answer):
+    def _verify_claims(self, claims, uncited, sources, answer, *, prefer_batch=False):
         results = []
         pending = []
         for claim in uncited:
@@ -212,7 +212,7 @@ Return JSON only.
                     result.update(supported=False, reason="A cited source contains no content.")
                 else:
                     combined = "\n\n".join(f"[{number}] {text}" for number, text in zip(numbers, evidence))
-                    if len(claims) > 12:
+                    if len(claims) > 12 or (prefer_batch and len(claims) > 1):
                         if self._literal_support(item['claim'], combined):
                             result.update(supported=True, reason='Literal excerpt of cited evidence.')
                         else:

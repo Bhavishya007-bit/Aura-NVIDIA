@@ -1,6 +1,20 @@
 
 # Changelog
 
+## 2026-10-22 — Extend checked summaries and validate section intent locally
+
+- Carry checked summary units forward in their original order and request only
+  additional supported detail from under-covered source sections.
+- Validate section topic match against a local question and assigned passages;
+  keep word-count and factual-support checks separate and mandatory.
+- Batch groups of 2–12 structured claims with independent results instead of
+  checking each sequentially. Missing results remain failures.
+- Preserve support metadata during recovery, filter exact repeats and stop
+  additions when the measured overall length is satisfied.
+- Nine new regressions pass, including controlled 1,110-to-2,010-word completion.
+  Full suite: 135 passed, two optional OCR checks skipped. Live output remains
+  an integration check; no hosted call was made for this update.
+
 ## 2026-10-22 — Preserve whole scientific claims and expand short long summaries
 
 - Verify structured summary points directly, preserving scientific abbreviations

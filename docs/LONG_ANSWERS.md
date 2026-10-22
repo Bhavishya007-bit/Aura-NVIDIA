@@ -244,3 +244,49 @@ suite contains 104 passing local checks. The broader retrieval/recovery suite
 reports 128 tests: 126 passed and two optional OCR checks skipped. Pull `main`, restart the backend and
 reuse the existing prepared presentation. New logs use `summary_section` for
 section attempts alongside `summary_draft` and `source_answer_check`.
+
+## Follow-up: carry forward the checked 1,110-word draft
+
+The attached live run generated 1,427 words first, then a fully checked
+1,110-word revision. Expansion did run: three initial sections failed
+`question_relevance`; the other initial section retained 311 words. Repairs
+retained 355 and 354 words in two sections, so the combined replacement was
+shorter than the existing answer. The pipeline correctly kept the 1,110-word
+draft, but the expansion strategy failed its goal. The log contains 45 provider
+calls with a combined reported provider latency of 282.70 seconds.
+
+Section validation previously received the whole 2,000-word user request.
+It now receives an explicit `selected_material_section` intent context, a local
+section question and excerpts of that section's assigned passages. The intent
+judge measures topic match, not word count or completeness of the entire file.
+Word count remains server-measured. Topic rejection still rejects an off-topic
+section, and all factual support checks still run before accepting additions.
+
+Expansion now seeds itself from the prior answer's positive whole-point support
+results. Seed units keep their original order, including pronoun antecedents;
+new checked units are appended in section order. Existing proof metadata is
+preserved on recovered checked points so they can seed later expansion too.
+Rejected or malformed units cannot seed it.
+
+Each writer receives `already_explained` context and a target for **additional**
+text: the lesser of the section deficit and remaining overall words, with an
+80-word minimum when a section still needs work. It is asked for new supported
+details, terms and relationships, rather than a rewrite. Exact repeats do not
+increase the count. New points are accepted only after checking and only when
+they improve the overall word distance. Calls stop as soon as the measured
+overall target is satisfied. Section/source, token, retry and time bounds remain
+in force. Logs distinguish generated, newly checked and retained words.
+
+Structured groups of 2–12 nonliteral points now share the same independent
+per-claim batch checker as larger summaries, rather than making up to 12 serial
+requests. The batch cap remains 12, and missing/invalid decisions still fail
+closed. A single point and plain unstructured short answers retain their
+existing verification paths.
+
+Nine new regressions reproduce a checked 1,110-word fixture and complete it to
+2,010 words with source-checked additions, reject repeated-text padding, retain
+seed order, check partial-section intent, reject off-topic sections, and verify
+small-batch independence and missing-decision failure. This is controlled model
+output, not a live generation benchmark. The full suite reports 137 tests:
+135 passed and two optional OCR checks skipped. Provider compliance with word
+targets and live content quality remain unverified after this change.
