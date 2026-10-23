@@ -34,7 +34,7 @@ def install_agents(app, llm_factory):
 
     @router.get('/capabilities')
     def capabilities(student=Depends(get_current_student)):
-        return {'skills': list(SKILLS), 'tools': ['document_search', 'memory_read', 'memory_write', 'task_list', 'task_create'],
+        return {'skills': list(SKILLS), 'tools': ['document_search', 'memory_read', 'memory_write', 'task_list', 'task_create', 'study_plan_create'],
                 'web_search': False, 'code_execution': False, 'assessment_agent': False}
 
     @router.get('/memory')

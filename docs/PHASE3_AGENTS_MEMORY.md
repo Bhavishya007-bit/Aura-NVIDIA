@@ -144,3 +144,55 @@ preference affecting the next tutor settings and a real background dispatch
 through the API. The broader suite reports 175 tests: 173 passed and two optional
 OCR checks skipped. `npm run build` and Python compilation pass. No live hosted
 agent run was performed in this environment.
+
+## Follow-up: repeated searches exhausted the first live plan run
+
+The attached screenshot shows six document searches and one rejected action,
+with no saved daily plan. The corresponding logs show seven successful provider
+calls using 18,646 reported tokens. The old byte-reserve preflight then stopped
+another model request. The budget was not proof of an external credit problem;
+the runtime had accumulated repetitive context without enforcing progress.
+
+The runtime now keeps completed action/query history and limits document search
+to two executions. Case, punctuation and spacing variants of an identical query
+are rejected before execution. Memory and task-list reads are limited to one
+each. The store enforces read limits under the run lock as well. Repeated
+passages are deduplicated by reference ID in the model context, capped at eight
+600-character excerpts; the original tool observations remain in saved history.
+Only current allowed actions and their reachable JSON-schema definitions are
+sent to the model. Validation feedback identifies safe field paths/types or
+specific day/reference/duplicate failures without copying model inputs or source
+text into logs. One invalid action can be repaired; repeated invalid decisions
+still fail closed within the existing action, token and time caps.
+
+A new `study_plan_create` action accepts an overview and 1–14 sequential daily
+activities. For an unambiguous requested day count, a multi-day plan must use
+this action and match that count. It consults the document tool first. Its
+references must have been observed in this run. Ambiguous goals containing
+different day counts are not assigned an invented numeric constraint.
+
+The executor saves all daily tasks and their plan observation in one transaction.
+A checkpoint failure rolls back the whole batch. Task deduplication for this
+action is scoped to the run, so a new plan does not silently inherit completed
+tasks from an older plan. The runtime renders the typed plan directly and
+finishes without spending another generation call. A cancellation between tool
+commit and final checkpoint can still leave the saved plan/tasks visible in
+progress while preventing the run from being marked complete. Draft provenance
+and all ownership/deadline checks remain in force.
+
+For a three-day goal, the controlled happy path is two model calls: search,
+then daily-plan creation. Additional permitted memory or task reads remain
+optional, and the runtime reserves its last actions for producing the result.
+No default action/token/time budget was raised for this follow-up.
+
+Stopped history is not replayed. After pulling and restarting, start a new run
+with the three-day goal; the old exhausted run remains available for inspection.
+Live planning quality and provider compliance with the new action schema still
+need a hosted retest. This follow-up does not change the deferred summary issue.
+
+Thirteen new controlled regressions cover two-call three-day completion, duplicate
+search rejection, a rejected third search followed by a valid plan, compact
+schemas/context, field-specific repair, invalid day/reference rejection, late
+cancellation, real background API dispatch, and all-or-none task saving. The
+full suite reports 188 tests: 186 passed and two optional OCR checks skipped.
+The frontend build and Python compilation pass.

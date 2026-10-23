@@ -6,7 +6,7 @@ import './AgentPanel.css'
 const fresh = (): MemoryInput => ({ kind: 'preference', text: '', depth: null, examples: null })
 const active = (run: AgentRun) => ['queued', 'running'].includes(run.state)
 const readable = (value: string) => value.replaceAll('_', ' ')
-const toolNames: Record<string, string> = { document_search: 'Search your material', memory_read: 'Read preferences and memories', memory_write: 'Save a memory', task_list: 'Review your tasks', task_create: 'Create a study task', finish: 'Prepare the result', validation: 'Check the next action' }
+const toolNames: Record<string, string> = { document_search: 'Search your material', memory_read: 'Read preferences and memories', memory_write: 'Save a memory', task_list: 'Review your tasks', task_create: 'Create a study task', study_plan_create: 'Create your daily plan and tasks', finish: 'Prepare the result', validation: 'Check the next action' }
 export default function AgentPanel({ courseId, sourceId, materialReady }: { courseId: string; sourceId: string; materialReady: boolean }) {
   const [pane, setPane] = useState<'Agents' | 'Memory' | 'Tasks'>('Agents')
   const [memory, setMemory] = useState<MemoryState>({ enabled: true, items: [] })

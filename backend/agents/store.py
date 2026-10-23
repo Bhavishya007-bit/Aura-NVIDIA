@@ -6,7 +6,8 @@ from uuid import uuid4
 from fastapi import HTTPException
 from psycopg2.extras import Json, RealDictCursor
 from backend.auth_db import get_auth_connection
-from backend.agents.contracts import RunInput, allowed_tools
+from backend.agents.contracts import RunInput, TaskInput, allowed_tools, requested_days
+from backend.agents.planning import action_key
 
 ACTIVE = ('queued', 'running')
 
@@ -65,11 +66,11 @@ def save_memory(cur, student, course, record):
     return dict(cur.fetchone())
 
 
-def save_task(cur, student, course, task):
+def save_task(cur, student, course, task, *, namespace=''):
     cur.execute('''INSERT INTO aura_agent_tasks(id,student_id,course_id,title,details,dedup_key)
         VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(student_id,course_id,dedup_key)
         DO UPDATE SET title=aura_agent_tasks.title RETURNING id,title,details,done,created_at''',
-        (str(uuid4()), student, course, task.title.strip(), task.details, signature(task.title)))
+        (str(uuid4()), student, course, task.title.strip(), task.details, signature(namespace + task.title)))
     return dict(cur.fetchone())
 
 
@@ -205,8 +206,18 @@ class Store:
 
     def tool(self, run, action, step):
         with self.locked(run) as (cur, current):
-            if action.tool not in allowed_tools(RunInput.model_validate(current['request'])):
+            request = RunInput.model_validate(current['request'])
+            if action.tool not in allowed_tools(request):
                 raise HTTPException(403, 'This tool is not enabled for the run.')
+            previous = [item for item in current['steps'] if item.get('state') == 'completed']
+            limit = {'document_search': 2, 'memory_read': 1, 'task_list': 1}.get(action.tool)
+            if limit is not None and sum(item.get('tool') == action.tool for item in previous) >= limit:
+                raise HTTPException(409, 'This read tool has reached its per-run limit.')
+            if action.tool == 'document_search' and any(item.get('action_key') == action_key(action) for item in previous):
+                raise HTTPException(409, 'This search has already completed.')
+            step['action'] = action.model_dump()
+            step['action_key'] = action_key(action)
+            step['state'] = 'completed'
             student, course = run['student_id'], run['course_id']
             if action.tool == 'memory_read':
                 output = memories(cur, student, course, for_agent=True)
@@ -222,6 +233,19 @@ class Store:
                 output = [dict(row) for row in cur.fetchall()]
             elif action.tool == 'task_create':
                 output = save_task(cur, student, course, action.task)
+            elif action.tool == 'study_plan_create':
+                target = requested_days(request.goal)
+                references = {p['reference'] for item in previous if item.get('tool') == 'document_search'
+                              for p in item.get('observation', {}).get('passages', [])}
+                if (target is not None and not any(item.get('tool') == 'document_search' for item in previous)):
+                    raise HTTPException(422, 'Consult the selected material before creating the daily plan.')
+                if (target is not None and len(action.days) != target) or any(
+                        ref not in references for day in action.days for ref in day.references):
+                    raise HTTPException(422, 'Plan days or document references do not match this run.')
+                tasks = [save_task(cur, student, course,
+                    TaskInput(title=f'Day {day.day}: {day.title}', details=day.details), namespace=str(run['id']) + ':')
+                    for day in action.days]
+                output = {'plan': action.model_dump(), 'tasks': tasks}
             elif action.tool == 'document_search':
                 cur.execute('''SELECT ch.chunk_id,ch.content,ch.page_number,ch.slide_number,s.source_name
                     FROM chunks ch JOIN sources s ON s.source_id=ch.source_id JOIN courses c ON c.course_id=s.course_id

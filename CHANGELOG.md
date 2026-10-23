@@ -1,6 +1,24 @@
 
 # Changelog
 
+## 2026-10-23 — Stop repeated agent searches and finish multi-day plans
+
+- The first live plan run performed six searches, rejected one action and
+  stopped on token preflight without creating tasks. Seven successful provider
+  calls consumed 18,646 reported tokens; the source/model connection was working.
+- Enforce at most two document searches and one memory/task-list read per run,
+  reject normalized duplicate searches, and retain completed action/query state.
+- Send only currently available tool schemas, deduplicate document context and
+  return precise, sanitized validation feedback for one bounded repair.
+- Add a typed multi-day planning action that validates the day count and known
+  references, saves daily tasks atomically, and renders the finished draft
+  without another generation call. Existing budgets remain unchanged.
+- Keep source ownership, cancellation, deadlines and draft provenance checks.
+  Existing stopped runs are retained; start a new run after updating.
+- Thirteen new controlled planner regressions pass, including background API
+  completion and atomic three-task persistence. Broader suite: 186 passed, two
+  optional OCR checks skipped. Frontend build passes; live retest remains needed.
+
 ## 2026-10-23 — Begin Phase 3 agents, editable memory and tasks
 
 - Add typed, owner-scoped document/memory/task tools and two initial skills:
