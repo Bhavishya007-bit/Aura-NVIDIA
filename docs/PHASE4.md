@@ -27,6 +27,24 @@ If Python completed before the explanation request failed, its captured output a
 
 Controlled tests cover JSON formatting, transport redaction, failure before/after execution, cancellation and UI recovery/rendering. They do **not** measure live teaching accuracy or guarantee that the model follows the requested structure. Retest with the configured model and representative material before marking the remaining Phase 4 quality checks complete. The 2,000-word summary issue remains open.
 
+### Search explanation regression
+
+A real local answer reported correct counts but invented the path for target 1, claimed timing variability from deterministic counts, implied unique values were required, and described an uninspected JSON file as confirming the results. These remain recorded failures, not a successful teaching evaluation.
+
+`evaluation/fixtures/search_comparison.py` is a fixed authored program using synthetic data. The trusted test guest executes it and captures real per-target loop traces. `search_comparison_expected.json` records the expected paths, the observed explanation failures and a live-review checklist. Tests check indices, counts, interval bounds, branch directions, duplicate behavior and actual saved JSON bytes. They also check that the complete small trace reaches the model context while file bytes remain excluded. No generated model code runs on the test host.
+
+For the lower-midpoint implementation on `[1,3,5,7,9,11,13,15]`:
+
+| Target | Returned index | Linear items | Binary probes | Binary midpoint indices |
+| --- | ---: | ---: | ---: | --- |
+| 5 | 2 | 3 | 3 | 3 → 1 → 2 |
+| 16 | -1 | 8 | 4 | 3 → 5 → 6 → 7 |
+| 1 | 0 | 1 | 3 | 3 → 1 → 0 |
+
+Code instructions now ask for traces collected in the actual loop and require the explanation to follow the corresponding target's captured path. Without a captured trace, the answer must acknowledge that limit. Counts are distinguished from measured runtime and primitive comparisons; ordinary duplicate matching is distinguished from finding the first/last match. File metadata cannot establish content inspection. This adds no model requests, automatic replay, API fields or dependencies.
+
+Run the original comparison goal again and apply the fixture's review checklist to the **new live answer**. The authored reference and deterministic tests do not prove the model avoids these prose errors; they are not human judge calibration or an automatic prose-verification system.
+
 ## What students see
 
 - Chat, Tutor, notes, summaries, flashcard explanations and agent explanations share a safe Markdown renderer: headings, bold terms, lists, code, tables and quoted text. Source/background labels remain distinct, and existing citation buttons still open the source viewer. Model-written HTML and links are displayed as text, never executed.

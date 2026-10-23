@@ -1,0 +1,25 @@
+{
+  "case_id": "search-explanation-target-path-2026-10-23",
+  "goal": "Write and run Python comparing linear search and binary search on a small sorted list. Explain the results and limitations.",
+  "reference_type": "authored deterministic evidence, not a human-reviewed model verdict",
+  "values": [1, 3, 5, 7, 9, 11, 13, 15],
+  "results": [
+    {"target": 5, "index": 2, "linear_inspected": 3, "binary_probes": 3, "midpoints": [3, 1, 2], "branches": ["left", "right", "found"]},
+    {"target": 16, "index": -1, "linear_inspected": 8, "binary_probes": 4, "midpoints": [3, 5, 6, 7], "branches": ["right", "right", "right", "right"]},
+    {"target": 1, "index": 0, "linear_inspected": 1, "binary_probes": 3, "midpoints": [3, 1, 0], "branches": ["left", "left", "found"]}
+  ],
+  "observed_answer_failures": [
+    "Said target 1 follows the same path as target 16.",
+    "Claimed high variability despite reporting only deterministic counts.",
+    "Presented unique values as a requirement of ordinary binary search.",
+    "Claimed the JSON file confirmed results without observing its contents."
+  ],
+  "live_review_checks": [
+    "Every illustrated target follows its own captured trace, including branch direction.",
+    "Counts are labelled inspected items or midpoint probes; runtime and primitive comparisons are distinguished.",
+    "No timing variability or measured speed claim appears without timing evidence.",
+    "Duplicates are distinguished from first/last-match guarantees.",
+    "Results are attributed to captured output; filenames alone do not establish file inspection.",
+    "Any truncated or missing trace is acknowledged without inventing rows."
+  ]
+}

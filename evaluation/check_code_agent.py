@@ -364,7 +364,7 @@ class RuntimeDiagnostic(unittest.TestCase):
 @unittest.skipUnless(sys.platform == 'linux', 'Guest fixtures use Linux resource limits')
 class TrustedGuestFixtures(unittest.TestCase):
     def fixed_fixture(self, source, outputs):
-        # Authored literals below only, never model/test-user input. Product never calls this.
+        # Fixed authored literals/repo fixtures only, never model/user input. Not a product path.
         result = subprocess.run([sys.executable, '-I', '-B', 'backend/agents/sandbox_guest.py'],
             input=json.dumps({'code': source, 'files': {'input.csv': 'x\n2\n6\n'}, 'outputs': outputs}),
             capture_output=True, text=True, timeout=20, env={'PATH': '/usr/local/bin:/usr/bin:/bin'})
@@ -376,6 +376,42 @@ class TrustedGuestFixtures(unittest.TestCase):
         out = self.fixed_fixture(source, ['result.json'])
         self.assertEqual(out['stdout'].strip(), '4.0')
         self.assertEqual(json.loads(base64.b64decode(out['artifacts'][1]['data'])), {'mean': 4.0})
+
+    def test_reported_search_paths_have_actual_guest_evidence_and_distinct_branches(self):
+        directory=Path(__file__).parent/'fixtures'
+        source=(directory/'search_comparison.py').read_text()
+        expected=json.loads((directory/'search_comparison_expected.json').read_text())
+        out=self.fixed_fixture(source,['search_results.json'])
+        self.assertEqual(out['status'],'succeeded',out['stderr'])
+        self.assertFalse(out['stdout_truncated'])
+        report=json.loads(out['stdout'])
+        self.assertEqual(report['values'],expected['values'])
+        self.assertFalse(report['timings_measured'])
+        for row,reference in zip(report['results'],expected['results'],strict=True):
+            self.assertEqual(row['target'],reference['target'])
+            self.assertEqual(row['linear_index'],reference['index'])
+            self.assertEqual(row['binary_index'],reference['index'])
+            self.assertEqual(row['linear_inspected'],reference['linear_inspected'])
+            self.assertEqual(row['binary_probes'],reference['binary_probes'])
+            self.assertEqual([step['mid'] for step in row['binary_trace']],reference['midpoints'])
+            self.assertEqual([step['branch'] for step in row['binary_trace']],reference['branches'])
+            low,high=0,len(report['values'])-1
+            for step in row['binary_trace']:
+                self.assertEqual((step['low'],step['high']),(low,high))
+                self.assertEqual(step['mid'],(low+high)//2)
+                self.assertEqual(step['value'],report['values'][step['mid']])
+                if step['branch']=='left': high=step['mid']-1
+                elif step['branch']=='right': low=step['mid']+1
+                else: self.assertEqual(step['value'],row['target'])
+        self.assertEqual(report['duplicates']['index'],2) # ordinary search need not return first match
+        self.assertEqual(report['duplicates']['guarantee'],'any matching index')
+        artifact=next(item for item in out['artifacts'] if item['name']=='search_results.json')
+        # This test really reads the bytes; the model sees only metadata and stdout.
+        self.assertEqual(json.loads(base64.b64decode(artifact['data'])),report)
+        context=compact_observations([{'tool':'code_execute','data':out,'executed_program':source}])[0]
+        self.assertFalse(context['data']['stdout_truncated'])
+        self.assertEqual(json.loads(context['data']['stdout']),report)
+        self.assertTrue(all('data' not in item for item in context['data']['artifacts']))
 
     def test_fixed_symlink_and_big_stdout_fixtures_are_bounded(self):
         out = self.fixed_fixture("import os\nos.symlink('/etc/passwd','result.txt')\nprint('x'*20000)", ['result.txt'])
