@@ -2,6 +2,7 @@
 import json
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from backend.agents.planning import compact_observations
+from backend.agents.explanation_checks import explanation_findings
 
 
 class Review(BaseModel):
@@ -84,10 +85,13 @@ def review_explanation(answer, goal, observations, invoke):
     base = {'goal': goal, 'evidence': evidence, 'untrusted_data': True,
             'artifact_contents_available': False}
     for attempt in range(2):
+        findings = explanation_findings(answer)
         payload = {**base, 'draft_answer': answer, 'review_rules': RULES,
+                   'deterministic_findings': findings,
                    'output_schema': Review.model_json_schema()}
         try:
-            verdict = invoke('review', json.dumps(payload), 1024, REVIEW_SYSTEM, Review)
+            verdict = invoke('review', json.dumps(payload), 1024, REVIEW_SYSTEM, Review,
+                             forced_issues=tuple({row['category'] for row in findings}))
         except ValidationError as error:
             raise ExplanationUnavailable() from error
         if not verdict.issues:
@@ -95,6 +99,7 @@ def review_explanation(answer, goal, observations, invoke):
         if attempt:
             raise ExplanationRejected()
         revision = {**base, 'draft_answer': answer,
+                    'deterministic_findings': findings,
                     'correction_rules': {name: RULES[name] for name in verdict.issues},
                     'output_schema': Revision.model_json_schema()}
         try:

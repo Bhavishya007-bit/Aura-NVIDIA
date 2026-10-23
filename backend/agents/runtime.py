@@ -375,7 +375,7 @@ def run_agent(store, run, llm_factory, stopping=None):
                     from backend.agents.sandbox import code_result
                     from backend.agents.code_review import review_explanation, ExplanationUnavailable, ExplanationRejected
 
-                    def invoke_review(phase, prompt, tokens, system, contract):
+                    def invoke_review(phase, prompt, tokens, system, contract, *, forced_issues=()):
                         # Reserve one final save step; never execute another tool
                         # or bypass step/token/time limits to repair prose.
                         if len(steps) + 1 >= request.max_steps:
@@ -386,6 +386,10 @@ def run_agent(store, run, llm_factory, stopping=None):
                         try:
                             raw = ask(prompt, tokens, system, verification=True)
                             value = contract.model_validate(raw)
+                            if phase == 'review':
+                                # A model's approval cannot override a definite
+                                # contradiction found by the local checks.
+                                value = value.model_copy(update={name: False for name in forced_issues})
                         except RunStopped:
                             raise
                         except BudgetStop as error:

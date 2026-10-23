@@ -568,6 +568,38 @@ class CodePostgres(unittest.TestCase):
         self.assertEqual(len([step for step in saved['steps'] if step['tool']=='verification']),3)
         self.assertTrue(all(call['max_retries']==1 for call in model.calls))
 
+    def test_model_approval_cannot_override_the_reported_position_and_table_contradictions(self):
+        bad=(Path(__file__).parent/'fixtures'/'search_answer_reviewer_miss.md').read_text()
+        fixed=(bad.replace('(first, middle, last, absent)','(first, sixth, last, absent)')
+               .replace('The results confirm that binary search uses significantly fewer comparisons than linear search for sorted data, especially as list size grows.',
+                        'Linear uses fewer checks for target 2. Binary uses fewer for the other tested targets. This single list size does not measure scaling.'))
+        program='values=[2,5,8,12,16,23,38,42,50]\nprint("2,1,3;23,6,3;50,9,4;7,9,3")'
+        output=sandbox.parse_result(guest_result(stdout='2,1,3;23,6,3;50,9,4;7,9,3\n'),program,[])
+        execute=Mock(return_value=output)
+        saved,model=self.execute([code_action(program),fixtures.action(answer=bad),
+            accepted_review(),{'answer':fixed},accepted_review()],execute)
+        self.assertEqual(saved['state'],'completed',saved)
+        self.assertEqual(saved['result']['text'],fixed)
+        checks=[step for step in saved['steps'] if step['tool']=='verification']
+        self.assertEqual(checks[0]['error_code'],'code_explanation_not_supported')
+        findings=model.calls[2]['prompt']['deterministic_findings']
+        self.assertEqual({row['category'] for row in findings},{'assumptions','counts_and_timing'})
+        self.assertEqual(model.calls[3]['prompt']['deterministic_findings'],findings)
+        self.assertFalse(model.calls[4]['prompt']['deterministic_findings'])
+        self.assertEqual(execute.call_count,1);self.assertEqual(len(model.calls),5)
+
+    def test_repeated_deterministic_contradiction_is_withheld_even_when_both_model_reviews_approve(self):
+        bad=(Path(__file__).parent/'fixtures'/'search_answer_reviewer_miss.md').read_text()
+        execute=Mock(return_value=observed())
+        saved,model=self.execute([code_action(),fixtures.action(answer=bad),
+            accepted_review(),{'answer':'Updated explanation.\n\n'+bad},accepted_review()],execute)
+        self.assertEqual(saved['state'],'failed',saved)
+        self.assertEqual(saved['error_code'],'code_explanation_not_supported')
+        self.assertEqual(saved['result']['text'],'')
+        self.assertNotIn(bad,json.dumps(saved))
+        self.assertEqual(saved['result']['code_result']['stdout'],'4\n')
+        self.assertEqual(execute.call_count,1);self.assertEqual(len(model.calls),5)
+
     def test_failed_second_review_withholds_both_drafts_but_keeps_downloads(self):
         bad='UNSUPPORTED_DRAFT';revision='STILL_UNSUPPORTED'
         execute=Mock(return_value=observed(outputs=['result.csv']))

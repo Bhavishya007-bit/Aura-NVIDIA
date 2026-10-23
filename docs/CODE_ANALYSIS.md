@@ -21,6 +21,16 @@ Rejected, malformed or unavailable reviews do not release the draft as the answe
 
 This is a model-based review, **not a deterministic proof of arbitrary explanations**. The reviewer can make mistakes and has not been calibrated against independent human labels. Results remain `verified=false`; live model quality still needs review. Cancellation and exhausted budgets cannot publish a late or unchecked answer.
 
+### Local checks for a confirmed reviewer miss
+
+A completed three-step run showed that the model reviewer approved an answer labelling 23 as the middle of a nine-element list whose middle was 16. It also approved an unqualified comparison conclusion despite a table row where linear search used fewer checks. This is recorded as a reviewer false acceptance, not an installation/version problem.
+
+`backend/agents/explanation_checks.py` now checks internal consistency for recognized English claims about an explicit small numeric list: first/last/absent labels and the middle of an odd-length sorted list, including parallel target/label lists. A second check detects an unqualified empirical "results confirm binary uses fewer" claim when the answer's one comparison table supplies a contrary row. Numbers are parsed as bounded decimals; generated programs are never executed for these checks.
+
+These findings force the corresponding review verdict to false even if the model approves. They enter the existing one-revision/recheck path, with no extra model calls or Python execution. An unchanged contradiction after revision is withheld despite another model approval. Regression tests replay the reported answer with deliberately approving model responses, and verify one execution, bounded calls and preserved output.
+
+The checks establish contradictions **within recognized answer text**, not truth of its data relative to execution. Unknown syntax/languages, dynamic or oversized lists, multiple distinct arrays/tables, even-length middle interpretations, and other kinds of claims remain outside this guard. The separate model review still compares the explanation with execution evidence. This narrows a demonstrated failure; it does not make arbitrary explanations verified.
+
 A corrected reference for the reported search example, using ordinary linear search and iterative binary search with the lower midpoint:
 
 | Target | Status | Index | Linear items inspected | Binary midpoint probes |

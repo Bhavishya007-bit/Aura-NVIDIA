@@ -37,6 +37,8 @@ If the final review rejects, is malformed or unavailable, Aura withholds the exp
 
 Controlled checks cover clean review, revision/recheck, repeated rejection, malformed output, truncated model output, cancellation, expiry, token/step limits, downloads after rejection and friendly UI recovery. Two new agent regression cases check repair and withholding, raising the offline gate to **24 cases**. These test the workflow with controlled verdicts, not the live reviewer's ability to detect every error. The reviewer still needs independent human quality assessment; the 30-case coverage-judge calibration below assesses a different task.
 
+The subsequent completed three-step run confirmed a real reviewer false acceptance: it retained an incorrect middle-element label and an overbroad comparison conclusion. The version was current. Local consistency checks now reject those recognized contradictions regardless of the model verdict and pass computed findings into the same bounded text-repair path. They cover explicit small numeric-list position labels and a single comparison table with a contrary row; they do not prove arbitrary prose or runtime facts. Tests use the actual reported answer and deliberately approving model responses. See `docs/CODE_ANALYSIS.md` for exact scope and exclusions. No additional model calls, dependencies or API fields are introduced by this follow-up.
+
 ### Search explanation regression
 
 A real local answer reported correct counts but invented the path for target 1, claimed timing variability from deterministic counts, implied unique values were required, and described an uninspected JSON file as confirming the results. These remain recorded failures, not a successful teaching evaluation.
