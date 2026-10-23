@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from evaluation.review_calibration import review
+from evaluation.review_calibration import review, main
 
 
 def packet():
@@ -17,6 +17,37 @@ def packet():
 
 
 class HumanReview(unittest.TestCase):
+    def test_cli_revisit_flag_reaches_the_review_without_running_a_model(self):
+        with patch('evaluation.review_calibration.review') as session:
+            main(['--packet', 'selected-packet.json', '--revisit'])
+        session.assert_called_once_with('selected-packet.json', revisit=True)
+
+    def test_revisit_keeps_old_judgments_until_an_explicit_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'packet.json'; original = packet()
+            for row in original['records']:
+                row.update(human_label='partially_covered', reviewed_by='human', reviewed_at='earlier-review')
+            path.write_text(json.dumps(original))
+            choices = iter(['n', 'q']); output = []
+            review(path, ask=lambda prompt: next(choices), write=output.append, revisit=True)
+            saved = json.loads(path.read_text())
+            self.assertEqual(saved['records'][0]['human_label'], 'not_covered')
+            self.assertNotEqual(saved['records'][0]['reviewed_at'], 'earlier-review')
+            self.assertEqual(saved['records'][1:], original['records'][1:])
+            self.assertEqual(saved['records'][0]['predicted'], original['records'][0]['predicted'])
+            self.assertIn('Saved judgments during this re-review: 1.', '\n'.join(output))
+            self.assertIn('Explanation length, detail and style are separate', '\n'.join(output))
+
+    def test_quitting_a_revisit_without_replacement_preserves_every_byte(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'packet.json'; original = packet()
+            for row in original['records']:
+                row.update(human_label='partially_covered', reviewed_by='human')
+            path.write_text(json.dumps(original)); before = path.read_bytes()
+            choices = iter(['', 'q'])
+            review(path, ask=lambda prompt: next(choices), write=lambda value: None, revisit=True)
+            self.assertEqual(path.read_bytes(), before)
+
     def test_every_saved_label_requires_input_and_model_verdicts_remain_hidden(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'packet.json'

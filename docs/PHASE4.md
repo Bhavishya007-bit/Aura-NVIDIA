@@ -108,6 +108,14 @@ python -m evaluation.review_calibration
 
 For each question, read the displayed passages and enter `f` (fully covered), `p` (partially covered) or `n` (not covered). Labels are never prefilled. Each explicit judgment is saved atomically in the existing packet; `q`, Ctrl+C or end of input leaves unanswered cases unlabelled. Rerun the command to resume. The tool checks that all 30 unique cases and passages match the synthetic fixture, preserves model outputs, and makes no API calls or code executions. Only a person independently reading the material should enter these labels; an assistant's review is not human calibration. Agreement is shown after all judgments are saved.
 
+Coverage measures whether the passages contain the information requested. A short passage can fully cover a narrow question; explanation length, depth and teaching style belong to separate quality checks. If an earlier review used a different interpretation, reconsider the saved cases with:
+
+```powershell
+python -m evaluation.review_calibration --revisit
+```
+
+This asks again from the first question while hiding model/reference decisions. Each previous label stays intact until you explicitly enter a replacement; quitting keeps the other saved labels. Rerunning `--revisit` starts from the first question again. Review against the passages, rather than changing labels to obtain a passing score.
+
 To edit one judgment explicitly, the existing per-case command remains available:
 
 ```powershell

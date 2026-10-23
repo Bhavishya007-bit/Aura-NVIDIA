@@ -52,14 +52,16 @@ def _display(value):
     return ''.join(char for char in value if char.isprintable() or char in '\n\t')
 
 
-def review(path, ask=None, write=print):
+def review(path, ask=None, write=print, *, revisit=False):
     path = Path(path)
     packet, current_bytes = _load(path)
     ask = input if ask is None else ask
     write('Read each question against the passages and enter your own judgment. Model decisions and reference labels stay hidden.')
+    write('Judge whether the passages contain the information requested. A brief passage can fully cover a question. Explanation length, detail and style are separate quality measures.')
     write('f = every requested part is covered; p = only part is covered; n = no requested answer is covered; q = save progress and quit.')
+    saved_this_session = 0
     for row in packet['records']:
-        if row.get('reviewed_by') == 'human' and row.get('human_label') in CHOICES.values():
+        if not revisit and row.get('reviewed_by') == 'human' and row.get('human_label') in CHOICES.values():
             continue
         write('\nQuestion '+row['id']+': '+_display(row['question']))
         write('Supplied passages:')
@@ -72,7 +74,10 @@ def review(path, ask=None, write=print):
                 choice = 'q'
             if choice == 'q':
                 summary = calibration_summary(packet)
-                write('Saved progress: '+str(summary['reviewed'])+'/30 human judgments. Run this command again to resume.')
+                if revisit:
+                    write('Saved judgments during this re-review: '+str(saved_this_session)+'. Other saved labels are retained. Run with --revisit to review again from the first question.')
+                else:
+                    write('Saved progress: '+str(summary['reviewed'])+'/30 human judgments. Run this command again to resume.')
                 return summary
             if choice not in CHOICES:
                 write('Enter f, p, n or q. No label was saved for this question.')
@@ -80,6 +85,7 @@ def review(path, ask=None, write=print):
             row.update(human_label=CHOICES[choice], reviewed_by='human',
                        reviewed_at=datetime.now(timezone.utc).isoformat())
             current_bytes = _save(path, packet, current_bytes)
+            saved_this_session += 1
             write('Saved your judgment.')
             break
     summary = calibration_summary(packet)
@@ -91,9 +97,10 @@ def review(path, ask=None, write=print):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--packet', default=DEFAULT_PACKET)
+    parser.add_argument('--revisit', action='store_true', help='Ask again for saved cases; retain each old label until you enter a replacement.')
     args = parser.parse_args(argv)
     try:
-        review(args.packet)
+        review(args.packet, revisit=args.revisit)
     except (OSError, ValueError) as error:
         # Validation messages are fixed; never print an arbitrary path/error body.
         message = str(error) if type(error) is ValueError else 'Cannot read or save the packet. Existing saved progress was preserved.'
