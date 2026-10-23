@@ -644,3 +644,25 @@ test('a saved formatted code lesson renders sections and results without changin
   assert.match(document.querySelector('.plan-code-result table').textContent,/4.*-1/s)
   assert.equal(document.querySelector('[aria-label="Python output"] pre').textContent,'target=4,index=-1\n')
 })
+
+test('a withheld code explanation keeps output and files with a clear recovery message', async () => {
+  const output={status:'succeeded',stdout:'23,6,3\n',stderr:'',stdout_truncated:false,stderr_truncated:false,artifacts:[{name:'search_results.json',size:523,mime:'application/json',sha256:'a'.repeat(64)}],missing_outputs:[]}
+  jobs=[baseRun({state:'failed',request:{skill:'code_analysis',goal:'Compare search algorithms'},error_code:'code_explanation_not_supported',steps:[{tool:'code_execute',state:'completed',observation:output},{tool:'verification',state:'failed'}],result:{text:'',verified:false,references:[],code_result:output}})]
+  await mount(AgentPanel,props())
+  assert.match(visibleText(),/withheld that text/)
+  assert.match(visibleText(),/search_results.json/)
+  assert.match(document.querySelector('[aria-label="Python output"]').textContent,/23,6,3/)
+  assert(!visibleText().includes('code_explanation_not_supported'))
+  assert(!visibleText().includes('AI review checked'))
+  assert(button('Retry'))
+})
+
+test('code explanation review has a friendly progress label and does not promise perfect accuracy', async () => {
+  jobs=[baseRun({state:'running',request:{skill:'code_analysis',goal:'Explain searches'},result:null,steps:[{tool:'code_execute',state:'completed'},{tool:'verification',state:'running'}]})]
+  await mount(AgentPanel,props())
+  assert.match(document.querySelector('[aria-current="step"]').textContent,/Checking your explanation/)
+  jobs=[baseRun({request:{skill:'code_analysis',goal:'Explain searches'},steps:[{tool:'verification',state:'completed'}],result:{text:'The captured output contains four.',code_result:{status:'succeeded',stdout:'4\n',stderr:'',artifacts:[],missing_outputs:[]},verified:false}})]
+  await mount(AgentPanel,props({courseId:'7'}))
+  assert.match(visibleText(),/AI review checked the explanation/)
+  assert.match(visibleText(),/can still miss mistakes/)
+})

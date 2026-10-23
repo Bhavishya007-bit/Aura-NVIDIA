@@ -1,7 +1,7 @@
 {
   "version": "phase4-eval-v1",
   "mode": "controlled_offline",
-  "checked_at": "2026-10-23T10:29:53.909249+00:00",
+  "checked_at": "2026-10-23T15:24:36.658295+00:00",
   "checks": [
     {
       "category": "agent_tasks",
@@ -31,6 +31,16 @@
     {
       "category": "agent_tasks",
       "id": "code_correction",
+      "passed": true
+    },
+    {
+      "category": "agent_tasks",
+      "id": "code_explanation_repair",
+      "passed": true
+    },
+    {
+      "category": "agent_tasks",
+      "id": "code_explanation_withheld",
       "passed": true
     },
     {
@@ -117,8 +127,8 @@
   "summary": [
     {
       "category": "agent_tasks",
-      "passed": 10,
-      "total": 10
+      "passed": 12,
+      "total": 12
     },
     {
       "category": "injection_boundaries",

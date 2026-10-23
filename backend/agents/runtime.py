@@ -373,7 +373,50 @@ def run_agent(store, run, llm_factory, stopping=None):
             if decision.action.tool == 'finish':
                 if request.skill == 'code_analysis':
                     from backend.agents.sandbox import code_result
-                    result = code_result(decision.action, observations)
+                    from backend.agents.code_review import review_explanation, ExplanationUnavailable, ExplanationRejected
+
+                    def invoke_review(phase, prompt, tokens, system, contract):
+                        # Reserve one final save step; never execute another tool
+                        # or bypass step/token/time limits to repair prose.
+                        if len(steps) + 1 >= request.max_steps:
+                            raise BudgetStop('budget_exhausted', 'step_budget')
+                        checkpoint = {'tool': 'verification', 'state': 'running'}
+                        steps.append(checkpoint)
+                        store.record(run, checkpoint)
+                        try:
+                            raw = ask(prompt, tokens, system, verification=True)
+                            value = contract.model_validate(raw)
+                        except RunStopped:
+                            raise
+                        except BudgetStop as error:
+                            store.finish_verification(run, error=error.code)
+                            raise
+                        except Exception:
+                            store.finish_verification(run, error='code_explanation_unavailable')
+                            raise
+                        rejected = phase == 'review' and bool(value.issues)
+                        code = 'code_explanation_not_supported' if rejected else None
+                        store.finish_verification(run, error=code)
+                        checkpoint.update(state='failed' if rejected else 'completed')
+                        if code:
+                            checkpoint['error_code'] = code
+                        return value
+
+                    try:
+                        answer = review_explanation(decision.action.answer, request.goal, observations, invoke_review)
+                    except (ExplanationUnavailable, ExplanationRejected, RuntimeError) as error:
+                        code = (error.failure_code if isinstance(error, LLMConnectionError)
+                                else 'code_explanation_not_supported' if isinstance(error, ExplanationRejected)
+                                else 'code_explanation_unavailable')
+                        log.warning('code_explanation=withheld failure_code=%s error_type=%s', code, type(error).__name__)
+                        # Keep real output/downloads, never publish a rejected or
+                        # unchecked explanation. No failed draft in saved steps.
+                        result = code_result(decision.action.model_copy(update={'answer': ''}), observations)
+                        store.record(run, state='failed', result=result, error=code)
+                        return
+                    reviewed = decision.action.model_copy(update={'answer': answer})
+                    step['action'] = reviewed.model_dump()
+                    result = code_result(reviewed, observations)
                     ok = result['code_result']['status'] == 'succeeded'
                     store.record(run, step, state='completed' if ok else 'failed', result=result,
                                  error=None if ok else 'code_execution_failed')

@@ -17,6 +17,7 @@ from backend.ai.answer_contract import AnswerSection, CoverageDecision
 from backend.evaluation_status import calibration_summary
 from evaluation.check_agents import FakeStore, Model, action
 from evaluation.check_assessment_agent import quiz, verdict
+from evaluation.check_code_agent import accepted_review
 
 ROOT=Path(__file__).resolve().parents[1]
 LABELS=('fully_covered','partially_covered','not_covered')
@@ -47,7 +48,8 @@ class ControlledStore(FakeStore):
         else: result={'items':[]}
         step['observation']=result; self.run['steps'].append(step); return result
     def assessment_draft(self,run,act): return assessment_payload(run,act,self.run['steps'],[]),[]
-    def finish_verification(self,run,approval=None,**kwargs): self.run['steps'][-1]['state']='completed'
+    def finish_verification(self,run,approval=None,**kwargs):
+        self.run['steps'][-1]['state']='failed' if kwargs.get('error') else 'completed'
     def save_assessment(self,run,act,step,draft): self.record(run,step,state='completed',result=assessment_result(run,act))
 
 
@@ -80,8 +82,22 @@ def offline_report():
     check('agent_tasks','daily_plan',lambda:run_case('study_plan',[search,plan],goal='Create a 1-day plan')[0].run.get('result',{}).get('task_ids')==['task-0'])
     check('agent_tasks','research_provenance',lambda:run_case('research_brief',[search,action('web_search',query='public membranes'),action(answer='Research brief',from_material={'text':'Material finding [D1]','references':['D1']},from_web={'text':'Additional fixture finding [W1]','references':['W1']})])[0].run.get('result',{}).get('research_sections',[{}])[0].get('kind')=='material')
     check('agent_tasks','memory_opt_in',lambda:run_case('study_plan',[action('memory_write',record={'kind':'preference','text':'I prefer examples'}),action(answer='Preference saved.')],goal='Remember that I prefer examples',allow_memory_write=True)[0].effects==['memory_write'])
-    check('agent_tasks','code_execution',lambda:run_case('code_analysis',[code,action(answer='The result is four.')],code_outputs=[code_observation()])[0].run.get('result',{}).get('code_result',{}).get('stdout')=='4\n')
-    check('agent_tasks','code_correction',lambda:run_case('code_analysis',[action('code_execute',title='First attempt',code='print(bad)',outputs=[]),code,action(answer='The corrected program printed four.')],code_outputs=[code_observation(False),code_observation()])[0].effects==['code_execute','code_execute'])
+    check('agent_tasks','code_execution',lambda:run_case('code_analysis',[code,action(answer='The result is four.'),accepted_review()],code_outputs=[code_observation()])[0].run.get('result',{}).get('code_result',{}).get('stdout')=='4\n')
+    check('agent_tasks','code_correction',lambda:run_case('code_analysis',[action('code_execute',title='First attempt',code='print(bad)',outputs=[]),code,action(answer='The corrected program printed four.'),accepted_review()],code_outputs=[code_observation(False),code_observation()])[0].effects==['code_execute','code_execute'])
+    def repaired_explanation():
+        store,model=run_case('code_analysis',[code,action(answer='The output was five.'),
+            accepted_review(results=False),{'answer':'The captured output was four.'},accepted_review()],
+            code_outputs=[code_observation()])
+        return (store.run['state']=='completed' and store.run['result']['text']=='The captured output was four.'
+                and store.effects==['code_execute'] and len(model.calls)==5 and not store.run['result']['verified'])
+    check('agent_tasks','code_explanation_repair',repaired_explanation)
+    def withheld_explanation():
+        store,_=run_case('code_analysis',[code,action(answer='The output was five.'),
+            accepted_review(results=False),{'answer':'Still unsupported.'},accepted_review(results=False)],
+            code_outputs=[code_observation()])
+        return (store.run['state']=='failed' and store.run['result']['text']=='' and
+                store.run['result']['code_result']['stdout']=='4\n' and store.effects==['code_execute'])
+    check('agent_tasks','code_explanation_withheld',withheld_explanation)
     check('agent_tasks','source_checked_quiz',lambda:run_case('assessment',[search,quiz(),verdict()],goal='Create 1 question')[0].run.get('result',{}).get('assessment',{}).get('question_count')==1)
     def cancelled():
         req=RunInput(course_id=3,source_id=7,skill='study_plan',goal='Plan')

@@ -9,6 +9,8 @@ export function codeFailureMessage(run: AgentRun): string {
   const code = lastFailure ?? run.error_code ?? ''
   const messages: Record<string, string> = {
     invalid_action: 'Aura could not format a valid code request. Retry to generate it again.',
+    code_explanation_not_supported: 'Aura found claims it could not support in the explanation and has withheld that text. Your Python results are still available.',
+    code_explanation_unavailable: 'Aura could not finish checking the explanation. Your Python results are still available; retry to generate a new explanation.',
     docker_cli_unavailable: 'Docker is not available to the backend. Install Docker Desktop and restart the backend terminal.',
     docker_bad_executable: 'Windows could not launch the Docker client selected by Aura. Set the backend Docker executable to the docker.exe path shown by Get-Command docker.exe.',
     docker_daemon_unavailable: 'Aura could not connect to Docker. Start Docker Desktop, wait for the engine to be ready, then retry.',
@@ -52,8 +54,8 @@ export default function CodeResult({ run, courseId }: { run: AgentRun; courseId:
   }
   return <div className="plan-code-result">
     <p role="status">{output.status === 'succeeded' ? 'Python finished successfully.' : output.status === 'timed_out' ? 'The calculation reached its time limit.' : 'Python stopped with an error.'}</p>
-    <p className="plan-caption">These are captured execution results. A successful run does not verify the explanation or the underlying data.</p>
-    {run.state === 'failed' && modelFailureMessage(run.error_code) && <p className="plan-notice plan-notice--warning" role="status">{codeFailureMessage(run)} Your captured Python output is saved below.</p>}
+    <p className="plan-caption">{run.state === 'completed' && run.steps.some(step => step.tool === 'verification' && step.state === 'completed') ? 'An AI review checked the explanation against the program and captured output. It can still miss mistakes; this does not verify the underlying data.' : 'These are captured execution results. A successful run does not verify the explanation or the underlying data.'}</p>
+    {run.state === 'failed' && (modelFailureMessage(run.error_code) || run.error_code?.startsWith('code_explanation_')) && <p className="plan-notice plan-notice--warning" role="status">{codeFailureMessage(run)} Your captured Python output is saved below.</p>}
     {run.result?.text && <TeachingText text={run.result.text} />}
     {program && <details><summary>View Python code</summary><pre tabIndex={0}>{program}</pre></details>}
     <section aria-label="Python output"><h3>Output</h3><pre tabIndex={0}>{output.stdout || 'No printed output.'}</pre>{output.stdout_truncated && <p className="plan-caption">Output was shortened to fit the capture limit.</p>}</section>

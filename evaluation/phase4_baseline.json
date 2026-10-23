@@ -1,5 +1,5 @@
 {
-  "agent_tasks": {"minimum_cases": 10, "minimum_pass_rate": 1.0},
+  "agent_tasks": {"minimum_cases": 12, "minimum_pass_rate": 1.0},
   "injection_boundaries": {"minimum_cases": 10, "minimum_pass_rate": 1.0},
   "provenance": {"minimum_cases": 2, "minimum_pass_rate": 1.0}
 }

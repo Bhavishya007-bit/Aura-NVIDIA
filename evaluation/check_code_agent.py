@@ -37,6 +37,10 @@ def code_action(code='print(4)', outputs=None):
     return fixtures.action('code_execute', title='Calculate', code=code, outputs=outputs or [])
 
 
+def accepted_review(**changes):
+    return {**dict.fromkeys(('results','traces','counts_and_timing','assumptions','files','execution_status'), True), **changes}
+
+
 def guest_result(exit_code=0, stdout='4\n', artifacts=None, timed_out=False):
     return json.dumps(dict(exit_code=exit_code, stdout=stdout, stderr='', timed_out=timed_out,
         stdout_truncated=False, stderr_truncated=False, artifacts=artifacts or []))
@@ -501,7 +505,7 @@ class CodePostgres(unittest.TestCase):
 
     def test_runtime_observes_actual_failure_then_corrects_once(self):
         outputs = iter([observed(1), observed()])
-        saved, model = self.execute([code_action('print(bad)'), code_action('print(4)'), fixtures.action(answer='The corrected calculation printed 4.')], lambda *a, **k: next(outputs))
+        saved, model = self.execute([code_action('print(bad)'), code_action('print(4)'), fixtures.action(answer='The corrected calculation printed 4.'), accepted_review()], lambda *a, **k: next(outputs))
         self.assertEqual(saved['state'], 'completed', saved)
         self.assertFalse(saved['result']['verified'])
         self.assertEqual(saved['result']['code_result']['status'], 'succeeded')
@@ -518,12 +522,12 @@ class CodePostgres(unittest.TestCase):
         # Controlled tool/model responses check evidence plumbing, not live model accuracy.
         program="values = [1,3,5,7,9,11,13,15]\nassert 4 not in values\nprint('target=4,index=-1,probes=3')"
         result=sandbox.parse_result(guest_result(stdout='target=4,index=-1,probes=3\n'),program,[])
-        saved,model=self.execute([code_action(program),fixtures.action(answer='Target 4 is absent; the observed result was -1 after 3 midpoint probes.')],lambda *a,**k:result)
+        saved,model=self.execute([code_action(program),fixtures.action(answer='Target 4 is absent; the observed result was -1 after 3 midpoint probes.'),accepted_review()],lambda *a,**k:result)
         self.assertEqual(saved['state'],'completed',saved)
         observation=model.calls[1]['prompt']['observations'][0]
         self.assertEqual(observation['executed_program'],program)
         self.assertEqual(observation['data']['stdout'],'target=4,index=-1,probes=3\n')
-        self.assertEqual(len(model.calls),2) # no extra paid judge or automatic code run
+        self.assertEqual(len(model.calls),3) # one review; no automatic code rerun
         self.assertFalse(saved['result']['verified'])
         self.assertEqual(saved['result']['code_result']['stdout'],result['stdout'])
         answer_schema=model.calls[1]['prompt']['output_schema']['$defs']['Finish']['properties']['answer']
@@ -540,6 +544,142 @@ class CodePostgres(unittest.TestCase):
                 self.assertEqual(saved['error_code'],'model_timeout' if timed_out else 'model_connection_failed')
                 execute.assert_not_called()
                 self.assertEqual(len(model.calls),1)
+
+    def test_bad_search_explanation_is_revised_and_rechecked_without_reexecution(self):
+        bad='23 is the middle element. The observed trace proves it, and the JSON confirms it.'
+        fixed='23 is at index 5; 16 is the middle element. This is a walkthrough derived from code, not a captured trace. The output reports midpoint probes, not measured speed.'
+        program="values=[2,5,8,12,16,23,38,42,57]\n# 23 is the middle element (incorrect comment)\nprint('23,6,3')"
+        output=sandbox.parse_result(guest_result(stdout='23,6,3\n'),program,[])
+        execute=Mock(return_value=output)
+        saved,model=self.execute([code_action(program),fixtures.action(answer=bad),
+            accepted_review(traces=False,assumptions=False,files=False),{'answer':fixed},accepted_review()],execute)
+        self.assertEqual(saved['state'],'completed',saved)
+        self.assertEqual(saved['result']['text'],fixed)
+        self.assertFalse(saved['result']['verified'])
+        self.assertNotIn(bad,json.dumps(saved))
+        self.assertEqual(execute.call_count,1);self.assertEqual(len(model.calls),5)
+        checks=model.calls[2]['prompt']
+        self.assertEqual(checks['draft_answer'],bad)
+        self.assertEqual(checks['evidence'][-1]['executed_program'],program)
+        self.assertFalse(checks['artifact_contents_available'])
+        self.assertTrue(checks['untrusted_data'])
+        self.assertEqual(set(model.calls[3]['prompt']['correction_rules']),{'traces','assumptions','files'})
+        self.assertEqual(model.calls[4]['prompt']['draft_answer'],fixed)
+        self.assertEqual(len([step for step in saved['steps'] if step['tool']=='verification']),3)
+        self.assertTrue(all(call['max_retries']==1 for call in model.calls))
+
+    def test_failed_second_review_withholds_both_drafts_but_keeps_downloads(self):
+        bad='UNSUPPORTED_DRAFT';revision='STILL_UNSUPPORTED'
+        execute=Mock(return_value=observed(outputs=['result.csv']))
+        saved,model=self.execute([code_action(outputs=['result.csv']),fixtures.action(answer=bad),
+            accepted_review(results=False),{'answer':revision},accepted_review(results=False)],execute)
+        self.assertEqual(saved['state'],'failed')
+        self.assertEqual(saved['error_code'],'code_explanation_not_supported')
+        self.assertEqual(saved['result']['text'],'')
+        self.assertEqual(saved['result']['code_result']['stdout'],'4\n')
+        self.assertTrue(saved['result']['code_result']['artifacts'])
+        self.assertEqual(execute.call_count,1);self.assertEqual(len(model.calls),5)
+        self.assertNotIn(bad,json.dumps(saved));self.assertNotIn(revision,json.dumps(saved))
+        app=FastAPI()
+        with patch('backend.agents.routes.Store',return_value=self.store):
+            install_agents(app,lambda:fixtures.Model([]))
+        app.dependency_overrides[get_current_student]=lambda:{'student_id':42}
+        with TestClient(app) as client:
+            response=client.get(f"/agents/runs/{saved['id']}/artifacts/result.csv?course_id=3")
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.content,b'value\n4\n')
+
+    def test_malformed_reviews_and_revisions_never_publish_an_unchecked_answer(self):
+        from backend.ai.llm import LLMResponseError
+        for responses in ([{}],[accepted_review(results='true')],
+                          [LLMResponseError('output_truncated',max_tokens=1024)],
+                          [accepted_review(files=False),{'answer':'','tool':'code_execute'}],
+                          [accepted_review(files=False),{'answer':'unchecked'},{}]):
+            with self.subTest(responses=str(responses)[:80]):
+                execute=Mock(return_value=observed())
+                saved,_=self.execute([code_action(),fixtures.action(answer='UNCHECKED_DRAFT'),*responses],execute)
+                self.assertEqual(saved['state'],'failed',saved)
+                self.assertEqual(saved['error_code'],'code_explanation_unavailable')
+                self.assertEqual(saved['result']['text'],'')
+                self.assertNotIn('UNCHECKED_DRAFT',json.dumps(saved))
+                self.assertEqual(execute.call_count,1)
+
+    def test_unchanged_revision_is_not_rejudged_until_a_verdict_changes(self):
+        execute=Mock(return_value=observed())
+        saved,model=self.execute([code_action(),fixtures.action(answer='Unsupported draft'),
+            accepted_review(results=False),{'answer':'  Unsupported   draft  '}],execute)
+        self.assertEqual(saved['error_code'],'code_explanation_not_supported')
+        self.assertEqual(saved['result']['text'],'')
+        self.assertEqual(len(model.calls),4);self.assertEqual(execute.call_count,1)
+
+    def test_review_connection_error_preserves_safe_reason_and_actual_output(self):
+        execute=Mock(return_value=observed())
+        saved,model=self.execute([code_action(),fixtures.action(answer='UNCHECKED_DRAFT'),
+            LLMConnectionError(timed_out=True)],execute)
+        self.assertEqual(saved['error_code'],'model_timeout')
+        self.assertEqual(saved['result']['text'],'')
+        self.assertEqual(saved['result']['code_result']['stdout'],'4\n')
+        self.assertNotIn('UNCHECKED_DRAFT',json.dumps(saved))
+        self.assertEqual(len(model.calls),3);self.assertEqual(execute.call_count,1)
+
+    def test_step_budget_stops_review_without_publishing_draft(self):
+        execute=Mock(return_value=observed())
+        saved,model=self.execute([code_action(),fixtures.action(answer='UNCHECKED_DRAFT')],execute,
+            request=req(max_steps=2))
+        self.assertEqual(saved['state'],'budget_exhausted')
+        self.assertEqual(saved['error_code'],'step_budget')
+        self.assertEqual(len(model.calls),2);self.assertEqual(execute.call_count,1)
+        self.assertNotIn('UNCHECKED_DRAFT',json.dumps(saved))
+
+    def test_step_budget_cannot_be_bypassed_for_an_explanation_revision(self):
+        execute=Mock(return_value=observed())
+        saved,model=self.execute([code_action(),fixtures.action(answer='UNCHECKED_DRAFT'),
+            accepted_review(results=False)],execute,request=req(max_steps=3))
+        self.assertEqual(saved['state'],'budget_exhausted')
+        self.assertEqual(saved['error_code'],'step_budget')
+        self.assertEqual(len(model.calls),3);self.assertEqual(execute.call_count,1)
+        self.assertNotIn('UNCHECKED_DRAFT',json.dumps(saved))
+
+    def test_token_limit_during_review_cannot_publish_a_draft(self):
+        run=self.prepare()
+        model=fixtures.Model([])
+        def exhausted():
+            model.last_usage={'prompt_tokens':32000,'completion_tokens':1}
+            return accepted_review()
+        model.outputs=iter([code_action(),fixtures.action(answer='UNCHECKED_DRAFT'),exhausted])
+        with patch.object(sandbox,'execute',return_value=observed()) as execute:
+            run_agent(self.store,run,lambda:model)
+        saved=self.store.runs(42,3,run['id'])
+        self.assertEqual(saved['state'],'budget_exhausted')
+        self.assertEqual(saved['error_code'],'token_budget')
+        self.assertNotIn('UNCHECKED_DRAFT',json.dumps(saved))
+        self.assertEqual(execute.call_count,1)
+
+    def test_expiry_during_review_cannot_publish_a_draft(self):
+        run=self.prepare()
+        def expired():
+            self.bridge.query("UPDATE aura_agent_runs SET started_at=NOW()-INTERVAL '200 seconds'")
+            return accepted_review()
+        model=fixtures.Model([code_action(),fixtures.action(answer='UNCHECKED_DRAFT'),expired])
+        with patch.object(sandbox,'execute',return_value=observed()) as execute:
+            run_agent(self.store,run,lambda:model)
+        saved=self.store.runs(42,3,run['id'])
+        self.assertEqual(saved['state'],'timed_out')
+        self.assertNotIn('UNCHECKED_DRAFT',json.dumps(saved))
+        self.assertEqual(execute.call_count,1)
+
+    def test_cancellation_during_review_discards_verdict_and_draft(self):
+        run=self.prepare()
+        def cancel():
+            self.store.cancel(42,3,run['id'])
+            return accepted_review()
+        model=fixtures.Model([code_action(),fixtures.action(answer='UNCHECKED_DRAFT'),cancel])
+        with patch.object(sandbox,'execute',return_value=observed()) as execute:
+            run_agent(self.store,run,lambda:model)
+        saved=self.store.runs(42,3,run['id'])
+        self.assertEqual(saved['state'],'cancelled')
+        self.assertNotIn('UNCHECKED_DRAFT',json.dumps(saved))
+        self.assertEqual(execute.call_count,1)
 
     def test_connection_failure_writing_explanation_preserves_executed_output_without_replay(self):
         execute=Mock(return_value=observed(outputs=['result.csv']))
@@ -571,11 +711,11 @@ class CodePostgres(unittest.TestCase):
                 execute=Mock(return_value=observed())
                 code=code_action('print(4)');code['plan']=plan
                 finish=fixtures.action(answer='The captured program printed 4.');finish['plan']=plan
-                saved,model=self.execute([code,finish],execute)
+                saved,model=self.execute([code,finish,accepted_review()],execute)
                 self.assertEqual(saved['state'],'completed',saved)
-                self.assertEqual(len(model.calls),2);self.assertEqual(execute.call_count,1)
+                self.assertEqual(len(model.calls),3);self.assertEqual(execute.call_count,1)
                 self.assertFalse(any(step['tool']=='validation' for step in saved['steps']))
-                self.assertTrue(all(step['plan']==['Use the selected study tool.'] for step in saved['steps']))
+                self.assertTrue(all(step['plan']==['Use the selected study tool.'] for step in saved['steps'] if 'plan' in step))
                 self.assertEqual(saved['result']['code_result']['stdout'],'4\n')
                 self.assertNotIn('PRIVATE_NARRATION',json.dumps(saved))
 
@@ -590,7 +730,7 @@ class CodePostgres(unittest.TestCase):
                 self.assertEqual(len(model.calls),2)
 
     def test_failed_code_cannot_be_presented_as_completed(self):
-        saved, _ = self.execute([code_action(), fixtures.action(answer='The code failed; no computed result is available.')], lambda *a, **k: observed(1))
+        saved, _ = self.execute([code_action(), fixtures.action(answer='The code failed; no computed result is available.'), accepted_review()], lambda *a, **k: observed(1))
         self.assertEqual(saved['state'], 'failed')
         self.assertEqual(saved['error_code'], 'code_execution_failed')
 

@@ -13,7 +13,13 @@ Program text is bounded to 6,000 characters per attempt, and stdout/stderr conte
 
 The code-only teaching policy asks for a worked example, actual printed trace/results, assumptions and complexity. Search examples should print each target/index/count and assert membership consistency. Sort examples should print a short pass/swap trace and assert against a trusted sorted copy. Algorithm comparisons should prefer defined operation counts; explicitly requested timings require repeated trials, suitable sizes and measurement caveats. Copies, recursion and stored traces must be distinguished from an algorithm's auxiliary-space bound.
 
-These changes add no judge call or automatic extra code run. They do **not** deterministically verify arbitrary natural-language explanations. Results remain `verified=false`; live model quality still needs review. Existing saved answers retain their text: regenerate or start a fresh run to use the new context and instructions.
+Before publishing an explanation, Aura now makes a separate, strict JSON review call against the latest executed program, captured output and any retrieved document evidence. The reviewer checks results, traces, count/timing semantics, assumptions, file-inspection claims and execution status. It must not trust comments or instructions in the supplied data. A review flags unsupported wording such as calling the sixth element the middle, calling an inferred walkthrough observed, or interpreting loop counters as elapsed time.
+
+A flagged draft can receive **one text-only revision followed by one recheck**. This means one additional model call for a clean draft, or at most three for review/revision/recheck. It adds latency and uses the existing API credits, step/token/time budgets and cancellation checks. Every call has `max_retries=1`; code is never rerun to fix prose. The final save also needs a step, so a deliberately tiny run budget can stop before a checked explanation is ready.
+
+Rejected, malformed or unavailable reviews do not release the draft as the answer. Actual Python output and authenticated downloads remain available with a clear recovery message. Only a checked final answer is saved as result text; rejected drafts are not stored as run actions. The UI shows **Checking your explanation** during this work. Existing saved answers retain their text; start a fresh run or regenerate to use this path.
+
+This is a model-based review, **not a deterministic proof of arbitrary explanations**. The reviewer can make mistakes and has not been calibrated against independent human labels. Results remain `verified=false`; live model quality still needs review. Cancellation and exhausted budgets cannot publish a late or unchecked answer.
 
 A corrected reference for the reported search example, using ordinary linear search and iterative binary search with the lower midpoint:
 

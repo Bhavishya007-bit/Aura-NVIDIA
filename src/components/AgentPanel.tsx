@@ -136,9 +136,9 @@ export default function AgentPanel({ courseId, sourceId, materialReady, storageK
   const canRegenerate = !busy && activeCount < 2 && (run?.request.skill === 'code_analysis' ? codeEnabled : !!sourceId && materialReady)
   const finishedSteps = run?.steps.filter(s => s.state === 'completed') ?? []
   const currentStep = run?.steps.find(s => ['running', 'started', 'pending'].includes(s.state))
-  const announcement = run ? working ? `${finishedSteps.length} steps complete. ${currentStep?.tool === 'verification' && run.request.skill === 'assessment' ? 'Checking your questions' : stepLabel(currentStep?.tool ?? '')}.` : stateLabel(run.state) : ''
+  const progressLabel = (tool: string) => tool === 'verification' && run?.request.skill === 'code_analysis' ? 'Checking your explanation' : tool === 'verification' && run?.request.skill === 'assessment' ? 'Checking your questions' : stepLabel(tool)
+  const announcement = run ? working ? `${finishedSteps.length} steps complete. ${progressLabel(currentStep?.tool ?? '')}.` : stateLabel(run.state) : ''
   const completedTasks = tasks.filter(t => t.done).length
-  const progressLabel = (tool: string) => tool === 'verification' && run?.request.skill === 'assessment' ? 'Checking your questions' : stepLabel(tool)
   const webAttempts = run?.steps.filter(step => step.tool === 'web_search') ?? []
   const reportedCredits = webAttempts.map(step => {
     const data = step.observation as { credits?: unknown } | undefined

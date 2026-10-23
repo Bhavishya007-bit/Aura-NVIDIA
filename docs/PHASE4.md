@@ -27,6 +27,16 @@ If Python completed before the explanation request failed, its captured output a
 
 Controlled tests cover JSON formatting, transport redaction, failure before/after execution, cancellation and UI recovery/rendering. They do **not** measure live teaching accuracy or guarantee that the model follows the requested structure. Retest with the configured model and representative material before marking the remaining Phase 4 quality checks complete. The 2,000-word summary issue remains open.
 
+### Evidence review before publishing code explanations
+
+`backend/agents/code_review.py` now reviews a proposed explanation against the latest executed program, captured stdout/stderr, truncation flags and any retrieved document evidence. Six strict boolean verdicts cover results, traces, counts/timing, assumptions, files and execution status. Program comments and all payload text remain untrusted data; the reviewer has no tools. File metadata is not presented as file contents.
+
+The normal path adds **one model call**. A rejected draft gets at most **one text-only revision and one recheck**, for three additional calls at most. These consume existing credits and stay within the same step/token/time limits; no extra Python execution or tool action is permitted. A running verification step persists across navigation and is labelled **Checking your explanation**. Approved text is still `verified=false`, and the UI says an AI review can miss mistakes.
+
+If the final review rejects, is malformed or unavailable, Aura withholds the explanation and retains real output/downloads with a recovery message. Rejected drafts are not published in result text or saved finish actions. Cancel, expiry and budget stops cannot release a late or unchecked answer. Retry uses the existing new-run behavior; it does not silently replay a sandbox submission.
+
+Controlled checks cover clean review, revision/recheck, repeated rejection, malformed output, truncated model output, cancellation, expiry, token/step limits, downloads after rejection and friendly UI recovery. Two new agent regression cases check repair and withholding, raising the offline gate to **24 cases**. These test the workflow with controlled verdicts, not the live reviewer's ability to detect every error. The reviewer still needs independent human quality assessment; the 30-case coverage-judge calibration below assesses a different task.
+
 ### Search explanation regression
 
 A real local answer reported correct counts but invented the path for target 1, claimed timing variability from deterministic counts, implied unique values were required, and described an uninspected JSON file as confirming the results. These remain recorded failures, not a successful teaching evaluation.
@@ -43,7 +53,7 @@ For the lower-midpoint implementation on `[1,3,5,7,9,11,13,15]`:
 
 Code instructions now ask for traces collected in the actual loop and require the explanation to follow the corresponding target's captured path. Without a captured trace, the answer must acknowledge that limit. Counts are distinguished from measured runtime and primitive comparisons; ordinary duplicate matching is distinguished from finding the first/last match. File metadata cannot establish content inspection. This adds no model requests, automatic replay, API fields or dependencies.
 
-Run the original comparison goal again and apply the fixture's review checklist to the **new live answer**. The authored reference and deterministic tests do not prove the model avoids these prose errors; they are not human judge calibration or an automatic prose-verification system.
+Run the original comparison goal again and apply the fixture's review checklist to the **new live answer**. The authored reference and deterministic tests do not measure the live reviewer's error rate or replace independent human assessment.
 
 ## What students see
 
@@ -70,7 +80,7 @@ The job processes bounded batches, uses PostgreSQL advisory/row locks, and dedup
 
 | Group | Cases | What is checked |
 | --- | ---: | --- |
-| Agent tasks | 10 | Real orchestration with controlled model/tool responses: saved task, day plan, research provenance, memory permission, code result/correction, quiz, cancel, budget stop, unknown citation |
+| Agent tasks | 12 | Real orchestration with controlled model/tool responses: saved task, day plan, research provenance, memory permission, code result/correction, explanation repair/withholding, quiz, cancel, budget stop, unknown citation |
 | Injection boundaries | 10 | Rejection of attacker-controlled actions: wrong tool, forged account/course, unauthorized memory, fake citations, extra fields and invented actions |
 | Provenance contracts | 2 | No citations in background claims; sourced claims require citations |
 
