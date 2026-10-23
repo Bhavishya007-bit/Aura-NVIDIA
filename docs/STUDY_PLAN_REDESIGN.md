@@ -1,6 +1,6 @@
 # Study Plan screen redesign
 
-Frontend presentation and behavior only. No backend code, routes, database fields, request keys, or dependencies in package.json were changed. The internal `Agents` tab identity and saved workspace keys remain compatible; the visible name is **Study Plan**.
+The original redesign changed frontend presentation and behavior only. A separately approved backend provider fix is described in the screenshot follow-up below. No API routes, database fields, request keys, or dependencies in package.json were changed. The internal `Agents` tab identity and saved workspace keys remain compatible; the visible name is **Study Plan**.
 
 ## Requirement checklist
 
@@ -58,4 +58,4 @@ No backend fields were invented. The TypeScript run type now describes fields al
 
 The Flashcards screenshot exposed a legacy 503 message naming Ollama and an auth name containing an institutional ID/email. Generation failures now show provider-neutral copy while retaining the material/topic, and the account-name fallback also covers ID prefixes, truncated IDs and email-shaped names. These are presentation changes only.
 
-The underlying Flashcards failure is **not fixed by this UI patch**: `backend/study_tools.py:model_json` still manually constructs an Ollama-shaped HTTP request, while `LLM` is the Nebius client. It does not use that client's authenticated JSON-generation method. Correcting the adapter requires a backend change, outside the frontend-only redesign scope.
+The initial UI patch did not fix generation. After explicit approval to change the backend, `backend/study_tools.py:model_json` was migrated to the existing authenticated Nebius client. Generation, source verification and short-answer grading now use that shared client with bounded per-call output and separate writing/judge reasoning settings. Existing source checks and API contracts remain in place. See [STUDY_PROVIDER_FIX.md](STUDY_PROVIDER_FIX.md) for validation and local retest steps.
