@@ -566,3 +566,34 @@ test('quality summary is collapsed and distinguishes offline passes from unmeasu
   assert.match(visibleText(),/completion is not a correctness score/)
   assert(requests.some(r=>r.path==='/study/evaluation'&&r.query==='?course_id=6'))
 })
+
+test('web-only research has a readable result without an empty material section', async () => {
+  jobs=[baseRun({request:{skill:'research_brief',goal:'Teach me bubble sort'},result:{
+    text:'Web research brief',verified:false,references:['Wabc123'],web_status:'searched',
+    research_sections:[{kind:'web',text:'## 🧠 Key idea\nCompare **adjacent values** [Wabc123].\n\n1. Compare the pair.\n2. Swap if out of order.\n\n```python\nprint([1, 2])\n```',references:['Wabc123']}],
+    sources:[{reference:'Wabc123',kind:'web',title:'Bubble sort reference',url:'https://example.org/bubble-sort'}],
+    limitations:['No relevant findings in the uploaded passages checked.']
+  }})]
+  await mount(AgentPanel,props())
+  assert(document.querySelector('[aria-label="From the web"]'))
+  assert(!document.querySelector('[aria-label="From your material"]'))
+  assert.match(visibleText(),/Compare adjacent values/)
+  assert.match(document.querySelector('[aria-label=\"From the web\"] h3').textContent,/From the web/)
+  assert.equal(document.querySelector('.research-result strong').textContent,'adjacent values')
+  assert.equal(document.querySelectorAll('.research-result ol li').length,2)
+  assert.match(document.querySelector('.research-result pre code').textContent,/print/)
+  assert.match(visibleText(),/No relevant findings/)
+  assert(!visibleText().includes('Something went wrong'))
+  assert(document.querySelector('.research-result a[href="https://example.org/bubble-sort"]'))
+})
+test('failed research uses research-specific recovery and Retry preserves the chosen skill', async () => {
+  jobs=[baseRun({state:'failed',request:{skill:'research_brief',goal:'Teach me bubble sort'},error_code:'invalid_action',result:null})]
+  await mount(AgentPanel,props())
+  assert.match(visibleText(),/could not finish formatting this research brief/)
+  assert(!visibleText().includes('Try creating the plan again'))
+  assert(!visibleText().includes('invalid_action'))
+  await click(button('Retry'))
+  const start=requests.find(r=>r.path==='/agents/runs'&&r.method==='POST')
+  assert.equal(start.body.skill,'research_brief')
+  assert.match(start.body.goal,/Teach me bubble sort/)
+})

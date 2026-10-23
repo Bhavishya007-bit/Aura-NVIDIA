@@ -63,8 +63,16 @@ For research, finish with answer as a short title and separate from_material/fro
 {"text":"Additional findings [Wreference]","references":["Wreference"]}.
 Use only observed references of the matching source type in each section. Omit a section
 when evidence is absent or irrelevant and explain why in limitations. Never invent URLs.
-A failed web lookup means no web-backed explanation; finish from uploaded evidence and state
-that limitation. A web lookup is not independent fact verification. Finish once useful evidence is gathered; do not repeat searches merely to use the allowance.
+Unrelated uploaded material does not prevent a web-only brief. Use from_material:null
+when the checked uploads have no relevant findings; never fill it with an uncited
+apology or a missing-coverage message. Put that message in limitations instead.
+Likewise use from_web:null after an empty or failed web search. A missing section
+must be omitted or null, not {"text":"","references":[]}. With no relevant evidence
+of either type, omit both sections and state the limits without claiming findings.
+A failed web lookup means no web-backed explanation. Use relevant uploaded evidence
+if available; otherwise report no findings and the limitation. A web lookup is not
+independent fact verification. Finish once useful evidence is gathered; do not repeat
+searches merely to use the allowance.
 Code execution exists ONLY for code_analysis when code_execute is allowed. Return
 {"plan":["Run Python"],"action":{"tool":"code_execute","title":"Compute results",
 "code":"print(2 + 2)","outputs":[]}} using self-contained Python. No shell command,
@@ -176,6 +184,8 @@ def run_agent(store, run, llm_factory, stopping=None):
                 return
             remaining_steps = request.max_steps - len(steps)
             available = current_tools(request, tools, trace, remaining_steps)
+            if feedback and feedback.get('required_action') == 'finish' and 'finish' in available:
+                available = {'finish'}  # Repair the result shape without another paid search.
             payload = {'current_date': datetime.now(timezone.utc).date().isoformat(), 'goal': request.goal, 'skill': SKILLS[request.skill]['instruction'],
                 'allow_memory_write': request.allow_memory_write, 'allowed_tools': sorted(available),
                 'output_schema': action_schema(available), 'observations': compact_observations(observations),
@@ -204,6 +214,17 @@ def run_agent(store, run, llm_factory, stopping=None):
                        'questions','choices','correct_choice_id','prompt','explanation','topic','focus','difficulty','id','code','outputs',
                        'document_search','web_search','memory_read','memory_write','task_create','task_list','study_plan_create','assessment_create','code_execute','finish'} else '<field>' for part in row['loc']],
                       'type': row['type']} for row in error.errors(include_input=False, include_context=False)[:6]]})
+                if (request.skill == 'research_brief' and isinstance(error, ValidationError)
+                    and any(set(row['path']) & {'from_material', 'from_web'} for row in feedback['fields'])):
+                    feedback['instruction'] = (
+                        'Correct the finish action directly, without repeating searches. '
+                        'Omit or use null for a section with no relevant evidence. '
+                        'Put missing coverage in limitations. Nonempty findings need nonempty '
+                        'references from their own observed source type; never invent citations.')
+                    feedback['section_references'] = {
+                        'from_material': sorted(ref for ref in references if ref.startswith('D')),
+                        'from_web': sorted(ref for ref in references if ref.startswith('W'))}
+                    feedback['required_action'] = 'finish'
                 step = {'tool': 'validation', 'state': 'rejected', 'error_code': feedback['code'],
                         'validation_fields': feedback.get('fields', [])}
                 steps.append(step)

@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from backend.agents.contracts import Decision, RunInput, allowed_tools
-from backend.agents.planning import ActionRejected, action_key, action_schema, current_tools, research_result, validate_action
+from backend.agents.planning import ActionRejected, action_key, action_schema, current_tools, parse_decision, research_result, validate_action
 from backend.agents.runtime import run_agent
 from backend.agents.routes import install_agents
 from backend.agents.store import Store, RunStopped
@@ -197,6 +197,78 @@ class RuntimeWebChecks(unittest.TestCase):
         self.assertNotIn('task_create', store.effects)
         self.assertNotIn('memory_write', store.effects)
 
+    def test_unrelated_upload_can_finish_with_only_web_findings_and_blank_optional_section(self):
+        for empty in (None, {}, {'text':'','references':[]}, {'text':'  \n','references':[]}):
+            with self.subTest(empty=empty):
+                result=action(answer='Bubble sort',from_material=empty,
+                    from_web={'text':f'Compare adjacent values [{WREF}].','references':[WREF]},
+                    limitations=['The checked uploaded passages do not cover this topic.'])
+                original=copy.deepcopy(result)
+                store,model=self.execute([action('document_search',query='bubble sort'),action('web_search',query='bubble sort'),result])
+                self.assertEqual(store.run['state'],'completed',store.run)
+                self.assertEqual(store.effects,['document_search','web_search'])
+                self.assertEqual(len(model.calls),3)
+                self.assertEqual([s['kind'] for s in store.run['result']['research_sections']],['web'])
+                self.assertEqual(store.run['result']['references'],[WREF])
+                self.assertFalse(store.run['result']['verified'])
+                self.assertEqual(result,original)
+
+    def test_uncited_nonempty_material_section_gets_targeted_finish_only_repair(self):
+        bad=action(answer='Bubble sort',from_material={'text':'The uploaded passages do not explain bubble sort.','references':[]},
+            from_web={'text':f'Compare adjacent values [{WREF}].','references':[WREF]})
+        repaired=copy.deepcopy(bad)
+        repaired['action']['from_material']={'text':'','references':[]}
+        repaired['action']['limitations']=['No relevant material findings in the checked passages.']
+        store,model=self.execute([action('document_search',query='bubble sort'),action('web_search',query='bubble sort'),bad,repaired])
+        self.assertEqual(store.run['state'],'completed',store.run)
+        self.assertEqual(store.effects,['document_search','web_search'])
+        retry=model.calls[-1]['prompt']
+        self.assertEqual(retry['allowed_tools'],['finish'])
+        self.assertIn('null',retry['validation_feedback']['instruction'])
+        self.assertEqual(retry['validation_feedback']['section_references'],{'from_material':['D1'],'from_web':[WREF]})
+        self.assertEqual(len(model.calls),4)
+        self.assertNotIn('do not explain bubble sort',store.run['result']['text'])
+
+    def test_empty_optional_web_section_does_not_discard_material_findings(self):
+        raw=action(answer='Material findings',from_material={'text':'Membranes contain lipids [D1].','references':['D1']},from_web={})
+        store,_=self.execute([action('document_search',query='membranes'),action('web_search',query='membranes'),raw])
+        self.assertEqual(store.run['state'],'completed')
+        self.assertEqual([s['kind'] for s in store.run['result']['research_sections']],['material'])
+        self.assertIn('No web-backed findings were included',store.run['result']['text'])
+
+    def test_optional_section_normalization_never_drops_claims_references_or_unknown_fields(self):
+        for section in ({'text':'Unsupported substantive claim','references':[]},
+                        {'text':'','references':['D1']},
+                        {'text':'','references':[],'credential_request':'secret'},
+                        {'text':[],'references':[]}, {'text':'','references':''},
+                        {'text':None,'references':[]}):
+            with self.subTest(section=section),self.assertRaises(ValueError):
+                parse_decision(action(answer='Title',from_material=section))
+        bad=action(answer='Title',from_material={'text':'Uncited claim','references':[]},
+            from_web={'text':f'Web finding [{WREF}].','references':[WREF]})
+        store,_=self.execute([action('document_search',query='membranes'),action('web_search',query='membranes'),bad,bad])
+        self.assertEqual(store.run['state'],'failed')
+        self.assertNotIn('result',store.run)
+
+    def test_no_relevant_findings_can_finish_honestly_without_publishing_an_uncited_answer(self):
+        raw=action(answer='UNSUPPORTED ANSWER MUST NOT BE PUBLISHED',from_material={},from_web={},
+                   limitations=['Neither checked source type supports this topic.'])
+        store,_=self.execute([action('document_search',query='unrelated topic'),action('web_search',query='unrelated topic'),raw])
+        self.assertEqual(store.run['state'],'completed')
+        result=store.run['result']
+        self.assertEqual(result['research_sections'],[]);self.assertEqual(result['sources'],[])
+        self.assertEqual(result['references'],[])
+        self.assertNotIn('UNSUPPORTED ANSWER',result['text'])
+        self.assertIn('No source-backed findings',result['text'])
+
+    def test_failed_web_and_unrelated_material_do_not_claim_material_backed_findings(self):
+        raw=action(answer='No findings',from_material={},from_web={},limitations=['No relevant uploaded evidence.'])
+        store,_=self.execute([action('document_search',query='topic'),action('web_search',query='topic'),raw],
+            {'source':'web','status':'unavailable','passages':[],'untrusted_data':True})
+        self.assertEqual(store.run['state'],'completed')
+        self.assertIn('Web search was unavailable',store.run['result']['text'])
+        self.assertNotIn('uses uploaded material only',store.run['result']['text'])
+
 
 @unittest.skipUnless(os.getenv('AURA_PGLITE_MODULE'), 'Optional PostgreSQL engine not configured')
 class PersistedWebChecks(unittest.TestCase):
@@ -294,6 +366,36 @@ class PersistedWebChecks(unittest.TestCase):
             self.assertEqual(search.call_count, 1)
             self.assertEqual(len(data['steps']), 3)
             self.assertNotIn('worker_id', data)
+
+    def test_real_background_api_saves_web_only_result_after_reported_repair_sequence(self):
+        app=FastAPI()
+        bad=action(answer='Bubble sort',from_material={'text':'No relevant findings in the checked slides.','references':[]},
+            from_web={'text':f'Compare adjacent values [{WREF}].','references':[WREF]})
+        repaired=copy.deepcopy(bad)
+        repaired['action']['from_material']={'text':'','references':[]}
+        repaired['action']['limitations']=['The checked material does not cover bubble sort.']
+        model=Model([action('document_search',query='bubble sort'),action('web_search',query='bubble sort'),bad,repaired])
+        with patch('backend.agents.routes.Store',return_value=self.store):install_agents(app,lambda:model)
+        app.dependency_overrides[get_current_student]=lambda:{'student_id':42}
+        web=copy.deepcopy(WEB);web['passages'][0]['text']='Bubble sort compares adjacent values.'
+        with patch('backend.agents.store.search_web',return_value=web) as search,TestClient(app) as client:
+            body=request().model_copy(update={'goal':'Teach me bubble sort'}).model_dump()
+            created=client.post('/agents/runs',json=body)
+            self.assertEqual(created.status_code,202)
+            run_id=created.json()['id']
+            for _ in range(100):
+                data=client.get('/agents/runs/'+run_id+'?course_id=3').json()
+                if data['state'] not in ('queued','running'):break
+                time.sleep(.05)
+            self.assertEqual(data['state'],'completed',data)
+            self.assertEqual([s['kind'] for s in data['result']['research_sections']],['web'])
+            self.assertEqual(data['result']['references'],[WREF])
+            self.assertEqual(search.call_count,1)
+            self.assertEqual(model.calls[-1]['prompt']['allowed_tools'],['finish'])
+            reopened=client.get('/agents/runs/'+run_id+'?course_id=3').json()
+            self.assertEqual(reopened['result'],data['result'])
+            app.dependency_overrides[get_current_student]=lambda:{'student_id':43}
+            self.assertEqual(client.get('/agents/runs/'+run_id+'?course_id=3').status_code,404)
 
     def test_direct_web_execution_requires_research_and_prior_material_read(self):
         self.store.create(42, request())

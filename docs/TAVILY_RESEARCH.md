@@ -17,6 +17,16 @@ Research a topic now combines the selected uploaded material with optional Tavil
 
 If the key is absent, Research stays available using the uploaded material and says web search is unavailable. A configured key means the provider can be attempted, not that the key/quota has been validated. Provider failures and searches without usable results become explicit limitations rather than fabricated web-backed findings.
 
+## Topics outside the upload
+
+Research can return a web-only brief when the selected upload is unrelated (for example, a bubble-sort question with biology slides selected). Missing material evidence is represented by an omitted or null `from_material`, with a coverage note in `limitations`; it is not a sourced finding. An entirely blank optional section is normalized to null before strict validation. Nonempty uncited text, unknown fields, fake IDs and cross-source citations still fail validation.
+
+When a nonempty section has no citations, the bounded repair receives an explicit instruction to omit the irrelevant section or supply genuine observed references. That repair can only finish the result; it cannot repeat a paid search. If neither source type supplies usable findings, Aura returns an honest no-findings result rather than inventing citations. Schema validity does not establish that a live model's findings are factually correct.
+
+Research explanations now share the safe teaching renderer for headings, bold text, lists and code. Inline citation chips still use only server-observed sources; model-written links and HTML remain literal text.
+
+For runnable Python examples, select **Code & data**. Research intentionally uses document/web sources and does not execute code. After pulling the fix and restarting the backend, use Retry on a failed research run to create a new run; old failed runs keep their original status.
+
 ## Runtime and provenance
 
 - A validated `web_search` action is allowed only for `research_brief`, and only when configured. It is removed from the actual model action schema otherwise. A completed document read is required first; after that read, a configured research run must attempt web search before finishing.

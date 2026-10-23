@@ -32,6 +32,19 @@ def parse_decision(raw):
                     and 'tool' not in action[wrapper]):
                 value['action'] = {'tool': action['tool'], **action[wrapper]}
                 break
+    action = value.get('action')
+    if isinstance(action, dict) and action.get('tool') == 'finish':
+        # Some JSON-mode writers emit a blank object for an absent optional
+        # section. This means no findings, not permission to drop an uncited
+        # claim, a reference, an unexpected field or a malformed argument.
+        action = dict(action)
+        for field in ('from_material', 'from_web'):
+            section = action.get(field)
+            if (isinstance(section, dict) and set(section) <= {'text', 'references'}
+                and isinstance(section.get('text', ''), str) and not section.get('text', '').strip()
+                and isinstance(section.get('references', []), list) and not section.get('references', [])):
+                action[field] = None
+        value['action'] = action
     # This is a display-only intention, never an inferred tool action/argument.
     if 'plan' not in value:
         value['plan'] = ['Use the selected study tool.']
@@ -141,7 +154,8 @@ def validate_action(action, tools, seen_actions, references, request):
                 inline = set(re.findall(r'\[((?:D|W)[a-zA-Z0-9]+)\]', section.text))
                 if not inline <= set(section.references):
                     raise ActionRejected('unknown_reference')
-        if request.skill == 'research_brief' and any(ref.startswith('W') for ref in references) and not (action.from_material or action.from_web):
+        no_findings = not refs and any(value.strip() for value in action.limitations)
+        if request.skill == 'research_brief' and any(ref.startswith('W') for ref in references) and not (action.from_material or action.from_web) and not no_findings:
             raise ActionRejected('research_sections_required', instruction='Separate uploaded and web findings into from_material and from_web. Omit irrelevant findings and explain that in limitations.')
         if request.skill == 'research_brief' and any(ref.startswith('W') for ref in refs) and not action.from_web:
             raise ActionRejected('research_sections_required', instruction='Put web findings in from_web with observed web references.')
@@ -215,9 +229,10 @@ def research_result(action, observations):
     if status == 'searched' and not any(section['kind'] == 'web' for section in sections):
         limitations.append('No web-backed findings were included in this brief.')
     if status != 'searched':
+        material_only = any(section['kind'] == 'material' for section in sections)
         limitations.insert(0, {'no_results': 'Web search returned no usable sources.',
-                              'unavailable': 'Web search was unavailable; this brief uses uploaded material only.',
-                              'not_configured': 'Web search is not configured; this brief uses uploaded material only.'}[status])
+                              'unavailable': 'Web search was unavailable' + ('; this brief uses uploaded material only.' if material_only else '; no web-backed findings were available.'),
+                              'not_configured': 'Web search is not configured' + ('; this brief uses uploaded material only.' if material_only else '; no web-backed findings were available.')}[status])
     labels = {'material': 'From your material', 'web': 'From the web'}
     text = '\n\n'.join('## ' + labels[s['kind']] + '\n\n' + s['text'] for s in sections)
     if not sections:

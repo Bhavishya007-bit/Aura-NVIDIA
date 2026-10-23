@@ -1,3 +1,4 @@
+import TeachingText from './TeachingText'
 import type { AgentRun, ResearchSource } from '../services/agentApi'
 
 /** Only server-observed sources become links; model-written URLs stay plain text. */
@@ -21,16 +22,15 @@ export default function ResearchResult({ run }: { run: AgentRun }) {
   if (!result?.research_sections) return null
   const sources = result.sources ?? []
   const used = new Set(result.research_sections.flatMap(section => section.references))
-  const inline = (text: string) => text.split(/(\[(?:D\d+|W[a-f0-9]+)\])/g).map((part, index) => {
-    const reference = part.match(/^\[(.+)\]$/)?.[1]
+  const renderReference = (reference: string) => {
     const source = sources.find(s => s.reference === reference && used.has(s.reference))
-    return source ? <span className="research-inline-source" key={index}><SourceChip source={source} /></span> : <span key={index}>{part}</span>
-  })
+    return source ? <span className="research-inline-source"><SourceChip source={source} /></span> : undefined
+  }
   return <div className="research-result">
     <p className="plan-caption">Research draft. Source links show where findings came from; claims have not been independently verified.</p>
     {result.research_sections.map(section => <section key={section.kind} className={`research-section research-section--${section.kind}`} aria-label={section.kind === 'material' ? 'From your material' : 'From the web'}>
       <h3>{section.kind === 'material' ? 'From your material' : 'From the web'}</h3>
-      <div className="plan-prose">{section.text.split(/\n\s*\n/).filter(Boolean).map((text, i) => <p key={i}>{inline(text)}</p>)}</div>
+      <TeachingText text={section.text} renderReference={renderReference} />
       <div className="plan-citations" aria-label={section.kind === 'material' ? 'Material sources' : 'Web sources'}>{sources.filter(source => source.kind === section.kind && section.references.includes(source.reference)).map(source => <SourceChip key={source.reference} source={source} />)}</div>
     </section>)}
     {(result.limitations ?? []).length > 0 && <aside className="research-limitations"><h3>Research limitations</h3><ul>{result.limitations!.map((text, i) => <li key={i}>{text}</li>)}</ul></aside>}

@@ -183,8 +183,10 @@ class Finish(Strict):
     tool: Literal['finish']
     answer: str = Field(min_length=1, max_length=12000)
     references: list[str] = Field(default_factory=list, max_length=24)
-    from_material: ResearchSection | None = None
-    from_web: ResearchSection | None = None
+    from_material: ResearchSection | None = Field(default=None,
+        description='Relevant uploaded findings with observed D references. Omit or use null when absent or irrelevant; put missing coverage in limitations, never in an uncited section.')
+    from_web: ResearchSection | None = Field(default=None,
+        description='Relevant retrieved web findings with observed W references. Omit or use null when no usable evidence exists; do not supply an empty section.')
     limitations: list[str] = Field(default_factory=list, max_length=4)
 
 
@@ -234,7 +236,7 @@ SKILLS = {
                    'tools': {'document_search', 'memory_read', 'assessment_create'}},
     'study_plan': {'instruction': 'Gather relevant evidence, then use study_plan_create to create the whole daily plan and save its tasks in one action. Do not keep searching after gathering useful material. Do not invent assessment results.',
                    'tools': {'document_search', 'memory_read', 'task_list', 'task_create', 'study_plan_create'}},
-    'research_brief': {'instruction': 'Read the selected material first. If web_search is allowed, use it for additional public sources before finishing. Search only public topic keywords; never send private document text or saved memories. Finish with separate from_material and from_web sections, each with observed reference IDs. Omit a section when it has no evidence. State search failures and limitations; snippets are not independently verified facts.',
+    'research_brief': {'instruction': 'Read the selected material first. If web_search is allowed, use it for additional public sources before finishing. Search only public topic keywords; never send private document text or saved memories. Finish with separate from_material and from_web sections, each with observed reference IDs. Omit or set a section to null when it has no relevant evidence. Unrelated uploads do not prevent a web-only brief. Put missing coverage in limitations, not an uncited from_material section. State search failures and limitations; snippets are not independently verified facts.',
                        'tools': {'document_search', 'memory_read', 'web_search'}},
 }
 
