@@ -71,6 +71,13 @@ def explanation_findings(answer):
         if DATA.search(prefix.lower()) and not TARGETS.search(prefix.lower()):
             arrays.append((match.start(), values))
     findings = []
+    # A narrow self-contradiction, not a claim about every implementation.
+    # Whole-clause matching avoids quoted mistakes and first/last guarantees.
+    for clause in re.split(r'[.!?]\s+|\n', text):
+        clause = clause.strip().lstrip('-* ').rstrip('.')
+        if re.fullmatch(r"(?:(?:binary search|linear search|the algorithm|it)\s+)?(?:does not|doesn't|cannot|can't)\s+handle\s+duplicate(?:s| values)?\s*\(\s*(?:it\s+)?returns?\s+any\s+match\s*\)", clause, re.I):
+            findings.append({'category': 'assumptions', 'rule': 'duplicate_match_semantics',
+                'instruction': 'Returning any matching index handles duplicate values. State that it does not guarantee the first or last occurrence; distinguish this from duplicates not being tested.'})
 
     def position(number, label, offset, end):
         before = text[max(0, offset-50):offset]

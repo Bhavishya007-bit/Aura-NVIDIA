@@ -39,6 +39,29 @@ When all displayed times are zero, recognized claims that the timer lacks precis
 
 Tests replay the reported timing answer with approving model verdicts and check both successful correction and withholding of a repeated failure. These checks use the same bounded review/revision/recheck allowance and introduce no additional calls, dependencies or API fields. They are conservative English-pattern checks for recognized timing reports, not proof of arbitrary performance claims. Other output formats and kinds of claims still need model and human review.
 
+### Duplicate wording and a reviewer batch audit
+
+Returning any matching index handles duplicates; it does not promise the first or last occurrence. A narrow whole-clause check now flags the reported self-contradiction, “Does not handle duplicate values (returns any match).” It leaves “duplicates were not tested”, correct first/last limitations, quoted corrections and other unknown wording to the reviewer. An approving model cannot override this finding. The existing single text revision/recheck repairs it without executing Python again.
+
+To measure more than individual examples, explicitly run this optional local audit:
+
+```powershell
+python -m evaluation.code_quality --collect-live
+```
+
+It makes at most **eight paid-provider requests** using the configured production review model, reasoning settings, strict schema and evidence compaction. Each request has one attempt, a 1,024-token output budget and a read timeout of at most 30 seconds. It does not execute Python, invoke tools, revise answers, access student records or query the database. Synthetic program/output pairs cover position/table errors, timing claims, duplicate semantics and CSV arithmetic. They are authored fixtures, not new sandbox execution results. An optional `--model EXACT_ID` compares another model; use a new `--packet` path for each collection.
+
+The ignored `evaluation/results/code_quality.json` is checkpointed after every request and existing packets are never replaced by collection. It contains requests, valid model verdicts and verdicts after local checks. Malformed outputs/provider failures are recorded as unknown using a fixed error, with no raw error text. The summary separates model false acceptances from failures caught by local rules. The CSV pair deliberately tests arithmetic outside these rules. Do not treat fixture agreement as human calibration or general teaching accuracy.
+
+Read each program, output and draft independently, then record a person's judgment explicitly:
+
+```powershell
+python -m evaluation.code_quality --review-case csv-bad --label unsupported
+python -m evaluation.code_quality
+```
+
+Labels are `supported` or `unsupported`; all eight start unlabelled. The report shows human agreement only for labelled cases, separately from assistant-authored expectations. Eight synthetic cases are a diagnostic sample, not a release-quality claim. This audit has been tested with controlled model responses; no live model accuracy is claimed from those tests. It does not replace Phase 4's separate 30-output coverage-judge calibration. No application API, database field or dependency is added.
+
 A corrected reference for the reported search example, using ordinary linear search and iterative binary search with the lower midpoint:
 
 | Target | Status | Index | Linear items inspected | Binary midpoint probes |

@@ -615,6 +615,19 @@ class CodePostgres(unittest.TestCase):
         self.assertFalse(model.calls[4]['prompt']['deterministic_findings'])
         self.assertEqual(execute.call_count,1);self.assertEqual(len(model.calls),5)
 
+    def test_duplicate_contradiction_is_repaired_without_rerunning_code(self):
+        bad='Does not handle duplicate values (returns any match).'
+        fixed='Returns any matching index; it does not guarantee the first or last occurrence. Duplicates were not tested.'
+        execute=Mock(return_value=observed())
+        saved,model=self.execute([code_action(),fixtures.action(answer=bad),accepted_review(),
+            {'answer':fixed},accepted_review()],execute)
+        self.assertEqual(saved['state'],'completed',saved)
+        self.assertEqual(saved['result']['text'],fixed)
+        self.assertEqual(model.calls[2]['prompt']['deterministic_findings'][0]['rule'],'duplicate_match_semantics')
+        self.assertFalse(model.calls[4]['prompt']['deterministic_findings'])
+        self.assertEqual(saved['result']['code_result']['stdout'],'4\n')
+        self.assertEqual(execute.call_count,1);self.assertEqual(len(model.calls),5)
+
     def test_repeated_unrecorded_timing_claims_are_withheld_despite_model_approval(self):
         bad=(Path(__file__).parent/'fixtures'/'search_timing_reviewer_miss.md').read_text()
         program='print("Linear index 3 (0.00s), Binary index 3 (0.00s)")'

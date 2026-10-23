@@ -76,5 +76,6 @@ node_modules
 /Aura*Update*/
 /evaluation/results/live_responses.json
 /evaluation/results/judge_calibration.json
+/evaluation/results/code_quality.json
 
 /.test-deps/

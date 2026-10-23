@@ -5,6 +5,17 @@ from backend.agents.explanation_checks import explanation_findings, execution_fi
 
 
 class ExplanationConsistency(unittest.TestCase):
+    def test_duplicate_return_any_is_handling_not_a_first_occurrence_guarantee(self):
+        for text in ('- Does not handle duplicate values (returns any match).',
+                     'Binary search does not handle duplicates (it returns any match).'):
+            self.assertEqual(explanation_findings(text)[0]['rule'], 'duplicate_match_semantics')
+        for text in ('Returns any matching index; it does not guarantee the first occurrence.',
+                     'Duplicates were not tested.', 'Does not handle duplicates.',
+                     '> Does not handle duplicate values (returns any match).',
+                     'Never say "does not handle duplicates (returns any match)".',
+                     'The claim "does not handle duplicates (returns any match)" is wrong.'):
+            self.assertEqual(explanation_findings(text), [])
+
     def test_actual_accepted_answer_has_two_independent_contradictions(self):
         answer=(Path(__file__).parent/'fixtures'/'search_answer_reviewer_miss.md').read_text()
         findings=explanation_findings(answer)

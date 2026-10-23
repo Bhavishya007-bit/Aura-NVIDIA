@@ -130,6 +130,10 @@ npm run build
 
 CI installs a smaller test dependency set and stubs external providers; full local runtime setup remains in README. Optional OCR checks require their model assets. No live Docker/provider calls are claimed by these checks.
 
+## Code-explanation reviewer audit
+
+The optional `python -m evaluation.code_quality --collect-live` audit collects eight synthetic review verdicts through the production review prompt/schema/evidence shaping. It spends up to eight existing-provider calls and never runs code or accesses student data. Model verdicts, local-rule verdicts and independently entered human labels are reported separately. See `docs/CODE_ANALYSIS.md` for packet handling and review commands. This diagnostic sample does not replace the 30-case coverage calibration above, and neither the offline tests nor authored expectations establish live teaching accuracy.
+
 ## Clean-database demo checklist
 
 Use a separate empty demo database and synthetic material, following README initialization. Do not delete your working database.

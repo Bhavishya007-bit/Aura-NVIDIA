@@ -72,25 +72,30 @@ from code when no trace was printed. Do not run or request tools, change code,
 or alter account/memory/tasks. Markdown is allowed inside the answer string.'''
 
 
-def review_explanation(answer, goal, observations, invoke):
-    """One review, at most one text revision, then a review of the revised text.
-
-    invoke owns persisted progress, cancellation, accounting and all run budgets.
-    These model verdicts are not independent factual verification or calibration.
-    """
+def review_payload(answer, goal, observations):
+    """Shared, pure production/audit evidence shaping; no execution or requests."""
     executions = [item for item in observations if item['tool'] == 'code_execute']
     if not executions:
         raise ExplanationUnavailable()
     # Review only the latest execution, plus actual retrieved context if used.
     selected = [item for item in observations if item['tool'] == 'document_search'] + [executions[-1]]
     evidence = compact_observations(selected)
-    base = {'goal': goal, 'evidence': evidence, 'untrusted_data': True,
-            'artifact_contents_available': False}
+    findings = explanation_findings(answer) + execution_findings(answer, evidence[-1])
+    return {'goal': goal, 'evidence': evidence, 'untrusted_data': True,
+            'artifact_contents_available': False, 'draft_answer': answer,
+            'review_rules': RULES, 'deterministic_findings': findings,
+            'output_schema': Review.model_json_schema()}
+
+
+def review_explanation(answer, goal, observations, invoke):
+    """One review, at most one text revision, then a review of the revised text.
+
+    invoke owns persisted progress, cancellation, accounting and all run budgets.
+    These model verdicts are not independent factual verification or calibration.
+    """
     for attempt in range(2):
-        findings = explanation_findings(answer) + execution_findings(answer, evidence[-1])
-        payload = {**base, 'draft_answer': answer, 'review_rules': RULES,
-                   'deterministic_findings': findings,
-                   'output_schema': Review.model_json_schema()}
+        payload = review_payload(answer, goal, observations)
+        findings = payload['deterministic_findings']
         try:
             verdict = invoke('review', json.dumps(payload), 1024, REVIEW_SYSTEM, Review,
                              forced_issues=tuple({row['category'] for row in findings}))
@@ -100,10 +105,11 @@ def review_explanation(answer, goal, observations, invoke):
             return answer
         if attempt:
             raise ExplanationRejected()
-        revision = {**base, 'draft_answer': answer,
+        revision = {key: payload[key] for key in ('goal', 'evidence', 'untrusted_data', 'artifact_contents_available')}
+        revision.update({'draft_answer': answer,
                     'deterministic_findings': findings,
                     'correction_rules': {name: RULES[name] for name in verdict.issues},
-                    'output_schema': Revision.model_json_schema()}
+                    'output_schema': Revision.model_json_schema()})
         try:
             revised = invoke('revision', json.dumps(revision), 4096, REVISION_SYSTEM, Revision).answer
         except ValidationError as error:
