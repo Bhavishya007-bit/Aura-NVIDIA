@@ -3,9 +3,9 @@ import { listPreparation, preparationLabels, retryPreparation } from '../service
 import type { PreparationJob } from '../services/preparationApi'
 import './PreparationStatus.css'
 
-type Props = { courseId: string; refreshKey: number; pendingId?: string; pendingIds?: string[]; onReady: (job: PreparationJob) => void; onFailed?: (job: PreparationJob) => void }
+type Props = { simple?: boolean; courseId: string; refreshKey: number; pendingId?: string; pendingIds?: string[]; onReady: (job: PreparationJob) => void; onFailed?: (job: PreparationJob) => void }
 
-export default function PreparationStatus({ courseId, refreshKey, pendingId, pendingIds, onReady, onFailed }: Props) {
+export default function PreparationStatus({ courseId, refreshKey, pendingId, pendingIds, onReady, onFailed, simple = false }: Props) {
   const [jobs, setJobs] = useState<PreparationJob[]>([])
   const [error, setError] = useState('')
   const [retrying, setRetrying] = useState('')
@@ -61,16 +61,16 @@ export default function PreparationStatus({ courseId, refreshKey, pendingId, pen
     .sort((a, b) => Number(a.state === 'ready') - Number(b.state === 'ready')).slice(0, 5)
   if (!visible.length && !error) return null
   return <section className="aura-preparation" aria-label="Material preparation">
-    {error && <p className="aura-preparation-error" role="alert">{error}</p>}
+    {error && <p className="aura-preparation-error" role="alert">{simple ? 'Could not check your material yet. Aura will try again.' : error}</p>}
     {visible.map(job => <div key={job.id} className="aura-preparation-item">
-      <div><strong>{job.filename}</strong><span role="status">{preparationLabels[job.stage] ?? 'Preparing material'}{job.percentage !== null && job.state === 'processing' ? ` · ${job.percentage}% of this step` : ''}</span></div>
-      {job.state === 'processing' && <progress max={100} value={job.percentage ?? undefined} aria-label={preparationLabels[job.stage] ?? 'Preparing material'} />}
+      <div><strong>{job.filename}</strong><span role="status">{simple ? job.state === 'ready' ? 'Ready to study' : job.state === 'failed' ? 'Needs attention' : 'Preparing your material' : preparationLabels[job.stage] ?? 'Preparing material'}{!simple && job.percentage !== null && job.state === 'processing' ? ` · ${job.percentage}% of this step` : ''}</span></div>
+      {job.state === 'processing' && <progress max={100} value={job.percentage ?? undefined} aria-label={simple ? 'Preparing your material' : preparationLabels[job.stage] ?? 'Preparing material'} />}
       {job.state === 'ready' && !!job.result?.warnings?.length && <>
         <p>Ready with reading limitations. Some image or diagram details may be missing.</p>
-        <details><summary>Reading notices</summary><ul>{job.result.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>
+        {!simple && <details><summary>Reading notices</summary><ul>{job.result.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
         <button type="button" onClick={() => setDismissed(current => [...current, job.id])}>Dismiss</button>
       </>}
-      {job.state === 'failed' && <><p>{job.error}</p><button type="button" disabled={retrying === job.id} onClick={() => void retry(job.id)}>{retrying === job.id ? 'Retrying…' : 'Retry preparation'}</button><button type="button" onClick={() => setDismissed(current => [...current, job.id])}>Dismiss</button></>}
+      {job.state === 'failed' && <><p>{simple ? 'This material could not be prepared. Please try again.' : job.error}</p><button type="button" disabled={retrying === job.id} onClick={() => void retry(job.id)}>{retrying === job.id ? 'Retrying…' : 'Retry preparation'}</button><button type="button" onClick={() => setDismissed(current => [...current, job.id])}>Dismiss</button></>}
     </div>)}
   </section>
 }

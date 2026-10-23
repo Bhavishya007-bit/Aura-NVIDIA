@@ -6,6 +6,7 @@ import type { PreparationJob, UploadEntry } from '../services/preparationApi'
 import PreparationStatus from './PreparationStatus'
 import UploadBatchStatus from './UploadBatchStatus'
 import SourceViewer from './SourceViewer'
+import AccountMenu from './AccountMenu'
 import { chatCitationGroups } from '../services/citationDisplay'
 import type { ToolCitation } from '../services/studyToolsApi'
 import type { SourceUploadResult } from '../services/studyApi'
@@ -25,6 +26,7 @@ type Props = {
   sessionNotice?: string
   workspaceKey: string
   onOpenWorkspace: () => void
+  onCreateStudyPlan?: (goal: string, source?: string) => void
 }
 type Entry = {
   message: ChatMessage
@@ -41,7 +43,7 @@ function errorMessage(error: unknown): string {
 
 export default function ChatHome({
   courseId, coursesLoading, coursesError, studentName,
-  onSignOut, signingOut, sessionNotice, workspaceKey, onOpenWorkspace,
+  onSignOut, signingOut, sessionNotice, workspaceKey, onOpenWorkspace, onCreateStudyPlan,
 }: Props) {
   const storageKey = `aura.chat.v1:${workspaceKey}:${courseId}`
   const [openCitation, setOpenCitation] = useState<ToolCitation | null>(null)
@@ -273,8 +275,7 @@ export default function ChatHome({
         <nav className="aura-home__nav" aria-label="Aura navigation">
           <button type="button" onClick={onOpenWorkspace} disabled={sending}>Study tools</button>
           {hasConversation && <button type="button" onClick={newConversation} disabled={busy}>New chat</button>}
-          <span className="aura-home__account">{studentName}</span>
-          {onSignOut && <button type="button" onClick={onSignOut} disabled={sending || signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>}
+          <AccountMenu name={studentName} courseId={courseId} onSignOut={onSignOut} signingOut={signingOut} disabled={sending} />
         </nav>
       </header>
 
@@ -290,6 +291,7 @@ export default function ChatHome({
           {entries.map(entry => <article key={entry.message.id} className={`aura-home__message aura-home__message--${entry.message.role}`}>
             <div className="aura-home__speaker">{entry.message.role === 'student' ? 'You' : '✦ Aura'}</div>
             <div className="aura-home__message-text">{entry.message.content}</div>
+            {entry.message.role === 'student' && onCreateStudyPlan && /\b(?:study plan|revision plan|exam|prepare for|study goal|\d+[- ]day plan)\b/i.test(entry.message.content) && <button className="aura-home__plan-link" type="button" onClick={() => onCreateStudyPlan(entry.message.content, uploaded?.sourceId)}>Turn this into a study plan ↗</button>}
             {entry.message.role === 'tutor' && entry.answerMode && <small>{entry.answerMode === 'visual' ? 'Visual interpretation — check against the image' : entry.answerMode === 'excerpt' ? 'Quoted source excerpts — explanation unavailable' : entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : (entry.answerMode === 'source' || entry.grounded) ? 'Source checked' : 'Answer could not be verified'}</small>}
             {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).length > 0 && <details className="aura-home__sources">
               <summary className="aura-home__source-heading">Sources</summary>

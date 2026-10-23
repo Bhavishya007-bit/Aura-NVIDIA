@@ -4,7 +4,8 @@ export type MemoryKind = 'preference' | 'decision' | 'event' | 'task_progress' |
 export type MemoryInput = { kind: MemoryKind; text: string; depth: 'beginner' | 'standard' | 'advanced' | null; examples: boolean | null }
 export type MemoryItem = { id: string; record: MemoryInput; updated_at: string }
 export type Task = { id: string; title: string; details: string; done: boolean }
-export type AgentRun = { id: string; state: string; request: { goal: string; skill: string }; tokens_used: number; error_code?: string; steps: { tool: string; state: string; plan?: string[]; observation?: unknown; error_code?: string }[]; result?: { text: string; references: string[]; verified: boolean } }
+export type StructuredPlan = { overview: string; days: { day: number; title: string; details: string; references: string[] }[] }
+export type AgentRun = { id: string; state: string; request: { goal: string; skill: string }; source_id?: number | null; created_at?: string; started_at?: string | null; updated_at?: string; tokens_used: number; error_code?: string; steps: { tool: string; state: string; plan?: string[]; observation?: unknown; error_code?: string }[]; result?: { text: string; references: string[]; verified: boolean; structured_plan?: StructuredPlan; task_ids?: string[] } }
 export type MemoryState = { enabled: boolean; items: MemoryItem[] }
 const decode = (value: unknown) => requireRecord(value, 'agent')
 const json = (body: unknown) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })

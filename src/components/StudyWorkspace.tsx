@@ -9,6 +9,8 @@ import PreparationStatus from './PreparationStatus'
 import UploadBatchStatus from './UploadBatchStatus'
 import LearningPanel from './LearningPanel'
 import AgentPanel from './AgentPanel'
+import AccountMenu from './AccountMenu'
+import { fileType } from './studyPlanModel'
 import TutorCheck from './TutorCheck'
 import SourceViewer from './SourceViewer'
 import { citedNumbers, groupToolCitations } from '../services/citationDisplay'
@@ -35,8 +37,10 @@ export default function StudyWorkspace(props: Props) {
   const { user, courseId, theme } = props
   const storageKey = `aura.study.v1:${user.id}:${courseId}`
   const [saved] = useState(() => readWorkspace<Saved>(storageKey, {}))
-  const [tab, setTab] = useState<Tab>(saved.tab && tabs.includes(saved.tab) ? saved.tab : 'Overview')
-  const [sourceId, setSourceId] = useState(typeof saved.sourceId === 'string' ? saved.sourceId : '')
+  const [link] = useState(() => new URLSearchParams(window.location.search))
+  const [initialPlanGoal, setInitialPlanGoal] = useState(link.get('goal')?.slice(0, 2500))
+  const [tab, setTab] = useState<Tab>(tabs.includes(link.get('tab') as Tab) ? link.get('tab') as Tab : saved.tab && tabs.includes(saved.tab) ? saved.tab : 'Overview')
+  const [sourceId, setSourceId] = useState(link.get('source') ?? (typeof saved.sourceId === 'string' ? saved.sourceId : ''))
   const [materials, setMaterials] = useState<Material[]>([])
   const [materialSearch, setMaterialSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
@@ -49,7 +53,8 @@ export default function StudyWorkspace(props: Props) {
   const [chats, setChats] = useState<Record<string, ChatEntry[]>>(saved.chats && typeof saved.chats === 'object' && !Array.isArray(saved.chats) ? saved.chats : {})
   const [answers, setAnswers] = useState<Record<string, Record<string, string>>>(saved.answers && typeof saved.answers === 'object' && !Array.isArray(saved.answers) ? saved.answers : {})
   const [count, setCount] = useState(3)
-  const [focus, setFocus] = useState('')
+  const [focus, setFocus] = useState(link.get('topic')?.slice(0, 180) ?? '')
+  const materialSearchInput = useRef<HTMLInputElement>(null)
   const [difficulty, setDifficulty] = useState('beginner')
   const [learningMode, setLearningMode] = useState<LearningMode>('adaptive')
   const [questionType, setQuestionType] = useState('mcq')
@@ -76,7 +81,7 @@ export default function StudyWorkspace(props: Props) {
   const archivedCount = materials.filter(item => item.archived).length
   const visibleMaterials = materials.filter(item => Boolean(item.archived) === showArchived && item.title.toLocaleLowerCase().includes(materialSearch.trim().toLocaleLowerCase()))
   const material = activeMaterials.find(item => item.id === sourceId)
-  const sourceReady = Boolean(sourceId) && !['processing', 'error', 'empty', 'not_configured'].includes(material?.status ?? '')
+  const sourceReady = Boolean(material) && !['processing', 'error', 'empty', 'not_configured'].includes(material?.status ?? '')
   const kind = kinds[tab]
   const available = artifacts.filter(item => item.kind === kind && item.payload.learning?.mode !== 'conversation')
   const active = available.find(item => item.id === selectedArtifact) ?? available[0]
@@ -107,6 +112,15 @@ export default function StudyWorkspace(props: Props) {
     return () => { cancelled = true }
   }, [courseId, user.id, reload])
   useEffect(() => {
+    if (materialsLoading) return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('view') !== 'study') return
+    if (url.searchParams.get('source') && url.searchParams.get('source') !== sourceId) { url.searchParams.delete('topic'); setFocus('') }
+    if (sourceId) url.searchParams.set('source', sourceId)
+    else url.searchParams.delete('source')
+    window.history.replaceState(null, '', url)
+  }, [sourceId, materialsLoading])
+  useEffect(() => {
     let cancelled = false
     setArtifacts([]); setArtifactsError('')
     if (!courseId || !sourceId) { setArtifactsLoading(false); return }
@@ -129,7 +143,23 @@ export default function StudyWorkspace(props: Props) {
     if (tab === 'Tutor' && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight
   }, [chats, tab, busy])
 
-  function selectTab(next: Tab) { setTab(next); setError(''); setOpenCitation(null) }
+  function selectTab(next: Tab) {
+    setTab(next); setError(''); setOpenCitation(null); setInitialPlanGoal(undefined)
+    const url = new URL(window.location.href)
+    url.searchParams.set('view', 'study'); url.searchParams.set('tab', next)
+    url.searchParams.delete('goal'); url.searchParams.delete('topic')
+    if (sourceId) url.searchParams.set('source', sourceId)
+    else url.searchParams.delete('source')
+    window.history.replaceState(null, '', url)
+  }
+  function changeMaterial() { setShowArchived(false); setMaterialSearch(''); materialSearchInput.current?.scrollIntoView({ block: 'center' }); materialSearchInput.current?.focus() }
+  function openPlanTool(next: 'Flashcards' | 'Assessment' | 'Summary', topic: string, source: string) {
+    if (!activeMaterials.some(m => m.id === source)) { setError('The material for this plan is no longer active. Restore it from Materials to continue.'); return }
+    selectTab(next); setSourceId(source); setFocus(topic); setSelectedArtifact(''); setLearningMode('manual')
+    const url = new URL(window.location.href)
+    url.searchParams.set('source', source); url.searchParams.set('topic', topic)
+    window.history.replaceState(null, '', url)
+  }
   function begin(label: string) { if (busyRef.current) return false; busyRef.current = true; setBusy(label); setError(''); return true }
   function end() { busyRef.current = false; if (mounted.current) setBusy('') }
   async function archiveMaterial(item: Material, archived: boolean) {
@@ -236,12 +266,12 @@ export default function StudyWorkspace(props: Props) {
     <aside className="sw-rail">
       <button className="sw-brand" onClick={props.onChatHome} disabled={!!busy} type="button"><span>A.</span>Aura</button>
       <p className="sw-rail-label">YOUR WORKSPACE</p>
-      <nav aria-label="Study tools">{tabs.map((item, index) => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} className={tab === item ? 'is-active' : ''} onClick={() => selectTab(item)}><span aria-hidden="true"><WorkspaceIcon path={iconPaths[index] ?? 'M4 12h16 M12 4v16'} /></span>{item}</button>)}</nav>
-      <div className="sw-account"><strong title={user.fullName}>{user.fullName}</strong><small>Study account</small><button type="button" onClick={props.onSignOut} disabled={props.signingOut || !!busy}>{props.signingOut ? 'Signing out…' : 'Sign out'}</button></div>
+      <nav aria-label="Study tools">{tabs.map((item, index) => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} className={tab === item ? 'is-active' : ''} onClick={() => selectTab(item)}><span aria-hidden="true"><WorkspaceIcon path={iconPaths[index] ?? 'M4 12h16 M12 4v16'} /></span>{item === 'Agents' ? 'Study Plan' : item}</button>)}</nav>
+      <div className="sw-account"><AccountMenu name={user.fullName} courseId={courseId} onSignOut={props.onSignOut} signingOut={props.signingOut} disabled={!!busy} /></div>
     </aside>
     <div className="sw-shell">
       <header className="sw-topbar"><div><strong>Study workspace</strong><span className="sw-top-subtitle">Your materials and saved practice</span></div>
-        <div className="sw-top-actions"><button type="button" onClick={props.onThemeChange} aria-label={theme === 'light' ? 'Use dark theme' : 'Use light theme'}><WorkspaceIcon path={theme === 'light' ? 'M20 15a8 8 0 01-11-11 8 8 0 1011 11z' : 'M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2 M16 12a4 4 0 11-8 0 4 4 0 018 0z'} /></button><button type="button" onClick={props.onChatHome} disabled={!!busy}>Chat home</button></div>
+        <div className="sw-top-actions"><div className="sw-mobile-account"><AccountMenu name={user.fullName} courseId={courseId} onSignOut={props.onSignOut} signingOut={props.signingOut} disabled={!!busy} /></div><button type="button" onClick={props.onThemeChange} aria-label={theme === 'light' ? 'Use dark theme' : 'Use light theme'}><WorkspaceIcon path={theme === 'light' ? 'M20 15a8 8 0 01-11-11 8 8 0 1011 11z' : 'M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2 M16 12a4 4 0 11-8 0 4 4 0 018 0z'} /></button><button type="button" onClick={props.onChatHome} disabled={!!busy}>Chat home</button></div>
       </header>
       {(props.sessionNotice || props.coursesError) && <p className="sw-error" role="alert">{props.sessionNotice || props.coursesError}</p>}
       <div className="sw-body">
@@ -250,10 +280,10 @@ export default function StudyWorkspace(props: Props) {
           <input ref={fileInput} type="file" multiple hidden accept=".pdf,.docx,.ppt,.pptx,.jpg,.jpeg,.png,audio/*,.mp4" onChange={event => void upload(Array.from(event.target.files ?? []))} />
           {materialsLoading && <p className="sw-muted" role="status">Loading materials…</p>}
           {materialsError && <p className="sw-error" role="alert">{materialsError}</p>}
-          <label className="sw-material-search"><span className="sw-sr-only">Search materials</span><input type="search" placeholder="Search materials" value={materialSearch} onChange={event => setMaterialSearch(event.target.value)} /></label>
+          <label className="sw-material-search"><span className="sw-sr-only">Search materials</span><input ref={materialSearchInput} type="search" placeholder="Search materials" value={materialSearch} onChange={event => setMaterialSearch(event.target.value)} /></label>
           <div className="sw-material-tabs"><button type="button" aria-pressed={!showArchived} onClick={() => setShowArchived(false)}>Active <span>{activeMaterials.length}</span></button><button type="button" aria-pressed={showArchived} onClick={() => setShowArchived(true)}>Archived <span>{archivedCount}</span></button></div>
           <div className="sw-material-list">{visibleMaterials.map(item => <div key={item.id} className={`sw-material-row ${!showArchived && item.id === sourceId ? 'is-selected' : ''}`}>
-            {showArchived ? <div className="sw-archived-title"><strong>{item.title}</strong><small>{item.type.toUpperCase()}</small></div> : <button className="sw-material-select" type="button" disabled={!!busy || item.status === 'processing'} aria-current={item.id === sourceId ? 'true' : undefined} onClick={() => { setSourceId(item.id); setSelectedArtifact(''); setError(''); setFlipped({}); setFocus('') }}><span className="sw-file-icon"><WorkspaceIcon path="M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6" /></span><span><strong>{item.title}</strong><small>{item.type.toUpperCase()}{item.status === 'processing' ? ' · Preparing' : ''}{['empty', 'error', 'not_configured'].includes(item.status) ? ' · Needs attention' : ''}</small></span></button>}
+            {showArchived ? <div className="sw-archived-title"><strong>{item.title}</strong><small>{fileType(item.title, item.type)}</small></div> : <button className="sw-material-select" type="button" disabled={!!busy || item.status === 'processing'} aria-current={item.id === sourceId ? 'true' : undefined} onClick={() => { setSourceId(item.id); setSelectedArtifact(''); setError(''); setFlipped({}); setFocus('') }}><span className="sw-file-icon"><WorkspaceIcon path="M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6" /></span><span><strong>{item.title}</strong><small>{fileType(item.title, item.type)}{item.status === 'processing' ? ' · Preparing' : ''}{['empty', 'error', 'not_configured'].includes(item.status) ? ' · Needs attention' : ''}</small></span></button>}
             <button className="sw-material-action" type="button" disabled={!!busy} aria-label={`${showArchived ? 'Restore' : 'Archive'} ${item.title}`} title={showArchived ? 'Restore to active materials' : 'Archive material; saved work is kept'} onClick={() => void archiveMaterial(item, !showArchived)}><WorkspaceIcon path={showArchived ? 'M5 9a8 8 0 111 9 M5 4v5h5' : 'M3 4h18v4H3z M5 8v12h14V8 M9 12h6'} /></button>
           </div>)}</div>
           {!materialsLoading && !visibleMaterials.length && !materialsError && <p className="sw-material-empty">{materialSearch ? 'No matching materials.' : showArchived ? 'No archived materials.' : 'Add a file or restore an archived material.'}</p>}
@@ -261,12 +291,12 @@ export default function StudyWorkspace(props: Props) {
           <p className="sw-material-footnote">All tools use the selected material.</p>
         </aside>
         <main className="sw-main">
-          <div className="sw-heading"><div><p className="sw-eyebrow">{tab === 'Progress' ? 'All materials in this course' : material?.title ?? 'Your study materials'}</p><h1>{tab === 'Overview' ? 'Overview' : tab === 'Tutor' ? 'Ask Aura' : tab}</h1></div>{tab !== 'Overview' && tab !== 'Progress' && <span className="sw-source-badge">{material ? 'Selected material' : 'Choose a material'}</span>}</div>
+          <div className="sw-heading"><div><p className="sw-eyebrow">{tab === 'Progress' ? 'All materials in this course' : 'YOUR STUDY WORKSPACE'}</p><h1>{tab === 'Agents' ? 'Study Plan' : tab === 'Tutor' ? 'Ask Aura' : tab}</h1>{tab === 'Agents' && <p className="sw-plan-subtitle">Make time for what matters. Aura will help you get there.</p>}</div>{tab !== 'Overview' && tab !== 'Progress' && <div className="sw-using"><span title={material?.title}>Using: <strong>{material?.title ?? 'No material selected'}</strong></span><button type="button" onClick={changeMaterial}>Change</button></div>}</div>
           {error && <p className="sw-error" role="alert">{error}</p>}
-          <UploadBatchStatus entries={uploadEntries} busy={!!busy} onRetry={() => void upload(uploadEntries.filter(entry => entry.state === 'failed').map(entry => entry.file))} />
-          <PreparationStatus pendingIds={preparationIds} courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={job => { setPreparationIds(current => current.filter(id => id !== job.id)); setReload(value => value + 1) }} />
+          <UploadBatchStatus simple={tab === 'Agents'} entries={uploadEntries} busy={!!busy} onRetry={() => void upload(uploadEntries.filter(entry => entry.state === 'failed').map(entry => entry.file))} />
+          <PreparationStatus simple={tab === 'Agents'} pendingIds={preparationIds} courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={job => { setPreparationIds(current => current.filter(id => id !== job.id)); setReload(value => value + 1) }} />
           {busy && <div className="sw-status" role="status"><span className="sw-spinner" aria-hidden="true" />{busy}</div>}
-          {tab === 'Agents' && <AgentPanel key={`${user.id}:${courseId}`} courseId={courseId} sourceId={sourceId} materialReady={sourceReady} />}
+          {tab === 'Agents' && <AgentPanel key={`${user.id}:${courseId}`} courseId={courseId} sourceId={sourceId} materialReady={sourceReady} storageKey={`aura.plan.v1:${user.id}:${courseId}`} initialGoal={initialPlanGoal} materialNames={Object.fromEntries(materials.map(item => [item.id, item.title]))} onOpenTool={openPlanTool} />}
           {tab === 'Overview' && <>
             <LearningPanel courseId={courseId} sourceId={sourceId} refreshKey={progressReload} disabled={!!busy || !sourceReady} onPractice={(mode, topic) => void startLearning(mode, topic)} />
             <section className="sw-start"><span className="sw-eyebrow">CONTINUE WITH</span><h2>{material?.title ?? 'Your first study material'}</h2><p>{material ? 'Ask a question, build revision material, or check what you know.' : 'Upload a lecture, textbook, or presentation to get started.'}</p><button className="sw-primary" type="button" disabled={!material} onClick={() => selectTab('Tutor')}>Open tutor →</button></section>

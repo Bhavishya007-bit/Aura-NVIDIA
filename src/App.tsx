@@ -36,7 +36,8 @@ export default function App() {
   function restoreNavigation(account: AuthUser) {
     setCoursesLoading(true); setCourses([])
     const saved = readWorkspace<{ homeOpen?: boolean; courseId?: string }>(navigationKey(account.id), {})
-    if (typeof saved.homeOpen === 'boolean') setHomeOpen(saved.homeOpen)
+    if (new URLSearchParams(window.location.search).get('view') === 'study') setHomeOpen(false)
+    else if (typeof saved.homeOpen === 'boolean') setHomeOpen(saved.homeOpen)
     if (typeof saved.courseId === 'string') setCourseId(saved.courseId)
   }
   function openWorkspace() {
@@ -106,6 +107,7 @@ export default function App() {
     if (pendingWorkspace) { setHomeOpen(false); setPendingWorkspace(false) }
     navigate('/', true)
   }} />
-  if (homeOpen) return <ChatHome key={`${courseId}:${user.id}`} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} studentName={user.fullName} workspaceKey={user.id} onCourseChange={setCourseId} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} onOpenWorkspace={openWorkspace} />
-  return <StudyWorkspace key={`${user.id}:${courseId}`} user={user} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} theme={theme} onCourseChange={setCourseId} onThemeChange={() => setTheme(value => value === 'light' ? 'dark' : 'light')} onChatHome={() => setHomeOpen(true)} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} />
+  if (homeOpen) return <ChatHome key={`${courseId}:${user.id}`} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} studentName={user.fullName} workspaceKey={user.id} onCourseChange={setCourseId} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} onOpenWorkspace={openWorkspace} onCreateStudyPlan={(goal, source) => { const url = new URL(window.location.href); url.searchParams.set('view', 'study'); url.searchParams.set('tab', 'Agents'); url.searchParams.set('goal', goal); if (source) url.searchParams.set('source', source); window.history.replaceState(null, '', url); setHomeOpen(false) }} />
+  return <StudyWorkspace key={`${user.id}:${courseId}`} user={user} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} theme={theme} onCourseChange={setCourseId} onThemeChange={() => setTheme(value => value === 'light' ? 'dark' : 'light')} onChatHome={() => { window.history.replaceState(null, '', '/'); setHomeOpen(true) }} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} />
 }
+
