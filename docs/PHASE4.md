@@ -98,7 +98,17 @@ Collect real outputs only when you explicitly want to spend API credits:
 python -m evaluation.phase4 --collect-live --model YOUR_EXACT_MODEL_ID
 ```
 
-This invokes 30 coverage requests through your configured provider. The resulting ignored local file, `evaluation/results/judge_calibration.json`, contains the synthetic passages, questions, actual judge decisions, and empty human labels. No student data is sent by this collector. Each result is checkpointed, and an existing packet is never overwritten; select a new `--packet` path for another collection. Inspect each question, evidence and output, then have a person choose the coverage label independently:
+This invokes 30 coverage requests through your configured provider. The resulting ignored local file, `evaluation/results/judge_calibration.json`, contains the synthetic passages, questions, actual judge decisions, and empty human labels. No student data is sent by this collector. Each result is checkpointed, and an existing packet is never overwritten; select a new `--packet` path for another collection. For calibration, a person must judge each question against the supplied passages independently.
+
+For an interactive review with the model decisions and reference labels hidden, run:
+
+```powershell
+python -m evaluation.review_calibration
+```
+
+For each question, read the displayed passages and enter `f` (fully covered), `p` (partially covered) or `n` (not covered). Labels are never prefilled. Each explicit judgment is saved atomically in the existing packet; `q`, Ctrl+C or end of input leaves unanswered cases unlabelled. Rerun the command to resume. The tool checks that all 30 unique cases and passages match the synthetic fixture, preserves model outputs, and makes no API calls or code executions. Only a person independently reading the material should enter these labels; an assistant's review is not human calibration. Agreement is shown after all judgments are saved.
+
+To edit one judgment explicitly, the existing per-case command remains available:
 
 ```powershell
 python -m evaluation.phase4 --review-case cal-01 --label fully_covered

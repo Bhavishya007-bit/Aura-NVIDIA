@@ -77,5 +77,6 @@ node_modules
 /evaluation/results/live_responses.json
 /evaluation/results/judge_calibration.json
 /evaluation/results/code_quality.json
+/evaluation/results/*.tmp
 
 /.test-deps/
