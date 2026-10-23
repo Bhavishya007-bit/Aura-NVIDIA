@@ -153,10 +153,42 @@ class PlanningChecks(unittest.TestCase):
         self.assertNotIn(marker, ' '.join(logs.output))
         self.assertNotIn(marker, str(model.calls[1]['prompt']['validation_feedback']))
 
-    def test_explicit_invalid_plans_are_not_replaced_with_a_default(self):
-        for plan in ('', 'x' * 181, [], [123], None, ['ok'] * 7):
+    def test_invalid_plan_envelope_types_and_counts_are_not_silently_replaced(self):
+        for plan in ([], [123], None, ['ok'] * 7, {'step':'not a list'}):
             with self.subTest(plan=plan), self.assertRaises(ValueError):
                 parse_decision({'plan': plan, 'action': {'tool': 'memory_read'}})
+
+    def test_display_only_blank_or_long_narration_does_not_block_a_valid_action(self):
+        for plan in ('', 'x'*181, ['  '], ['Read the slides','x'*5000]):
+            with self.subTest(plan=plan):
+                raw={'plan':plan,'action':{'tool':'document_search','query':'membranes'}}
+                original=copy.deepcopy(raw)
+                parsed=parse_decision(raw)
+                self.assertEqual(parsed.plan,['Use the selected study tool.'])
+                self.assertEqual(parsed.action.model_dump(),original['action'])
+                self.assertEqual(raw,original)
+
+    def test_plan_schema_exposes_character_limits_and_direct_errors_locate_the_step(self):
+        schema=action_schema({'code_execute'})
+        self.assertEqual(schema['properties']['plan']['items']['maxLength'],180)
+        self.assertEqual(schema['properties']['plan']['items']['minLength'],1)
+        for text in ('x'*181,' '):
+            with self.subTest(text=text):
+                try:Decision.model_validate({'plan':[text],'action':{'tool':'memory_read'}})
+                except ValueError as error:self.assertEqual(list(error.errors()[0]['loc']),['plan',0])
+                else:self.fail('Direct schema validation must retain its display bounds.')
+
+    def test_normalizing_narration_never_changes_permissions_or_discards_bad_arguments(self):
+        for bad in ({'tool':'shell','command':'read secrets'},
+                    {'tool':'document_search','query':'membranes','student_id':43},
+                    {'tool':'document_search','query':123}):
+            with self.subTest(tool=bad['tool']),self.assertRaises(ValueError):
+                parse_decision({'plan':['x'*500],'action':bad})
+        denied=action('memory_write',record={'kind':'preference','text':'Unauthorized memory'})
+        denied['plan']=['x'*500]
+        store,model=self.execute([denied,denied])
+        self.assertEqual(store.run['state'],'failed');self.assertEqual(store.effects,[])
+        self.assertEqual(len(model.calls),2)
 
     def test_incorrect_day_count_and_foreign_references_never_save_a_plan(self):
         for bad, code in [(daily_plan(2), 'day_count_mismatch'), (daily_plan(ref='D999'), 'unknown_reference')]:

@@ -26,6 +26,14 @@ A corrected reference for the reported search example, using ordinary linear sea
 
 Input: `[1, 3, 5, 7, 9, 11, 13, 15]`. A probe counts one examined element, not every primitive comparison. These are deterministic counts, not speed measurements. Bubble sort with early exit has O(n) best-case time on already sorted input and O(n²) average/worst-case time; a nearly sorted list can still require quadratic work. An in-place sorting function can use O(1) auxiliary space while its demonstration's copied input and recorded trace use additional memory.
 
+## Display-plan formatting must not prevent execution
+
+A reported `invalid_action` with a root `value_error` was caused by the old `Decision.bounded_plan` validator. A blank plan step or a step longer than 180 characters rejected the entire decision before code execution; the length rule was missing from the JSON schema, and the retry received only a root-level error.
+
+The schema now declares plan-item length bounds, and direct validation errors point to `plan` and the item index. Provider-envelope normalization replaces blank or overlong display strings with a fixed short intention. This is only presentation metadata: the tool, arguments, source references, selected account, execution limits and permissions are never inferred or changed. Empty lists, wrong types, excessive step counts, unexpected fields and invalid tool arguments still fail. Valid code can run once and complete without an extra formatting-repair call, even if its accompanying narration is long. Discarded narration is not saved as a result or a run step.
+
+The code-run UI now identifies decision-format failures without advising the student to reconfigure execution. Pull the update, restart FastAPI and use Retry; old failed runs keep their original status. These checks reproduce the reported validator condition with controlled provider/tool responses; they do not substitute for a live Nemotron retest.
+
 ## Local setup without another API key
 
 Keep the existing working Nebius LLM configuration. Install/start Docker Desktop

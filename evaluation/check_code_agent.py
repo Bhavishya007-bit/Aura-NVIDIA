@@ -490,6 +490,30 @@ class CodePostgres(unittest.TestCase):
         self.assertFalse(saved['result']['verified'])
         self.assertEqual(saved['result']['code_result']['stdout'],result['stdout'])
 
+    def test_display_narration_bounds_cannot_block_valid_code_or_add_an_execution(self):
+        for plan in ('x'*181,['  '],['PRIVATE_NARRATION_'*100]):
+            with self.subTest(plan_type=type(plan).__name__):
+                execute=Mock(return_value=observed())
+                code=code_action('print(4)');code['plan']=plan
+                finish=fixtures.action(answer='The captured program printed 4.');finish['plan']=plan
+                saved,model=self.execute([code,finish],execute)
+                self.assertEqual(saved['state'],'completed',saved)
+                self.assertEqual(len(model.calls),2);self.assertEqual(execute.call_count,1)
+                self.assertFalse(any(step['tool']=='validation' for step in saved['steps']))
+                self.assertTrue(all(step['plan']==['Use the selected study tool.'] for step in saved['steps']))
+                self.assertEqual(saved['result']['code_result']['stdout'],'4\n')
+                self.assertNotIn('PRIVATE_NARRATION',json.dumps(saved))
+
+    def test_long_narration_does_not_allow_invalid_code_arguments(self):
+        for bad in ({'tool':'code_execute','title':'Unsafe output','code':'print(4)','outputs':['../bad.csv']},
+                    {'tool':'code_execute','title':'Wrong type','code':None,'outputs':[]},
+                    {'tool':'code_execute','title':'Extra field','code':'print(4)','outputs':[],'student_id':43}):
+            with self.subTest(title=bad['title']):
+                raw={'plan':['x'*500],'action':bad};execute=Mock(return_value=observed())
+                saved,model=self.execute([raw,raw],execute)
+                self.assertEqual(saved['state'],'failed');execute.assert_not_called()
+                self.assertEqual(len(model.calls),2)
+
     def test_failed_code_cannot_be_presented_as_completed(self):
         saved, _ = self.execute([code_action(), fixtures.action(answer='The code failed; no computed result is available.')], lambda *a, **k: observed(1))
         self.assertEqual(saved['state'], 'failed')

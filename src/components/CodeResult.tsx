@@ -7,6 +7,7 @@ export function codeFailureMessage(run: AgentRun): string {
   const lastFailure = [...run.steps].reverse().find(step => step.tool === 'code_execute' && step.state === 'failed')?.error_code
   const code = lastFailure ?? run.error_code ?? ''
   const messages: Record<string, string> = {
+    invalid_action: 'Aura could not format a valid code request. Retry to generate it again.',
     docker_cli_unavailable: 'Docker is not available to the backend. Install Docker Desktop and restart the backend terminal.',
     docker_bad_executable: 'Windows could not launch the Docker client selected by Aura. Set the backend Docker executable to the docker.exe path shown by Get-Command docker.exe.',
     docker_daemon_unavailable: 'Aura could not connect to Docker. Start Docker Desktop, wait for the engine to be ready, then retry.',

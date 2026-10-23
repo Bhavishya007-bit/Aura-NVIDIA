@@ -597,3 +597,15 @@ test('failed research uses research-specific recovery and Retry preserves the ch
   assert.equal(start.body.skill,'research_brief')
   assert.match(start.body.goal,/Teach me bubble sort/)
 })
+
+test('code decision-format failures give retry guidance without blaming execution setup', async () => {
+  jobs=[baseRun({state:'failed',source_id:null,request:{skill:'code_analysis',goal:'Compare linear and binary search'},error_code:'invalid_action',result:null,steps:[{tool:'validation',state:'rejected',error_code:'invalid_action'}]})]
+  await mount(AgentPanel,props())
+  assert.match(visibleText(),/could not format a valid code request/)
+  assert(!visibleText().includes('Check that execution is enabled'))
+  assert(!visibleText().includes('invalid_action'))
+  await click(button('Retry'))
+  const start=requests.find(r=>r.method==='POST'&&r.path==='/agents/runs')
+  assert.equal(start.body.skill,'code_analysis')
+  assert.match(start.body.goal,/Compare linear and binary search/)
+})

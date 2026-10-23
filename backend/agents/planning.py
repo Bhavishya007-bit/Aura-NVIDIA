@@ -2,10 +2,11 @@
 import json
 import re
 import unicodedata
-from backend.agents.contracts import Decision, requested_days, requested_questions
+from backend.agents.contracts import Decision, MAX_PLAN_STEPS, MAX_PLAN_STEP_CHARS, requested_days, requested_questions
 from backend.agents.web import MAX_WEB_SEARCHES
 
 MAX_SEARCHES = 2
+DISPLAY_PLAN = ['Use the selected study tool.']
 
 
 def parse_decision(raw):
@@ -47,9 +48,17 @@ def parse_decision(raw):
         value['action'] = action
     # This is a display-only intention, never an inferred tool action/argument.
     if 'plan' not in value:
-        value['plan'] = ['Use the selected study tool.']
+        value['plan'] = list(DISPLAY_PLAN)
     elif isinstance(value['plan'], str):
         value['plan'] = [value['plan']]
+    steps = value.get('plan')
+    if (isinstance(steps, list) and 1 <= len(steps) <= MAX_PLAN_STEPS
+        and all(isinstance(step, str) for step in steps)
+        and any(not step.strip() or len(step) > MAX_PLAN_STEP_CHARS for step in steps)):
+        # Private narration is not an executable argument. Canonicalize its
+        # presentation without changing the action, dropping unknown fields,
+        # or spending another model call. Invalid envelope types still fail.
+        value['plan'] = list(DISPLAY_PLAN)
     return Decision.model_validate(value)
 
 

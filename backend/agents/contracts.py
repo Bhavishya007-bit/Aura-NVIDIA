@@ -1,6 +1,6 @@
 import re
 from typing import Annotated, Literal, Union
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from backend.agents.web import web_search_enabled
 
 
@@ -190,15 +190,22 @@ class Finish(Strict):
     limitations: list[str] = Field(default_factory=list, max_length=4)
 
 
-class Decision(Strict):
-    plan: list[str] = Field(min_length=1, max_length=6)
-    action: Annotated[Union[Search, WebSearch, ReadMemory, WriteMemory, ReadTasks, CreateTask, CreateStudyPlan, CreateAssessment, ExecuteCode, Finish], Field(discriminator='tool')]
+MAX_PLAN_STEPS = 6
+MAX_PLAN_STEP_CHARS = 180
 
-    @model_validator(mode='after')
-    def bounded_plan(self):
-        if any(not step.strip() or len(step) > 180 for step in self.plan):
-            raise ValueError('Use short, concrete plan steps.')
-        return self
+
+def _nonblank_plan_step(value):
+    if not value.strip():
+        raise ValueError('Use a nonblank display step.')
+    return value
+
+
+PlanStep = Annotated[str, Field(min_length=1, max_length=MAX_PLAN_STEP_CHARS), AfterValidator(_nonblank_plan_step)]
+
+
+class Decision(Strict):
+    plan: list[PlanStep] = Field(min_length=1, max_length=MAX_PLAN_STEPS)
+    action: Annotated[Union[Search, WebSearch, ReadMemory, WriteMemory, ReadTasks, CreateTask, CreateStudyPlan, CreateAssessment, ExecuteCode, Finish], Field(discriminator='tool')]
 
 
 class RunInput(Strict):
