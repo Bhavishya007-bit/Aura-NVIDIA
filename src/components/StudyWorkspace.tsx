@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import type { Course } from '../types/study'
 import type { AuthUser } from '../services/authApi'
 import { askTutor } from '../services/studyApi'
+import { ApiHttpError } from '../services/apiClient'
 import { queueMaterials } from '../services/preparationApi'
 import type { PreparationJob, UploadEntry } from '../services/preparationApi'
 import PreparationStatus from './PreparationStatus'
@@ -28,6 +29,9 @@ type ChatEntry = { role: 'user' | 'assistant'; text: string; grounded?: boolean;
 type Saved = { preparationIds?: string[]; preparationId?: string; sourceId?: string; tab?: Tab; selectedArtifact?: string; question?: string; chats?: Record<string, ChatEntry[]>; answers?: Record<string, Record<string, string>> }
 type Props = { user: AuthUser; courses: Course[]; courseId: string; coursesLoading: boolean; coursesError: string; theme: 'light' | 'dark'; onCourseChange: (id: string) => void; onThemeChange: () => void; onChatHome: () => void; onSignOut: () => void; signingOut: boolean; sessionNotice: string }
 const explainError = (error: unknown) => error instanceof Error ? error.message : 'Could not complete this request. Please retry.'
+const studyGenerationError = (error: unknown) => error instanceof ApiHttpError && error.status === 503
+  ? 'Aura could not create and verify this study material right now. Please try again. Your selected material and topic are kept.'
+  : explainError(error)
 
 function SourceButtons({ ids, citations, onOpen }: { ids: number[]; citations: ToolCitation[]; onOpen: (citation: ToolCitation) => void }) {
   return <div className="sw-citations">{groupToolCitations(ids, citations).map(citation => <button key={`${citation.source_id}:${citation.id}`} type="button" onClick={() => onOpen(citation)} title={citation.title}>[{citation.referenceIds?.join(', ') ?? citation.id}] {citation.location}</button>)}</div>
@@ -209,7 +213,7 @@ export default function StudyWorkspace(props: Props) {
     try {
       const generated = await generateTool(courseId, sourceId, kind, { count, focus, difficulty, questionType, learningMode: kind === 'assessment' ? learningMode : 'manual' })
       if (mounted.current) { setArtifacts(current => [generated, ...current]); setSelectedArtifact(generated.id); setFlipped({}) }
-    } catch (cause) { if (mounted.current) setError(explainError(cause)) }
+    } catch (cause) { if (mounted.current) setError(studyGenerationError(cause)) }
     finally { end() }
   }
   async function startLearning(mode: LearningMode, topic = '') {
@@ -223,7 +227,7 @@ export default function StudyWorkspace(props: Props) {
         setArtifacts(current => [generated, ...current]); setSelectedArtifact(generated.id)
         setLearningMode(mode); setFocus(topic); selectTab('Assessment')
       }
-    } catch (cause) { if (mounted.current) setError(explainError(cause)) }
+    } catch (cause) { if (mounted.current) setError(studyGenerationError(cause)) }
     finally { end() }
   }
   async function send() {

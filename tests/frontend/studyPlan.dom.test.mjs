@@ -19,7 +19,7 @@ globalThis.window = bootstrap.window; globalThis.document = bootstrap.window.doc
 const channels = []
 globalThis.MessageChannel = class extends NodeMessageChannel { constructor() { super(); channels.push(this) } }
 const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App } = await import(pathToFileURL(`${scratch}/components.mjs`))
-let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads
+let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable
 const goal = 'Create a 3-day plan'
 const baseRun = (overrides = {}) => ({ id: 'run-a', source_id: 7, state: 'completed', request: { skill: 'study_plan', goal }, tokens_used: 1200, created_at: '2026-10-23T08:00:00Z', started_at: '2026-10-23T08:00:01Z', updated_at: '2026-10-23T08:00:21Z', steps: [{ tool: 'document_search', state: 'completed', plan: ['RAW INTERNAL NARRATION'], observation: { passages: [{ reference: 'D9', slide: 18 }] } }], result: { text: 'Review the membrane.\n\nDay 1: Membrane proteins\nRead and recall.\nReferences: D9', references: ['D9'], verified: false, structured_plan: { overview: 'Review the membrane.', days: [{ day: 1, title: 'Membrane proteins', details: 'Read and recall.', references: ['D9'] }] }, task_ids: ['task-a'] }, ...overrides })
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -42,7 +42,7 @@ beforeEach(() => {
   globalThis.requestAnimationFrame = callback => setTimeout(callback, 0)
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   root = createRoot(document.getElementById('root'))
-  requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false
+  requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false; generationUnavailable = false
   materials = [{ source_id: 7, source_name: 'Biological membranes.ppt', source_type: 'pptx', status: 'success' }]
   globalThis.fetch = async (url, options = {}) => {
     const u = new URL(url), method = options.method || 'GET', body = options.body ? JSON.parse(options.body) : undefined
@@ -62,6 +62,7 @@ beforeEach(() => {
     else if (u.pathname.startsWith('/agents/memory') && method === 'PATCH') { const m = memories.find(m => m.id === u.pathname.split('/').at(-1)); m.record = body; value = m }
     else if (u.pathname === '/agents/memory' && method === 'POST') { value = { id: 'memory-new', record: body, updated_at: '2026-10-23' }; memories.push(value) }
     else if (u.pathname === '/study/materials') value = { sources: materials }
+    else if (u.pathname === '/study/tools' && generationUnavailable) return new Response(JSON.stringify({ detail: 'Ollama could not complete question generation or verification. Check that it is running and retry.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
     else if (u.pathname === '/study/artifacts') value = { artifacts: [] }
     else if (u.pathname === '/study/progress') value = { assessment_count: 0, question_count: 0, topics: [], recent_results: [] }
     else if (u.pathname === '/preparation-jobs') value = { jobs: [] }
@@ -150,8 +151,8 @@ test('recent runs reopen and browser-local removal is honest and reversible', as
 })
 test('account menu hides student IDs, and memory settings edit/delete/toggle existing endpoints', async () => {
   memories = [{ id: 'memory-a', record: { kind: 'preference', text: 'I prefer examples', depth: 'beginner', examples: true }, updated_at: '2026-10-23' }]
-  await mount(AccountMenu, { name: 'HN116WS', courseId: '6', demo: true })
-  assert(!visibleText().includes('HN116WS')); assert.match(visibleText(), /Learner/); assert.match(visibleText(), /Demo account/)
+  await mount(AccountMenu, { name: '24F20062@students.example.test', courseId: '6', demo: true })
+  assert(!visibleText().includes('24F20062')); assert(!visibleText().includes('@students.example.test')); assert.match(visibleText(), /Learner/); assert.match(visibleText(), /Demo account/)
   await click(document.querySelector('.aura-account summary'))
   await click(button('What Aura remembers'))
   assert(document.querySelector('dialog').open)
@@ -219,4 +220,16 @@ test('editing a prefilled goal survives leaving the page without restoring the o
   await click([...document.querySelectorAll('.sw-rail nav button')].find(b => b.textContent === 'Summary'))
   await click([...document.querySelectorAll('.sw-rail nav button')].find(b => b.textContent === 'Study Plan'))
   assert.equal(document.querySelector('#plan-goal').value, 'My revised goal')
+})
+
+test('generation failures do not expose stale provider advice and retain material/topic', async () => {
+  generationUnavailable = true
+  window.history.replaceState(null, '', '/?view=study&tab=Flashcards&source=7&topic=Membrane%20proteins')
+  await mount(StudyWorkspace, { user: { id: '1', fullName: 'Sam Rivera' }, courses: [], courseId: '6', coursesLoading: false, coursesError: '', theme: 'dark', onCourseChange() {}, onThemeChange() {}, onChatHome() {}, onSignOut() {}, signingOut: false, sessionNotice: '' })
+  await click(button('Generate'))
+  assert.match(document.querySelector('[role=alert]').textContent, /could not create and verify/)
+  assert(!visibleText().includes('Ollama'))
+  assert.equal(document.querySelector('.sw-focus input').value, 'Membrane proteins')
+  assert.match(document.querySelector('.sw-using').textContent, /Biological membranes.ppt/)
+  assert(button('Generate').disabled === false)
 })

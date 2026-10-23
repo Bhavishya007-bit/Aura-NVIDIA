@@ -62,7 +62,7 @@ test('options use the existing goal string and avoid conflicting day counts', ()
   assert.equal(displayGoal(output), 'Create a 1-day plan')
 })
 test('account labels hide IDs and file badges use the actual extension', () => {
-  for (const name of ['1234567', 'Student 1234567', 'HN116WS', '22BCE1166', '']) assert.equal(cleanDisplayName(name), 'Learner')
+  for (const name of ['1234567', 'Student 1234567', 'HN116WS', '22BCE1166', '24F20062...', '24F20062…', '24F20062@students.example.test', '24F20062 Account', '']) assert.equal(cleanDisplayName(name), 'Learner')
   assert.equal(cleanDisplayName('Sam Rivera'), 'Sam Rivera')
   assert.equal(fileType('Biological membranes.ppt', 'PPTX'), 'PPT')
   assert.equal(fileType('lecture.PpTx', '.ppt'), 'PPTX')

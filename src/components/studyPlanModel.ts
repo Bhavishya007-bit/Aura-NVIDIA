@@ -69,5 +69,9 @@ export function goalWithOptions(goal: string, options: PlanOptions): string {
 export const displayGoal = (goal: string) => goal.split('\nStudy preferences:')[0].trim()
 export function cleanDisplayName(name: string): string {
   const trimmed = name.trim()
-  return !trimmed || /^(?:student[\s:_-]*)?\d+$/i.test(trimmed) || /^(?=.*[a-z])(?=.*\d)[a-z\d_-]{6,}$/i.test(trimmed) ? 'Learner' : trimmed
+  // Auth names can contain an institutional email or an ID followed by extra text.
+  // Never derive or guess a person's name from their account identifier.
+  const firstToken = trimmed.split(/[\s@]/, 1)[0].replace(/[.…]+$/, '')
+  const identifier = /^(?=.*[a-z])(?=.*\d)[a-z\d_-]{6,}$/i.test(firstToken)
+  return !trimmed || trimmed.includes('@') || /^(?:student[\s:_-]*)?\d+$/i.test(trimmed) || identifier ? 'Learner' : trimmed
 }
