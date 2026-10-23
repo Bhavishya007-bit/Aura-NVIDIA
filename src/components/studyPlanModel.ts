@@ -7,7 +7,7 @@ export function stateLabel(state: string): string {
   return ({ completed: 'Done', budget_exhausted: 'Stopped early', failed: 'Something went wrong', cancelled: 'Cancelled', queued: 'Getting ready', running: 'In progress', timed_out: 'Stopped early', interrupted: 'Stopped early' } as Record<string, string>)[state] ?? 'Unavailable'
 }
 export function stepLabel(tool: string): string {
-  return ({ document_search: 'Reading your slides', memory_read: "Checking what you’ve studied", web_search: 'Looking up sources', study_plan_create: 'Building your plan', task_create: 'Saving your study checklist', task_list: 'Checking your study checklist', memory_write: 'Remembering your preferences', verification: 'Checking the plan', verify: 'Checking the plan', finish: 'Putting it all together' } as Record<string, string>)[tool] ?? 'Working on your plan'
+  return ({ document_search: 'Reading your slides', memory_read: "Checking what you’ve studied", web_search: 'Looking up sources', study_plan_create: 'Building your plan', assessment_create: 'Creating your quiz', task_create: 'Saving your study checklist', task_list: 'Checking your study checklist', memory_write: 'Remembering your preferences', verification: 'Checking the plan', verify: 'Checking the plan', finish: 'Putting it all together' } as Record<string, string>)[tool] ?? 'Working on your plan'
 }
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
@@ -74,4 +74,13 @@ export function cleanDisplayName(name: string): string {
   const firstToken = trimmed.split(/[\s@]/, 1)[0].replace(/[.…]+$/, '')
   const identifier = /^(?=.*[a-z])(?=.*\d)[a-z\d_-]{6,}$/i.test(firstToken)
   return !trimmed || trimmed.includes('@') || /^(?:student[\s:_-]*)?\d+$/i.test(trimmed) || identifier ? 'Learner' : trimmed
+}
+
+export function savedAssessment(run: AgentRun) {
+  if (run.result?.assessment) return run.result.assessment
+  // A saved artifact checkpoint is safe content; model planning text is never a result.
+  const saved = [...run.steps].reverse().find(step => step.tool === 'assessment_create' && step.state === 'completed')
+  const value = record(saved?.observation)
+  return typeof value.artifact_id === 'string' && typeof value.title === 'string' && typeof value.question_count === 'number'
+    ? { artifact_id: value.artifact_id, title: value.title, question_count: value.question_count, difficulty: String(value.difficulty ?? ''), focus: String(value.focus ?? ''), verification: 'model_checked' as const } : undefined
 }

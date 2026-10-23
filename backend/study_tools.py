@@ -576,6 +576,7 @@ def verify_items(
     focus: str = "",
     prior_questions: list[JsonObject] | None = None,
     scope_items: list[JsonObject] | None = None,
+    *, model_fn=None,
 ) -> None:
     records = [
         {
@@ -649,7 +650,7 @@ False for partial support, missing evidence, incorrect keys or ambiguity.
         + data
     )
     for attempt in range(2):
-        verdict = model_json(prompt, tokens=700, schema=schema, verification=True)
+        verdict = (model_fn or model_json)(prompt, tokens=700, schema=schema, verification=True)
         checks_value = verdict.get("checks")
         checks: list[Any] = checks_value if isinstance(checks_value, list) else []
         complete = len(checks) == len(items) and all(
@@ -1324,7 +1325,7 @@ def artifacts(
                 """SELECT a.id, a.kind, a.payload, a.created_at, r.result
                               FROM aura_study_artifacts a LEFT JOIN aura_study_results r ON r.artifact_id = a.id
                               WHERE a.student_id = %s AND a.course_id = %s
-                              AND (%s IS NULL OR a.source_id = %s) ORDER BY a.created_at DESC LIMIT 60""",
+                              AND (%s::integer IS NULL OR a.source_id = %s) ORDER BY a.created_at DESC LIMIT 60""",
                 (student["student_id"], course_id, source_id, source_id),
             )
             return {"artifacts": [public_artifact(*row) for row in cursor.fetchall()]}

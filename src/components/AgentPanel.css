@@ -134,3 +134,9 @@
 .research-inline-source{display:inline;margin:0 3px}.research-result a:hover{text-decoration:underline;text-underline-offset:3px}
 .research-limitations{margin-top:22px;border-top:1px solid var(--plan-line);padding-top:18px;color:var(--plan-muted);font-size:13px}.research-limitations h3{font-size:15px!important}.research-limitations ul{padding-left:20px}
 @media(max-width:540px){.research-section{padding:17px 14px}}
+
+.plan-outcomes{grid-template-columns:repeat(3,minmax(0,1fr))}
+.plan-outcomes label:has(input:disabled){opacity:.6;cursor:not-allowed}
+.plan-quiz-ready{padding:24px;background:var(--plan-soft);border:1px solid var(--plan-line);border-radius:12px}
+.plan-quiz-ready p{margin:10px 0 18px}
+@media(max-width:760px){.plan-outcomes{grid-template-columns:1fr}}

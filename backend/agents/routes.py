@@ -26,7 +26,11 @@ class TaskDone(Strict):
 
 
 def public_run(run):
-    return {key: value for key, value in run.items() if key not in {'student_id', 'worker_id'}}
+    public = {key: value for key, value in run.items() if key not in {'student_id', 'worker_id'}}
+    # Answer keys stay in private artifact storage until the existing submit flow.
+    public['steps'] = [{key: value for key, value in step.items() if key not in {'action', 'plan'}}
+                       if step.get('tool') == 'assessment_create' else step for step in run.get('steps', [])]
+    return public
 
 
 def install_agents(app, llm_factory):
@@ -36,8 +40,8 @@ def install_agents(app, llm_factory):
     @router.get('/capabilities')
     def capabilities(student=Depends(get_current_student)):
         enabled = web_search_enabled()
-        return {'skills': list(SKILLS), 'tools': ['document_search', 'memory_read', 'memory_write', 'task_list', 'task_create', 'study_plan_create'] + (['web_search'] if enabled else []),
-                'web_search': enabled, 'code_execution': False, 'assessment_agent': False}
+        return {'skills': list(SKILLS), 'tools': ['document_search', 'memory_read', 'memory_write', 'task_list', 'task_create', 'study_plan_create', 'assessment_create'] + (['web_search'] if enabled else []),
+                'web_search': enabled, 'code_execution': False, 'assessment_agent': True}
 
     @router.get('/memory')
     def memory(course_id: int = Query(gt=0), student=Depends(get_current_student)):

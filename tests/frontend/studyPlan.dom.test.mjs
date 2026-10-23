@@ -19,7 +19,7 @@ globalThis.window = bootstrap.window; globalThis.document = bootstrap.window.doc
 const channels = []
 globalThis.MessageChannel = class extends NodeMessageChannel { constructor() { super(); channels.push(this) } }
 const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App } = await import(pathToFileURL(`${scratch}/components.mjs`))
-let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable
+let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable, assessmentAvailable, savedArtifacts
 const goal = 'Create a 3-day plan'
 const baseRun = (overrides = {}) => ({ id: 'run-a', source_id: 7, state: 'completed', request: { skill: 'study_plan', goal }, tokens_used: 1200, created_at: '2026-10-23T08:00:00Z', started_at: '2026-10-23T08:00:01Z', updated_at: '2026-10-23T08:00:21Z', steps: [{ tool: 'document_search', state: 'completed', plan: ['RAW INTERNAL NARRATION'], observation: { passages: [{ reference: 'D9', slide: 18 }] } }], result: { text: 'Review the membrane.\n\nDay 1: Membrane proteins\nRead and recall.\nReferences: D9', references: ['D9'], verified: false, structured_plan: { overview: 'Review the membrane.', days: [{ day: 1, title: 'Membrane proteins', details: 'Read and recall.', references: ['D9'] }] }, task_ids: ['task-a'] }, ...overrides })
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -42,7 +42,7 @@ beforeEach(() => {
   globalThis.requestAnimationFrame = callback => setTimeout(callback, 0)
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   root = createRoot(document.getElementById('root'))
-  requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false; generationUnavailable = false; webAvailable = true
+  requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false; generationUnavailable = false; webAvailable = true; assessmentAvailable = true; savedArtifacts = []
   materials = [{ source_id: 7, source_name: 'Biological membranes.ppt', source_type: 'pptx', status: 'success' }]
   globalThis.fetch = async (url, options = {}) => {
     const u = new URL(url), method = options.method || 'GET', body = options.body ? JSON.parse(options.body) : undefined
@@ -51,7 +51,7 @@ beforeEach(() => {
     let value
     if (u.pathname === '/auth/me') value = { student_id: 1, name: 'Sam Rivera', email: 'sam@example.test' }
     else if (u.pathname === '/courses') value = { courses: [{ course_id: 6, course_name: 'Biology' }] }
-    else if (u.pathname === '/agents/capabilities') value = { web_search: webAvailable }
+    else if (u.pathname === '/agents/capabilities') value = { web_search: webAvailable, assessment_agent: assessmentAvailable }
     else if (u.pathname === '/agents/runs' && method === 'GET') value = { items: jobs }
     else if (u.pathname === '/agents/runs' && method === 'POST') { value = baseRun({ id: 'run-new', state: 'queued', request: body, steps: [], result: null }); jobs.unshift(value) }
     else if (u.pathname.endsWith('/cancel')) { jobs[0].state = 'cancelled'; value = jobs[0] }
@@ -64,7 +64,7 @@ beforeEach(() => {
     else if (u.pathname === '/agents/memory' && method === 'POST') { value = { id: 'memory-new', record: body, updated_at: '2026-10-23' }; memories.push(value) }
     else if (u.pathname === '/study/materials') value = { sources: materials }
     else if (u.pathname === '/study/tools' && generationUnavailable) return new Response(JSON.stringify({ detail: 'Ollama could not complete question generation or verification. Check that it is running and retry.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
-    else if (u.pathname === '/study/artifacts') value = { artifacts: [] }
+    else if (u.pathname === '/study/artifacts') value = { artifacts: savedArtifacts.filter(item => String(item.payload.source_id) === u.searchParams.get('source_id')) }
     else if (u.pathname === '/study/progress') value = { assessment_count: 0, question_count: 0, topics: [], recent_results: [] }
     else if (u.pathname === '/preparation-jobs') value = { jobs: [] }
     else throw new Error(`Unexpected test request: ${method} ${u.pathname}`)
@@ -81,7 +81,7 @@ test('empty screen is goal-first and cannot start without selected ready materia
   await click(button('3-day plan'))
   assert(button('Create my plan').disabled)
   assert.match(visibleText(), /Choose a material/)
-  assert.equal(document.querySelectorAll('.plan-outcomes input[type=radio]').length, 2)
+  assert.equal(document.querySelectorAll('.plan-outcomes input[type=radio]').length, 3)
 })
 test('create action preserves the run POST contract and serializes options only inside goal', async () => {
   await mount(AgentPanel, props())
@@ -284,4 +284,75 @@ test('unconfigured web is disclosed while material research remains available', 
   await mount(AgentPanel, props())
   assert.match(visibleText(), /Web search is unavailable/)
   assert(!button('Start research').disabled)
+})
+
+const quizRun = () => baseRun({ request: { skill: 'assessment', goal: 'Quiz me on membrane proteins' }, result: {
+  text: 'Your quiz is ready.', verified: false, references: ['D9'], assessment: { artifact_id: 'quiz-a', title: 'Membrane knowledge check', question_count: 3, difficulty: 'beginner', focus: 'membrane proteins', verification: 'model_checked' }
+} })
+const quizArtifact = (id, source = 7) => ({ id, kind: 'assessment', created_at: '2026-10-23T08:00:00Z', result: null, payload: {
+  source_id: source, course_id: 6, source_title: 'Biological membranes.ppt', focus: 'membrane proteins',
+  items: [{ id: 'item-1', kind: 'mcq', difficulty: 'beginner', topic: 'Membranes', prompt: id === 'quiz-a' ? 'Which component forms the bilayer?' : 'A different saved quiz?', choices: [{ id: 'A', text: 'Lipids' }, { id: 'B', text: 'DNA' }, { id: 'C', text: 'Cellulose' }, { id: 'D', text: 'RNA' }], citation_ids: [] }], citations: [], coverage: { selected_passages: 1, available_passages: 1 }
+} })
+test('quiz outcome uses its own goals and preserves the existing start payload', async () => {
+  await mount(AgentPanel, props())
+  await click(document.querySelector('input[value=assessment]'))
+  assert.match(visibleText(), /Check the fundamentals/)
+  assert(!visibleText().includes('3-day plan'))
+  assert(!visibleText().includes('Days available'))
+  await click(button('Check the fundamentals'))
+  await input(document.getElementById('plan-goal'), 'Create 5 questions about membrane proteins')
+  const selects = document.querySelectorAll('.plan-option-fields select')
+  await input(selects[0], '2'); await input(selects[1], 'advanced')
+  await click(button('Create my quiz'))
+  const body = requests.find(r => r.method === 'POST' && r.path === '/agents/runs').body
+  assert.deepEqual(Object.keys(body).sort(), ['course_id', 'source_id', 'goal', 'skill', 'allow_memory_write'].sort())
+  assert.equal(body.skill, 'assessment'); assert.equal(body.source_id, 7)
+  assert.match(body.goal, /exactly 2 multiple-choice questions/)
+  assert.match(body.goal, /Difficulty: advanced/)
+  assert(!body.goal.includes('5 questions'))
+})
+test('quiz capability is disabled on an older backend', async () => {
+  assessmentAvailable = false
+  await mount(AgentPanel, props())
+  assert(document.querySelector('input[value=assessment]').disabled)
+})
+test('research examples retain research selection instead of creating a plan goal', async () => {
+  await mount(AgentPanel, props())
+  await click(document.querySelector('input[value=research_brief]'))
+  await click(button('Explore a key concept'))
+  assert(document.querySelector('input[value=research_brief]').checked)
+  assert(!document.getElementById('plan-goal').value.includes('Create a study plan'))
+  await click(button('Start research'))
+  assert.equal(requests.find(r => r.method === 'POST' && r.path === '/agents/runs').body.skill, 'research_brief')
+})
+test('saved quiz CTA opens the exact artifact with its original selected material', async () => {
+  jobs = [quizRun()]
+  const opened = []
+  await mount(AgentPanel, props({ sourceId: '8', onOpenTool: (...args) => opened.push(args) }))
+  assert.match(visibleText(), /Your quiz is ready/)
+  assert.match(visibleText(), /3 multiple-choice questions/)
+  assert(!button('Download .md'))
+  assert(!visibleText().includes('RAW INTERNAL NARRATION'))
+  await click(button('Open my quiz'))
+  assert.deepEqual(opened[0], ['Assessment', 'membrane proteins', '7', 'quiz-a'])
+})
+test('workspace refreshes saved artifacts and opens the requested quiz rather than the newest quiz', async () => {
+  jobs = [quizRun()]
+  savedArtifacts = [quizArtifact('quiz-other'), quizArtifact('quiz-a')]
+  await mount(StudyWorkspace, { user: { id: 'learner-1', fullName: 'Sam Rivera', email: 'sam@example.test' }, courses: [{ id: '6', title: 'Biology' }], courseId: '6', coursesLoading: false, coursesError: '', theme: 'dark', onCourseChange() {}, onThemeChange() {}, onChatHome() {}, onSignOut() {}, signingOut: false, sessionNotice: '' })
+  const before = requests.filter(r => r.path === '/study/artifacts').length
+  await click(button('Open my quiz'))
+  assert.match(document.body.textContent, /Which component forms the bilayer/)
+  assert(!document.body.textContent.includes('A different saved quiz?'))
+  assert.equal(new URL(window.location.href).searchParams.get('artifact'), 'quiz-a')
+  assert.equal(new URL(window.location.href).searchParams.get('source'), '7')
+  assert(requests.filter(r => r.path === '/study/artifacts').length > before)
+  assert(document.querySelector('.sw-assessment'))
+})
+test('direct quiz link restores the exact saved assessment after refresh', async () => {
+  window.history.replaceState(null, '', '/?view=study&tab=Assessment&source=7&artifact=quiz-a')
+  savedArtifacts = [quizArtifact('quiz-other'), quizArtifact('quiz-a')]
+  await mount(StudyWorkspace, { user: { id: 'learner-1', fullName: 'Sam Rivera', email: 'sam@example.test' }, courses: [{ id: '6', title: 'Biology' }], courseId: '6', coursesLoading: false, coursesError: '', theme: 'dark', onCourseChange() {}, onThemeChange() {}, onChatHome() {}, onSignOut() {}, signingOut: false, sessionNotice: '' })
+  assert.match(document.body.textContent, /Which component forms the bilayer/)
+  assert(!document.body.textContent.includes('A different saved quiz?'))
 })

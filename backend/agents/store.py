@@ -1,5 +1,6 @@
 """Parameterized PostgreSQL operations. Account identity is never model supplied."""
 import logging
+import json
 import hashlib
 import unicodedata
 from contextlib import contextmanager
@@ -7,7 +8,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from psycopg2.extras import Json, RealDictCursor
 from backend.auth_db import get_auth_connection
-from backend.agents.contracts import RunInput, TaskInput, allowed_tools, requested_days
+from backend.agents.contracts import RunInput, TaskInput, allowed_tools, requested_days, requested_questions
 from backend.agents.planning import action_key
 from backend.agents.web import MAX_WEB_SEARCHES, WebSearchUnavailable, search_web
 
@@ -76,6 +77,19 @@ def save_task(cur, student, course, task, *, namespace=''):
         DO UPDATE SET title=aura_agent_tasks.title RETURNING id,title,details,done,created_at''',
         (str(uuid4()), student, course, task.title.strip(), task.details, signature(namespace + task.title)))
     return dict(cur.fetchone())
+
+
+def assessment_history(cur, run):
+    cur.execute('''SELECT payload FROM aura_study_artifacts WHERE student_id=%s AND course_id=%s
+        AND source_id=%s AND kind IN ('assessment','flashcards') ORDER BY created_at DESC LIMIT 100''',
+        (run['student_id'], run['course_id'], run['source_id']))
+    history = []
+    for row in cur.fetchall():
+        for item in row['payload'].get('items', []):
+            answer = next((choice['text'] for choice in item.get('choices', [])
+                           if choice['id'] == item.get('correct_choice_id')), item.get('answer', ''))
+            history.append({'prompt': item.get('prompt') or item.get('question', ''), 'answer': answer})
+    return history
 
 
 class Store:
@@ -209,6 +223,8 @@ class Store:
             return True
 
     def tool(self, run, action, step):
+        if action.tool == 'assessment_create':
+            raise HTTPException(409, 'Assessment drafts must be checked before saving.')
         if action.tool == 'web_search':
             return self.web_tool(run, action, step)
         with self.locked(run) as (cur, current):
@@ -262,6 +278,8 @@ class Store:
                 output = {'passages': [{'reference': 'D'+str(row['chunk_id']), 'text': row['content'][:900],
                     'title': row['source_name'], 'page': row['page_number'], 'slide': row['slide_number']}
                     for row in cur.fetchall()], 'source': 'uploaded_material', 'untrusted_data': True}
+                if request.skill == 'assessment':
+                    output['previous_questions'] = [item['prompt'][:600] for item in assessment_history(cur, run)[:10]]
             else:
                 raise ValueError('Unknown tool.')
             # Data effects and their observed step commit as one transaction.
@@ -271,6 +289,57 @@ class Store:
                 (Json([step]), run['id'], student, course))
             return step['observation']
 
+
+    def assessment_draft(self, run, action):
+        from backend.agents.assessment import assessment_payload
+        with self.locked(run) as (cur, current):
+            request = RunInput.model_validate(current['request'])
+            if request.skill != 'assessment' or action.tool not in allowed_tools(request):
+                raise HTTPException(403, 'Assessment creation is not enabled for this run.')
+            count = requested_questions(request.goal)
+            if count is not None and len(action.questions) != count:
+                raise HTTPException(422, 'The quiz must match the requested question count.')
+            history = assessment_history(cur, run)
+            return assessment_payload(current, action, current['steps'], history), history
+
+    def finish_verification(self, run, approval=None):
+        with self.locked(run) as (cur, current):
+            index = len(current['steps']) - 1
+            if index < 0 or current['steps'][index].get('tool') != 'verification':
+                raise RunStopped()
+            cur.execute('''UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s,'state']::text[],%s::jsonb),
+                updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s''',
+                (str(index), Json('completed'), run['id'], run['student_id'], run['course_id']))
+            if approval is not None:
+                digest = hashlib.sha256(json.dumps(approval, sort_keys=True).encode()).hexdigest()
+                cur.execute('''UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s,'approval']::text[],%s::jsonb)
+                    WHERE id=%s AND student_id=%s AND course_id=%s''',
+                    (str(index), Json(digest), run['id'], run['student_id'], run['course_id']))
+
+    def save_assessment(self, run, action, step, payload):
+        from backend.agents.assessment import assessment_result
+        with self.locked(run) as (cur, current):
+            request = RunInput.model_validate(current['request'])
+            if request.skill != 'assessment' or action.tool not in allowed_tools(request):
+                raise HTTPException(403, 'Assessment creation is not enabled for this run.')
+            if (payload['agent_run_id'] != str(run['id']) or payload['source_id'] != run['source_id']
+                    or payload['course_id'] != run['course_id'] or len(payload['items']) != len(action.questions)):
+                raise HTTPException(422, 'The quiz does not match this run.')
+            if current['tokens_used'] >= request.max_tokens or len(current['steps']) >= request.max_steps:
+                raise HTTPException(409, 'The run has reached its budget.')
+            digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+            last = current['steps'][-1] if current['steps'] else {}
+            if last.get('tool') != 'verification' or last.get('state') != 'completed' or last.get('approval') != digest:
+                raise HTTPException(409, 'The quiz needs a successful source check before saving.')
+            cur.execute('''INSERT INTO aura_study_artifacts(id,student_id,course_id,source_id,kind,payload)
+                VALUES(%s,%s,%s,%s,'assessment',%s)''',
+                (str(run['id']), run['student_id'], run['course_id'], run['source_id'], Json(payload)))
+            result = assessment_result(run, action)
+            step.update(state='completed', observation=result['assessment'])
+            cur.execute('''UPDATE aura_agent_runs SET steps=steps || %s::jsonb,state='completed',result=%s,
+                updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s''',
+                (Json([step]), Json(result), run['id'], run['student_id'], run['course_id']))
+            return result
 
     def web_tool(self, run, action, step):
         # Reserve a paid attempt while locked, release the transaction for I/O,

@@ -113,15 +113,15 @@ path. Do not present these initial agent drafts as source-verified explanations.
 ## Still needed for the complete Phase 3
 
 - Token Factory Sandbox integration and a locked-down execution fallback.
-- Agent assessment/quiz generation and code/data-analysis skills.
+- Code/data-analysis skills. The initial MCQ assessment agent is now implemented; live quality checks and other question formats remain pending.
 - “Save as a note” directly from a beyond-material answer.
 - Stronger agent-result support checks and live skill/quality evaluation.
 - Full exit validation of all skills, cancellation and personalization with the
   actual hosted model. Reminder jobs and polished artifact panels are Phase 4.
 
 The authenticated `/agents/capabilities` endpoint reports only implemented tools
-and skills; web reports its server-side configuration state. Code execution and the
-assessment agent still report false.
+and skills; web reports its server-side configuration state. Code execution
+still reports false; the initial assessment agent now reports true.
 
 ## Verification
 
@@ -239,3 +239,66 @@ responses; no hosted model credentials are available here. Pull `main`, restart
 FastAPI and start a new run to retest the actual model. Old failed runs are not
 replayed. Select **Study plan** for a revision plan; **Research a topic** produces
 a source-separated research brief.
+
+
+## Assessment-agent increment
+
+The new **Quiz me** outcome reads selected material, drafts 1–5 multiple-choice
+questions, checks every question against its cited passages using the existing
+study verifier, and saves the complete quiz into the existing Assessment tool.
+The new skill is `assessment`; the existing run payload fields, API routes and
+database columns are preserved. `/agents/capabilities` now reports
+`assessment_agent: true`. Result JSON contains actual `assessment` metadata,
+including its saved artifact ID. No frontend field is assumed or fabricated.
+
+The model cannot call the quiz save directly. Source verification runs outside
+a database transaction, consumes the same persisted token/time/step budgets, and
+may repair an incomplete verdict once. A valid negative verdict never gets
+retried for approval. The final save rechecks account, source, active state,
+deadline, budgets and a server checkpoint tied to the exact approved payload.
+Artifact insertion and run completion commit together; a checkpoint failure
+rolls back both. Cancellation or expiry discards a late quiz. Run IDs also serve
+as artifact IDs; replay cannot create a duplicate artifact.
+
+Question structure, distinct choices, previously used questions and observed
+source IDs are validated with existing assessment rules. Recent question prompts
+are shown to the drafting agent to discourage repetition, without supplying
+private answer keys. Quiz keys and explanations are removed from public run
+steps and from the existing public assessment payload. Students answer in
+Assessment; submission uses existing grading, feedback and progress tracking.
+A source check is an AI-model check, not independent factual verification.
+
+The UI has outcome-specific examples, question count/difficulty options, a
+quiz-ready card, and **Open my quiz**. It refreshes saved artifacts and opens the
+exact quiz with the original material preserved, including via `artifact` in the
+workspace URL after refresh. This is frontend navigation, not a new API route.
+The outcome is unavailable when the backend does not advertise the capability.
+
+Validation: 15 new backend checks cover real PostgreSQL/API background execution,
+three-question publication, the existing submit path and mastery evidence,
+ownership, hidden keys, failed checks, cancellation/expiry, token/step stops,
+duplicate questions, changed payloads, replay and transaction rollback. Six new
+DOM checks cover the outcome, its POST payload, capability fallback, examples,
+exact quiz opening and refresh. No dependency, database migration or Tavily key
+is needed. Live Nemotron quiz quality still needs a local retest.
+
+Try: pull main, restart FastAPI and refresh Aura. Select **Study Plan → Quiz me**,
+choose a readable material, and ask “Quiz me on membrane proteins.” After **Done**,
+open the quiz, answer and submit, then check **Progress**. Start with 1–3 questions.
+
+
+Current validation for this increment: 240 backend checks (238 passed, two
+optional OCR checks skipped), 24 DOM checks and 11 frontend helper checks pass.
+The production frontend build passes with the two pre-existing decorative SVG
+warnings. Browser visual QA and a hosted Nemotron quiz run were not performed.
+
+Implementation map: typed decisions and count checks are in
+`backend/agents/contracts.py` and `planning.py`; the budgeted verifier is in
+`runtime.py`; source adaptation is in `assessment.py`; atomic persistence and
+approval checkpoints are in `store.py`. `routes.py` advertises the capability and
+redacts quiz drafts. `backend/study_tools.py` retains existing verification and
+grading contracts (an optional model callback lets the agent account for checker
+usage). `AgentPanel.tsx`/`.css` implement the new outcome and ready card;
+`StudyWorkspace.tsx` opens the exact saved quiz. `agentApi.ts` and
+`studyPlanModel.ts` describe the implemented result metadata. Regressions are in
+`evaluation/check_assessment_agent.py` and `tests/frontend/studyPlan.dom.test.mjs`.

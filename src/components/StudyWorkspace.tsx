@@ -52,7 +52,7 @@ export default function StudyWorkspace(props: Props) {
   const [materialsLoading, setMaterialsLoading] = useState(true)
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
   const [artifactsLoading, setArtifactsLoading] = useState(false)
-  const [selectedArtifact, setSelectedArtifact] = useState(saved.selectedArtifact ?? '')
+  const [selectedArtifact, setSelectedArtifact] = useState(link.get('artifact') ?? saved.selectedArtifact ?? '')
   const [question, setQuestion] = useState(typeof saved.question === 'string' ? saved.question : '')
   const [chats, setChats] = useState<Record<string, ChatEntry[]>>(saved.chats && typeof saved.chats === 'object' && !Array.isArray(saved.chats) ? saved.chats : {})
   const [answers, setAnswers] = useState<Record<string, Record<string, string>>>(saved.answers && typeof saved.answers === 'object' && !Array.isArray(saved.answers) ? saved.answers : {})
@@ -151,17 +151,18 @@ export default function StudyWorkspace(props: Props) {
     setTab(next); setError(''); setOpenCitation(null); setInitialPlanGoal(undefined)
     const url = new URL(window.location.href)
     url.searchParams.set('view', 'study'); url.searchParams.set('tab', next)
-    url.searchParams.delete('goal'); url.searchParams.delete('topic')
+    url.searchParams.delete('goal'); url.searchParams.delete('topic'); url.searchParams.delete('artifact')
     if (sourceId) url.searchParams.set('source', sourceId)
     else url.searchParams.delete('source')
     window.history.replaceState(null, '', url)
   }
   function changeMaterial() { setShowArchived(false); setMaterialSearch(''); materialSearchInput.current?.scrollIntoView({ block: 'center' }); materialSearchInput.current?.focus() }
-  function openPlanTool(next: 'Flashcards' | 'Assessment' | 'Summary', topic: string, source: string) {
+  function openPlanTool(next: 'Flashcards' | 'Assessment' | 'Summary', topic: string, source: string, artifactId?: string) {
     if (!activeMaterials.some(m => m.id === source)) { setError('The material for this plan is no longer active. Restore it from Materials to continue.'); return }
-    selectTab(next); setSourceId(source); setFocus(topic); setSelectedArtifact(''); setLearningMode('manual')
+    selectTab(next); setSourceId(source); setFocus(topic); setSelectedArtifact(artifactId ?? ''); setLearningMode('manual'); if (artifactId) setReload(value => value + 1)
     const url = new URL(window.location.href)
     url.searchParams.set('source', source); url.searchParams.set('topic', topic)
+    if (artifactId) url.searchParams.set('artifact', artifactId)
     window.history.replaceState(null, '', url)
   }
   function begin(label: string) { if (busyRef.current) return false; busyRef.current = true; setBusy(label); setError(''); return true }

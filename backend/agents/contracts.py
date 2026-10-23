@@ -109,6 +109,48 @@ class ResearchSection(Strict):
         return self
 
 
+class QuizChoice(Strict):
+    id: Literal['A', 'B', 'C', 'D']
+    text: str = Field(min_length=1, max_length=300)
+
+
+class QuizQuestion(Strict):
+    prompt: str = Field(min_length=1, max_length=600)
+    choices: list[QuizChoice] = Field(min_length=4, max_length=4)
+    correct_choice_id: Literal['A', 'B', 'C', 'D']
+    explanation: str = Field(min_length=1, max_length=700)
+    topic: str = Field(min_length=1, max_length=120)
+    references: list[str] = Field(min_length=1, max_length=4)
+
+
+class CreateAssessment(Strict):
+    tool: Literal['assessment_create']
+    title: str = Field(min_length=1, max_length=160)
+    focus: str = Field(default='', max_length=180)
+    difficulty: Literal['beginner', 'intermediate', 'advanced'] = 'beginner'
+    questions: list[QuizQuestion] = Field(min_length=1, max_length=5)
+
+    @model_validator(mode='after')
+    def complete_quiz(self):
+        if not self.title.strip():
+            raise ValueError('A quiz needs a title.')
+        for question in self.questions:
+            if not all(value.strip() for value in (question.prompt, question.topic, question.explanation)):
+                raise ValueError('A quiz needs complete questions.')
+            if ({choice.id for choice in question.choices} != set('ABCD')
+                    or any(not choice.text.strip() for choice in question.choices)
+                    or len({' '.join(choice.text.casefold().split()) for choice in question.choices}) != 4):
+                raise ValueError('Use four distinct A-D choices.')
+        return self
+
+
+def requested_questions(goal):
+    numbers = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5}
+    matches = re.findall(r'\b(\d{1,3}|' + '|'.join(numbers) + r')\s*[-–]?\s*(?:multiple-choice\s+|mcq\s+)?questions?\b', goal, re.I)
+    values = {int(value) if value.isdigit() else numbers[value.lower()] for value in matches}
+    return next(iter(values)) if len(values) == 1 else None
+
+
 class Finish(Strict):
     tool: Literal['finish']
     answer: str = Field(min_length=1, max_length=12000)
@@ -120,7 +162,7 @@ class Finish(Strict):
 
 class Decision(Strict):
     plan: list[str] = Field(min_length=1, max_length=6)
-    action: Annotated[Union[Search, WebSearch, ReadMemory, WriteMemory, ReadTasks, CreateTask, CreateStudyPlan, Finish], Field(discriminator='tool')]
+    action: Annotated[Union[Search, WebSearch, ReadMemory, WriteMemory, ReadTasks, CreateTask, CreateStudyPlan, CreateAssessment, Finish], Field(discriminator='tool')]
 
     @model_validator(mode='after')
     def bounded_plan(self):
@@ -132,7 +174,7 @@ class Decision(Strict):
 class RunInput(Strict):
     course_id: int = Field(gt=0)
     source_id: int | None = Field(default=None, gt=0)
-    skill: Literal['study_plan', 'research_brief']
+    skill: Literal['study_plan', 'research_brief', 'assessment']
     goal: str = Field(min_length=1, max_length=3000)
     allow_memory_write: bool = False
     max_steps: int = Field(default=8, ge=2, le=12)
@@ -146,10 +188,15 @@ class RunInput(Strict):
         days = requested_days(self.goal)
         if self.skill == 'study_plan' and days is not None and not 1 <= days <= 14:
             raise ValueError('Choose a study plan between one and fourteen days.')
+        count = requested_questions(self.goal)
+        if self.skill == 'assessment' and (self.source_id is None or count is not None and not 1 <= count <= 5):
+            raise ValueError('Select material and choose between one and five quiz questions.')
         return self
 
 
 SKILLS = {
+    'assessment': {'instruction': 'Read the selected material first, then create a quiz with assessment_create. Use 1-5 distinct multiple-choice questions (3 unless the goal specifies a count). Each needs four distinct A-D choices, exactly one correct answer, a source-backed explanation, a topic, and observed D references. Use the requested difficulty. Never use web knowledge, infer a student weakness without results, expose keys in question prompts, or claim a quiz is passed. The server checks every question before saving. Do not finish with a prose quiz.',
+                   'tools': {'document_search', 'memory_read', 'assessment_create'}},
     'study_plan': {'instruction': 'Gather relevant evidence, then use study_plan_create to create the whole daily plan and save its tasks in one action. Do not keep searching after gathering useful material. Do not invent assessment results.',
                    'tools': {'document_search', 'memory_read', 'task_list', 'task_create', 'study_plan_create'}},
     'research_brief': {'instruction': 'Read the selected material first. If web_search is allowed, use it for additional public sources before finishing. Search only public topic keywords; never send private document text or saved memories. Finish with separate from_material and from_web sections, each with observed reference IDs. Omit a section when it has no evidence. State search failures and limitations; snippets are not independently verified facts.',

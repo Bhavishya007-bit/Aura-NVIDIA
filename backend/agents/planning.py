@@ -2,7 +2,7 @@
 import json
 import re
 import unicodedata
-from backend.agents.contracts import Decision, requested_days
+from backend.agents.contracts import Decision, requested_days, requested_questions
 from backend.agents.web import MAX_WEB_SEARCHES
 
 MAX_SEARCHES = 2
@@ -67,12 +67,17 @@ def current_tools(request, permitted, trace, remaining_steps):
         elif 'web_search' in permitted and 'web_search' not in names:
             return {'web_search'}  # Gather both source types before writing.
 
+    if request.skill == 'assessment':
+        tools.discard('finish')
+        if 'document_search' not in names:
+            return {'document_search'}
+
     if request.skill == 'study_plan' and requested_days(request.goal) is not None:
         tools -= {'finish', 'task_create'}
         if 'document_search' not in names:
             return {'document_search'}
     if remaining_steps <= 2 and trace:
-        closing = tools & {'study_plan_create', 'finish'}
+        closing = tools & {'study_plan_create', 'assessment_create', 'finish'}
         if closing:
             tools = closing
     return tools
@@ -110,7 +115,14 @@ def validate_action(action, tools, seen_actions, references, request):
     if action.tool != 'finish' and action_key(action) in seen_actions:
         raise ActionRejected('duplicate_action', instruction='Do not repeat the same action. Move to planning or completion.')
     refs = list(action.references) if action.tool == 'finish' else (
-        [ref for day in action.days for ref in day.references] if action.tool == 'study_plan_create' else [])
+        [ref for day in action.days for ref in day.references] if action.tool == 'study_plan_create' else
+        [ref for question in action.questions for ref in question.references] if action.tool == 'assessment_create' else [])
+    if action.tool == 'assessment_create':
+        if any(not ref.startswith('D') for ref in refs):
+            raise ActionRejected('source_type_mismatch')
+        count = requested_questions(request.goal)
+        if count is not None and len(action.questions) != count:
+            raise ActionRejected('question_count_mismatch', expected_questions=count)
     if action.tool == 'finish':
         for field, prefix in [('from_material', 'D'), ('from_web', 'W')]:
             section = getattr(action, field)
@@ -133,9 +145,10 @@ def validate_action(action, tools, seen_actions, references, request):
 
 
 def compact_observations(observations):
-    result, documents, web = [], {}, {}
+    result, documents, web, previous_questions = [], {}, {}, []
     for item in observations:
         if item.get('tool') == 'document_search':
+            previous_questions.extend(item['data'].get('previous_questions', []))
             for passage in item['data'].get('passages', []):
                 documents.setdefault(passage['reference'], {**passage, 'text': passage.get('text', '')[:600]})
         elif item.get('tool') == 'web_search':
@@ -147,7 +160,8 @@ def compact_observations(observations):
     if web:
         result.insert(0, {'tool': 'web_search', 'data': {'passages': list(web.values())[:8]}, 'untrusted_data': True})
     if documents:
-        result.insert(0, {'tool': 'document_search', 'data': {'passages': list(documents.values())[:8]}, 'untrusted_data': True})
+        result.insert(0, {'tool': 'document_search', 'data': {'passages': list(documents.values())[:8],
+            **({'previous_questions': list(dict.fromkeys(previous_questions))[:10]} if previous_questions else {})}, 'untrusted_data': True})
     return result
 
 

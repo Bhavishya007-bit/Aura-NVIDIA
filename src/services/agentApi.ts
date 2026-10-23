@@ -7,8 +7,9 @@ export type Task = { id: string; title: string; details: string; done: boolean }
 export type StructuredPlan = { overview: string; days: { day: number; title: string; details: string; references: string[] }[] }
 export type ResearchSection = { kind: 'material' | 'web'; text: string; references: string[] }
 export type ResearchSource = { reference: string; kind: 'material' | 'web'; title: string; url?: string; slide?: number | null; page?: number | null; retrieved_at?: string }
-export type AgentCapabilities = { web_search: boolean }
-export type AgentRun = { id: string; state: string; request: { goal: string; skill: string }; source_id?: number | null; created_at?: string; started_at?: string | null; updated_at?: string; tokens_used: number; error_code?: string; steps: { tool: string; state: string; plan?: string[]; observation?: unknown; error_code?: string }[]; result?: { text: string; references: string[]; verified: boolean; structured_plan?: StructuredPlan; task_ids?: string[]; research_sections?: ResearchSection[]; sources?: ResearchSource[]; limitations?: string[]; web_status?: 'searched' | 'no_results' | 'unavailable' | 'not_configured' } }
+export type AgentCapabilities = { web_search: boolean; assessment_agent: boolean }
+export type AgentAssessment = { artifact_id: string; title: string; question_count: number; difficulty: string; focus: string; verification: 'model_checked' }
+export type AgentRun = { id: string; state: string; request: { goal: string; skill: string }; source_id?: number | null; created_at?: string; started_at?: string | null; updated_at?: string; tokens_used: number; error_code?: string; steps: { tool: string; state: string; plan?: string[]; observation?: unknown; error_code?: string }[]; result?: { text: string; references: string[]; verified: boolean; structured_plan?: StructuredPlan; task_ids?: string[]; assessment?: AgentAssessment; research_sections?: ResearchSection[]; sources?: ResearchSource[]; limitations?: string[]; web_status?: 'searched' | 'no_results' | 'unavailable' | 'not_configured' } }
 export type MemoryState = { enabled: boolean; items: MemoryItem[] }
 const decode = (value: unknown) => requireRecord(value, 'agent')
 const json = (body: unknown) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -54,6 +55,6 @@ export function getAgentCapabilities(): Promise<AgentCapabilities> {
   return requestApi('agents/capabilities', { method: 'GET' }, value => {
     const data = decode(value)
     if (typeof data.web_search !== 'boolean') throw new ApiResponseError('Invalid search capabilities.')
-    return { web_search: data.web_search }
+    return { web_search: data.web_search, assessment_agent: data.assessment_agent === true }
   })
 }
