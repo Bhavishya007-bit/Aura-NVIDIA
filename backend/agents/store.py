@@ -302,14 +302,20 @@ class Store:
             history = assessment_history(cur, run)
             return assessment_payload(current, action, current['steps'], history), history
 
-    def finish_verification(self, run, approval=None):
+    def finish_verification(self, run, approval=None, *, error=None):
         with self.locked(run) as (cur, current):
             index = len(current['steps']) - 1
             if index < 0 or current['steps'][index].get('tool') != 'verification':
                 raise RunStopped()
             cur.execute('''UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s,'state']::text[],%s::jsonb),
                 updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s''',
-                (str(index), Json('completed'), run['id'], run['student_id'], run['course_id']))
+                (str(index), Json('failed' if error else 'completed'), run['id'], run['student_id'], run['course_id']))
+            if error:
+                if approval is not None:
+                    raise ValueError('A failed check cannot approve a quiz.')
+                cur.execute('''UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s,'error_code']::text[],%s::jsonb)
+                    WHERE id=%s AND student_id=%s AND course_id=%s''',
+                    (str(index), Json(error), run['id'], run['student_id'], run['course_id']))
             if approval is not None:
                 digest = hashlib.sha256(json.dumps(approval, sort_keys=True).encode()).hexdigest()
                 cur.execute('''UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s,'approval']::text[],%s::jsonb)

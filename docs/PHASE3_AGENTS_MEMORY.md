@@ -302,3 +302,36 @@ usage). `AgentPanel.tsx`/`.css` implement the new outcome and ready card;
 `StudyWorkspace.tsx` opens the exact saved quiz. `agentApi.ts` and
 `studyPlanModel.ts` describe the implemented result metadata. Regressions are in
 `evaluation/check_assessment_agent.py` and `tests/frontend/studyPlan.dom.test.mjs`.
+
+
+## Follow-up: quiz source-check output was truncated
+
+The next live run reached document search, optional memory read and MCQ drafting.
+Its verifier then returned `finish_reason=length` at the old 700-token output cap,
+with zero reasoning tokens. This was an incomplete checker response, not a
+negative source verdict or an authentication failure. The partial output was not
+safe to approve, and the run stopped without publishing a quiz.
+
+The assessment checker now explicitly returns only item IDs and supported
+booleans, with no rewritten questions, copied passages or explanations. Its first
+output cap is 1,024 tokens. An `output_truncated` failure may retry the same check
+once with a 2,048-token cap; partial JSON is discarded. Incomplete-schema repair
+and truncation share a two-call total allowance. A valid negative verdict still
+stops immediately, and other provider failures do not receive a transport retry.
+Failed attempts are persisted as failed verification steps with a safe code.
+Every attempt counts toward the existing run's token, step and time budgets,
+including its provider-reported usage on failure. Default run limits were not
+increased. Cancellation, expiry and budget guards also apply before recovery and
+before atomic quiz publication. This changes only the assessment agent; ordinary
+study generation, tutor summaries, API routes/payloads and database fields are
+unchanged.
+
+Eleven new regressions cover recovery, second truncation, negative and invalid
+verdicts, the shared retry cap, non-truncation failures, cancellation, expiry,
+step/token stops and the real Nebius HTTP response parser with synthetic
+`finish_reason=length` and `reasoning_tokens=0`. They confirm one saved quiz,
+complete-verdict-only approval, usage accounting and no partial response or key
+leakage. All 26 assessment-agent checks pass. The full backend suite reports 251
+checks: 249 passed and two optional OCR checks skipped. No live hosted credentials
+are available here, so the same quiz still needs a local retest. Pull main,
+restart FastAPI and create a new quiz; the old failed run is not replayed.

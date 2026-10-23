@@ -17,6 +17,7 @@ from backend.agents.routes import install_agents, public_run
 from backend.agents.runtime import run_agent
 from backend.agents.store import RunStopped
 from backend.auth_routes import get_current_student
+from backend.ai.llm import LLM, LLMResponseError
 from backend import study_tools
 from evaluation import check_agents as fixtures
 from evaluation.check_agents import action, Model, SQLCursor
@@ -121,7 +122,7 @@ class AssessmentPostgres(unittest.TestCase):
         self.assertEqual(saved['tokens_used'], 2970)  # includes the source checker
         self.assertEqual(len(saved['steps']), 3)
         self.assertEqual(len(model.calls), 3)
-        self.assertEqual(model.calls[-1]['budget'], 700)
+        self.assertEqual(model.calls[-1]['budget'], 1024)
         public = json.dumps(public_run(saved), default=str)
         self.assertNotIn('correct_choice_id', public)
         self.assertNotIn('action', public_run(saved)['steps'][-1])
@@ -238,6 +239,121 @@ class AssessmentPostgres(unittest.TestCase):
         self.assertIn(quiz()['action']['questions'][0]['prompt'], context['previous_questions'])
         self.assertTrue(all(isinstance(prompt, str) for prompt in context['previous_questions']))
         self.assertNotIn('correct_choice_id', str(context))
+
+    def test_truncated_check_recovers_once_without_regenerating_the_quiz(self):
+        cut = LLMResponseError('output_truncated', max_tokens=1024, reasoning_tokens=0)
+        saved, model = self.execute([action('document_search', query='membranes'), quiz(), cut, verdict()])
+        self.assertEqual(saved['state'], 'completed', saved)
+        self.assertEqual([call['budget'] for call in model.calls[-2:]], [1024, 2048])
+        self.assertEqual(saved['tokens_used'], 3960)
+        self.assertEqual(saved['steps'][1]['state'], 'failed')
+        self.assertEqual(saved['steps'][1]['error_code'], 'output_truncated')
+        self.assertEqual(saved['steps'][2]['state'], 'completed')
+        self.assertEqual(model.calls[-2]['prompt'], model.calls[-1]['prompt'])
+        self.assertIn('No explanations', model.calls[-1]['system_prompt'])
+        self.assertEqual(len(self.artifacts()), 1)
+
+    def test_negative_verdict_after_truncation_is_not_retried_for_approval(self):
+        cut = LLMResponseError('output_truncated', max_tokens=1024)
+        saved, model = self.execute([action('document_search', query='membranes'), quiz(), cut, verdict(supported=False)])
+        self.assertEqual(saved['error_code'], 'assessment_not_supported')
+        self.assertEqual(len(model.calls), 4)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_two_truncated_responses_stop_without_a_third_check(self):
+        cut = LLMResponseError('output_truncated', max_tokens=1024)
+        saved, model = self.execute([action('document_search', query='membranes'), quiz(), cut, cut])
+        self.assertEqual(saved['error_code'], 'assessment_verification_unavailable')
+        self.assertEqual(len(model.calls), 4)
+        self.assertEqual([step['state'] for step in saved['steps'] if step['tool'] == 'verification'], ['failed', 'failed'])
+        self.assertEqual(self.artifacts(), [])
+
+    def test_schema_repair_and_truncation_share_one_two_call_limit(self):
+        cut = LLMResponseError('output_truncated', max_tokens=1024)
+        for checks in ([{'checks': []}, cut], [cut, {'checks': []}]):
+            with self.subTest(checks=checks):
+                self.setUp()
+                saved, model = self.execute([action('document_search', query='membranes'), quiz(), *checks])
+                self.assertEqual(saved['state'], 'failed')
+                self.assertEqual(saved['error_code'], 'assessment_verification_unavailable')
+                self.assertEqual(len(model.calls), 4)
+                self.assertEqual(self.artifacts(), [])
+
+    def test_non_truncation_provider_failures_do_not_retry(self):
+        error = LLMResponseError('content_json', max_tokens=1024)
+        saved, model = self.execute([action('document_search', query='membranes'), quiz(), error])
+        self.assertEqual(saved['error_code'], 'assessment_verification_unavailable')
+        self.assertEqual(len(model.calls), 3)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_cancel_during_truncated_attempt_prevents_retry_and_publication(self):
+        run = self.prepare()
+        def cancel():
+            self.store.cancel(42, 3, run['id'])
+            return LLMResponseError('output_truncated', max_tokens=1024)
+        model = QuizModel([action('document_search', query='membranes'), quiz(), cancel])
+        run_agent(self.store, run, lambda: model)
+        self.assertEqual(self.store.runs(42, 3, run['id'])['state'], 'cancelled')
+        self.assertEqual(len(model.calls), 3)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_retry_cannot_exceed_remaining_step_budget(self):
+        cut = LLMResponseError('output_truncated', max_tokens=1024)
+        saved, model = self.execute([action('document_search', query='membranes'), quiz(), cut], request(max_steps=3))
+        self.assertEqual(saved['error_code'], 'step_budget')
+        self.assertEqual(len(model.calls), 3)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_retry_preflight_cannot_exceed_remaining_token_budget(self):
+        run = self.prepare()
+        model = QuizModel([])
+        def expensive():
+            model.last_usage = {'prompt_tokens': 27500, 'completion_tokens': 1000}
+            return LLMResponseError('output_truncated', max_tokens=1024)
+        model.outputs = iter([action('document_search', query='membranes'), quiz(), expensive])
+        run_agent(self.store, run, lambda: model)
+        saved = self.store.runs(42, 3, run['id'])
+        self.assertEqual(saved['error_code'], 'token_budget')
+        self.assertEqual(saved['tokens_used'], 30480)
+        self.assertEqual(len(model.calls), 3)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_expiry_during_truncated_attempt_prevents_retry(self):
+        def expire():
+            self.bridge.query("UPDATE aura_agent_runs SET started_at=NOW()-interval '200 seconds'")
+            return LLMResponseError('output_truncated', max_tokens=1024)
+        saved, model = self.execute([action('document_search', query='membranes'), quiz(), expire])
+        self.assertEqual(saved['state'], 'timed_out')
+        self.assertEqual(len(model.calls), 3)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_retry_still_rejects_missing_or_foreign_verdict_ids(self):
+        cut = LLMResponseError('output_truncated', max_tokens=1024)
+        saved, model = self.execute([action('document_search', query='membranes'), quiz(), cut,
+                                    {'checks': [{'id': 'foreign-item', 'supported': True}]}])
+        self.assertEqual(saved['state'], 'failed')
+        self.assertEqual(len(model.calls), 4)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_real_nebius_finish_length_recovers_with_complete_json_only(self):
+        from evaluation.check_study_provider import ENV, response
+        cut = response(content='PRIVATE_PARTIAL_CHECK_RESPONSE', finish='length')
+        cut.json.return_value['usage'] = {'prompt_tokens': 3769, 'completion_tokens': 1024,
+                                         'completion_tokens_details': {'reasoning_tokens': 0}}
+        run = self.prepare()
+        with patch.dict(os.environ, ENV, clear=True), patch('backend.ai.llm.requests.post', side_effect=[
+                response(action('document_search', query='membranes')), response(quiz()), cut, response(verdict())]) as post, \
+                self.assertLogs(level='WARNING') as logs:
+            run_agent(self.store, run, LLM)
+        saved = self.store.runs(42, 3, run['id'])
+        self.assertEqual(saved['state'], 'completed', saved)
+        self.assertEqual(post.call_count, 4)
+        self.assertEqual([call.kwargs['json']['max_tokens'] for call in post.call_args_list[-2:]], [1024, 2048])
+        self.assertEqual(saved['tokens_used'], 5333)
+        self.assertEqual(len(self.artifacts()), 1)
+        for text in (str(saved), ' '.join(logs.output)):
+            self.assertNotIn('PRIVATE_PARTIAL_CHECK_RESPONSE', text)
+            self.assertNotIn(ENV['NEBIUS_API_KEY'], text)
 
     @contextmanager
     def tuple_database(self):
