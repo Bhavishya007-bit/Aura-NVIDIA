@@ -25,6 +25,7 @@ from backend.agents.routes import install_agents, public_run
 from backend.agents.runtime import run_agent
 from backend.agents.store import RunStopped
 from backend.auth_routes import get_current_student
+from backend.ai.llm import LLMConnectionError
 from evaluation import check_agents as fixtures
 
 
@@ -489,6 +490,44 @@ class CodePostgres(unittest.TestCase):
         self.assertEqual(len(model.calls),2) # no extra paid judge or automatic code run
         self.assertFalse(saved['result']['verified'])
         self.assertEqual(saved['result']['code_result']['stdout'],result['stdout'])
+        answer_schema=model.calls[1]['prompt']['output_schema']['$defs']['Finish']['properties']['answer']
+        self.assertIn('complete student-facing explanation',answer_schema['description'])
+        self.assertIn('worked example',answer_schema['description'])
+        self.assertIn('Markdown belongs',model.calls[1]['system_prompt'])
+
+    def test_model_connection_failure_before_execution_is_specific_and_never_runs_code(self):
+        for timed_out in (False,True):
+            with self.subTest(timed_out=timed_out):
+                execute=Mock(return_value=observed())
+                saved,model=self.execute([LLMConnectionError(timed_out=timed_out)],execute)
+                self.assertEqual(saved['state'],'failed')
+                self.assertEqual(saved['error_code'],'model_timeout' if timed_out else 'model_connection_failed')
+                execute.assert_not_called()
+                self.assertEqual(len(model.calls),1)
+
+    def test_connection_failure_writing_explanation_preserves_executed_output_without_replay(self):
+        execute=Mock(return_value=observed(outputs=['result.csv']))
+        saved,model=self.execute([code_action(outputs=['result.csv']),LLMConnectionError()],execute)
+        self.assertEqual(saved['state'],'failed')
+        self.assertEqual(saved['error_code'],'model_connection_failed')
+        self.assertEqual(len(model.calls),2);self.assertEqual(execute.call_count,1)
+        public=public_run(saved)
+        step=public['steps'][-1]
+        self.assertEqual(step['state'],'completed')
+        self.assertEqual(step['observation']['stdout'],'4\n')
+        self.assertEqual(step['observation']['status'],'succeeded')
+        self.assertNotIn('data',step['observation']['artifacts'][0])
+
+    def test_cancellation_during_failed_model_request_is_not_overwritten(self):
+        run=self.prepare()
+        def fail_after_cancel():
+            self.store.cancel(42,3,run['id'])
+            raise LLMConnectionError()
+        model=fixtures.Model([fail_after_cancel])
+        with patch.object(sandbox,'execute') as execute:
+            run_agent(self.store,run,lambda:model)
+        self.assertEqual(self.store.runs(42,3,run['id'])['state'],'cancelled')
+        execute.assert_not_called()
 
     def test_display_narration_bounds_cannot_block_valid_code_or_add_an_execution(self):
         for plan in ('x'*181,['  '],['PRIVATE_NARRATION_'*100]):

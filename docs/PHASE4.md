@@ -17,6 +17,16 @@ Start `npm run dev` in your other terminal. Restart the backend after updating. 
 
 `tzdata` is the only added production dependency. Python's IANA timezone support needs it on Windows. There are no new frontend production dependencies. PGlite and jsdom below are test-only dependencies.
 
+## Follow-up: readable code lessons and connection failures
+
+The provider's JSON instruction previously said not to include Markdown, which conflicted with teaching instructions. It now requires a bare JSON envelope while explicitly allowing requested formatting inside string values. Code finish schemas describe the answer as the complete lesson: intuition, a worked example explaining why steps work, captured results and limitations. Comparison tables are encouraged, while explicit requests for brevity, plain text, no emojis, language or length take precedence. This uses the existing `finish.answer` field and safe renderer; it adds no model call, dependency or API field. Existing saved text is unchanged; create a fresh run to test the prompt changes.
+
+Connection and timeout exceptions now preserve fixed `model_connection_failed` or `model_timeout` reasons through the agent runtime. The UI gives recovery guidance for every outcome without attributing a model connection problem to Docker. Older `model_or_tool_unavailable` runs retain their original ambiguous reason and receive general service/tool guidance. Unknown code failures no longer assume execution is disabled. Technical codes remain inside collapsed Run details.
+
+If Python completed before the explanation request failed, its captured output and files remain available with a connection notice. A connection failure does not replay code or add automatic model retries; Retry starts a new run using the existing controls. Cancellation still prevents late failures from overwriting the run. Provider exception text, private endpoints, prompts and keys are not copied to run errors or logs.
+
+Controlled tests cover JSON formatting, transport redaction, failure before/after execution, cancellation and UI recovery/rendering. They do **not** measure live teaching accuracy or guarantee that the model follows the requested structure. Retest with the configured model and representative material before marking the remaining Phase 4 quality checks complete. The 2,000-word summary issue remains open.
+
 ## What students see
 
 - Chat, Tutor, notes, summaries, flashcard explanations and agent explanations share a safe Markdown renderer: headings, bold terms, lists, code, tables and quoted text. Source/background labels remain distinct, and existing citation buttons still open the source viewer. Model-written HTML and links are displayed as text, never executed.

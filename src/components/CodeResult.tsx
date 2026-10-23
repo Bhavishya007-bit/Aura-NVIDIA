@@ -2,6 +2,7 @@ import TeachingText from './TeachingText'
 import { useState } from 'react'
 import type { AgentRun, CodeOutput } from '../services/agentApi'
 import { downloadCodeArtifact } from '../services/agentApi'
+import { modelFailureMessage } from './studyPlanModel'
 
 export function codeFailureMessage(run: AgentRun): string {
   const lastFailure = [...run.steps].reverse().find(step => step.tool === 'code_execute' && step.state === 'failed')?.error_code
@@ -22,7 +23,7 @@ export function codeFailureMessage(run: AgentRun): string {
     invalid_result: 'Aura did not receive a complete readable execution result. Try a smaller calculation.',
     execution_timeout: 'The execution environment took too long. Try a smaller calculation.',
   }
-  return messages[code] ?? 'Aura could not finish the code run. Check that execution is enabled, or try a smaller calculation.'
+  return messages[code] ?? modelFailureMessage(code) ?? 'Aura could not finish the code run. Please try again; Run details may help explain what happened.'
 }
 
 export function savedCodeOutput(run: AgentRun): CodeOutput | undefined {
@@ -52,6 +53,7 @@ export default function CodeResult({ run, courseId }: { run: AgentRun; courseId:
   return <div className="plan-code-result">
     <p role="status">{output.status === 'succeeded' ? 'Python finished successfully.' : output.status === 'timed_out' ? 'The calculation reached its time limit.' : 'Python stopped with an error.'}</p>
     <p className="plan-caption">These are captured execution results. A successful run does not verify the explanation or the underlying data.</p>
+    {run.state === 'failed' && modelFailureMessage(run.error_code) && <p className="plan-notice plan-notice--warning" role="status">{codeFailureMessage(run)} Your captured Python output is saved below.</p>}
     {run.result?.text && <TeachingText text={run.result.text} />}
     {program && <details><summary>View Python code</summary><pre tabIndex={0}>{program}</pre></details>}
     <section aria-label="Python output"><h3>Output</h3><pre tabIndex={0}>{output.stdout || 'No printed output.'}</pre>{output.stdout_truncated && <p className="plan-caption">Output was shortened to fit the capture limit.</p>}</section>

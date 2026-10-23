@@ -609,3 +609,38 @@ test('code decision-format failures give retry guidance without blaming executio
   assert.equal(start.body.skill,'code_analysis')
   assert.match(start.body.goal,/Compare linear and binary search/)
 })
+
+test('model connection failures explain recovery for every outcome without blaming Docker', async () => {
+  for (const skill of ['code_analysis','study_plan','research_brief','assessment']) {
+    jobs=[baseRun({id:`network-${skill}`,state:'failed',request:{skill,goal:'Explain this topic'},error_code:'model_connection_failed',result:null,steps:[]})]
+    await mount(AgentPanel,props({storageKey:`network-${skill}`}))
+    assert.match(visibleText(),/could not connect to the AI service/)
+    assert(!visibleText().includes('model_connection_failed'))
+    assert(!visibleText().includes('Docker'))
+    assert(!visibleText().includes('Check that execution is enabled'))
+    assert(button('Retry'))
+    await act(async()=>{root.unmount();await tick()})
+    root=createRoot(document.getElementById('root'))
+  }
+})
+
+test('a failed explanation retains successful Python output and names the connection problem', async () => {
+  jobs=[baseRun({state:'failed',source_id:null,request:{skill:'code_analysis',goal:'Compare searches'},error_code:'model_timeout',result:null,steps:[{tool:'code_execute',state:'completed',action:{tool:'code_execute',code:'print(4)'},observation:{status:'succeeded',stdout:'4\n',stderr:'',artifacts:[],missing_outputs:[],stdout_truncated:false,stderr_truncated:false}}]})]
+  await mount(AgentPanel,props())
+  assert.match(visibleText(),/AI service took too long/)
+  assert.match(visibleText(),/captured Python output is saved below/)
+  assert.match(document.querySelector('[aria-label="Python output"]').textContent,/4/)
+  assert(!visibleText().includes('model_timeout'))
+  assert(!document.querySelector('.plan-run-details').open)
+  await click(button('Retry'))
+  assert.equal(requests.find(r=>r.method==='POST'&&r.path==='/agents/runs').body.skill,'code_analysis')
+})
+
+test('a saved formatted code lesson renders sections and results without changing captured output', async () => {
+  jobs=[baseRun({request:{skill:'code_analysis',goal:'Explain search results'},steps:[],result:{text:'## 🧠 Main idea\n\n**Binary search** halves a sorted range.\n\n## Worked example\n\nFor target 7, the first midpoint has index 3 and value 7.\n\n## Results\n\n| Target | Index |\n|---|---|\n| 4 | -1 |\n\n## Limitations\n\nThese counts apply to this implementation.',code_result:{status:'succeeded',stdout:'target=4,index=-1\n',stderr:'',artifacts:[],missing_outputs:[]}}})]
+  await mount(AgentPanel,props())
+  assert.match(document.querySelector('.plan-code-result h3').textContent,/Main idea/)
+  assert.equal(document.querySelector('.plan-code-result strong').textContent,'Binary search')
+  assert.match(document.querySelector('.plan-code-result table').textContent,/4.*-1/s)
+  assert.equal(document.querySelector('[aria-label="Python output"] pre').textContent,'target=4,index=-1\n')
+})

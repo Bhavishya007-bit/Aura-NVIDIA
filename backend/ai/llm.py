@@ -30,6 +30,14 @@ class LLMResponseError(RuntimeError):
         self.reasoning_tokens = reasoning_tokens
 
 
+class LLMConnectionError(RuntimeError):
+    """Transport failure with fixed metadata; no endpoint, prompt or credentials."""
+
+    def __init__(self, *, timed_out=False):
+        super().__init__('The model connection timed out.' if timed_out else 'The model could not be reached.')
+        self.failure_code = 'model_timeout' if timed_out else 'model_connection_failed'
+
+
 def generate_verification_json(llm, prompt):
     """One judge call, plus one targeted recovery for a truncated response only."""
     configure = getattr(type(llm), 'for_verification', None)
@@ -131,7 +139,10 @@ class LLM:
         instructions = system_prompt or ""
         if json_mode:
             instructions += ("\nReturn exactly one valid JSON object matching the "
-                             "requested fields. Do not include Markdown or commentary.")
+                             "requested fields. Do not wrap the JSON object in a code fence "
+                             "or add commentary outside it. Inside JSON string values, "
+                             "use the formatting requested by the task, including Markdown "
+                             "when appropriate; escape newlines and quotes correctly.")
         if instructions:
             messages.append({"role": "system", "content": instructions.strip()})
 
@@ -304,9 +315,7 @@ class LLM:
                     time.perf_counter() - started,
                 )
                 if attempt == attempts - 1:
-                    raise RuntimeError(
-                        "Nebius could not be reached or timed out."
-                    ) from error
+                    raise LLMConnectionError(timed_out=isinstance(error, requests.Timeout)) from error
 
             except (requests.RequestException, ValueError, RuntimeError) as error:
                 logger.warning(

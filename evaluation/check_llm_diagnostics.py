@@ -3,8 +3,9 @@ import copy
 import os
 import unittest
 from unittest.mock import Mock, patch
+import requests
 
-from backend.ai.llm import LLM
+from backend.ai.llm import LLM, LLMConnectionError
 from backend.ai.source_aware import SourceAwareTutor
 from backend.ai.rag import RAG
 from evaluation.check_phase2 import FakeLLM, Retriever, verdict
@@ -85,6 +86,34 @@ class ResponseDiagnostics(unittest.TestCase):
              self.assertLogs("backend.ai.llm", "INFO") as logs:
             self.assertEqual(self.client().generate_json("private-document"), {"ok": True})
         self.assertIn("status=success max_tokens=8192 reasoning_tokens=7000", logs.output[0])
+
+    def test_json_envelope_allows_formatted_teaching_inside_strings(self):
+        response = Mock(status_code=200)
+        data = self.response()
+        answer = '## Main idea\n\n**Binary search** halves the range.\n\n| Target | Index |\n|---|---|\n| 4 | -1 |'
+        import json
+        data['choices'][0]['message']['content'] = json.dumps({'answer': answer})
+        response.json.return_value = data
+        with patch('backend.ai.llm.requests.post', return_value=response) as post:
+            result = self.client().generate_json('Explain the results', max_retries=1)
+        self.assertEqual(result['answer'], answer)
+        sent = post.call_args.kwargs['json']
+        self.assertEqual(sent['response_format'], {'type': 'json_object'})
+        self.assertIn('Inside JSON string values', sent['messages'][0]['content'])
+        self.assertNotIn('Do not include Markdown', sent['messages'][0]['content'])
+
+    def test_transport_errors_keep_fixed_reason_without_private_diagnostics(self):
+        for failure, code in ((requests.ConnectionError('private-key private-endpoint'), 'model_connection_failed'),
+                              (requests.ReadTimeout('private-document'), 'model_timeout')):
+            with self.subTest(code=code), patch('backend.ai.llm.requests.post', side_effect=failure) as post, \
+                 patch('backend.ai.llm.time.sleep') as sleep, self.assertLogs('backend.ai.llm', 'WARNING') as logs:
+                with self.assertRaises(LLMConnectionError) as caught:
+                    self.client().generate_json('private-document', max_retries=1)
+            self.assertEqual(caught.exception.failure_code, code)
+            self.assertEqual(post.call_count, 1)
+            sleep.assert_not_called()
+            for private in ('private-key', 'private-document', 'private-endpoint'):
+                self.assertNotIn(private, str(caught.exception) + ' '.join(logs.output))
 
     def test_coverage_schema_log_redacts_input_and_extra_key(self):
         data = copy.deepcopy(verdict())

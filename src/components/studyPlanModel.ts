@@ -3,6 +3,12 @@ import type { AgentRun, Task } from '../services/agentApi'
 export type PlanDay = { day: number; title: string; details: string; references: string[]; taskId?: string }
 export type PlanContent = { overview: string; days: PlanDay[]; markdown: string }
 export const isActive = (run?: AgentRun) => !!run && ['queued', 'running'].includes(run.state)
+export function modelFailureMessage(code?: string | null): string | undefined {
+  if (code === 'model_connection_failed') return 'Aura could not connect to the AI service. Check your connection and try again.'
+  if (code === 'model_timeout') return 'The AI service took too long to respond. Please try again.'
+  if (code === 'model_or_tool_unavailable') return 'An AI service or study tool was unavailable. Please try again.'
+  return undefined
+}
 export function stateLabel(state: string): string {
   return ({ completed: 'Done', budget_exhausted: 'Stopped early', failed: 'Something went wrong', cancelled: 'Cancelled', queued: 'Getting ready', running: 'In progress', timed_out: 'Stopped early', interrupted: 'Stopped early' } as Record<string, string>)[state] ?? 'Unavailable'
 }
