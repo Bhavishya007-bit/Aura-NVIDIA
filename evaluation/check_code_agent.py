@@ -84,6 +84,26 @@ class CodeContracts(unittest.TestCase):
             with self.assertRaises(sandbox.SandboxUnavailable): sandbox.parse_result(raw, 'print(4)', ['result.csv'])
         self.assertEqual([i['name'] for i in observed(exit_code=1, outputs=['result.csv'])['artifacts']], ['program.py'])
 
+    def test_explanation_context_marks_its_own_truncation_without_mutating_saved_output(self):
+        output=sandbox.parse_result(guest_result(stdout='a'*5000), 'print(4)', [])
+        output['stderr']='e'*5000
+        observation={'tool':'code_execute','data':output,'executed_program':'# program\n'+'p'*6500}
+        before=copy.deepcopy(observation)
+        compact=compact_observations([observation])[0]
+        self.assertEqual(len(compact['executed_program']),6000)
+        self.assertTrue(compact['program_truncated']);self.assertTrue(compact['untrusted_data'])
+        self.assertEqual(len(compact['data']['stdout']),4096)
+        self.assertEqual(len(compact['data']['stderr']),4096)
+        self.assertTrue(compact['data']['stdout_truncated']);self.assertTrue(compact['data']['stderr_truncated'])
+        self.assertNotIn('data',compact['data']['artifacts'][0])
+        repeated=compact_observations([compact])[0]
+        self.assertTrue(repeated['program_truncated']);self.assertTrue(repeated['data']['stdout_truncated'])
+        self.assertEqual(observation,before)
+        output['stdout']='short';output['stderr']='';output['stdout_truncated']=True
+        compact=compact_observations([{'tool':'code_execute','data':output,'executed_program':'print(4)'}])[0]
+        self.assertTrue(compact['data']['stdout_truncated']) # preserve guest-side truncation too
+        self.assertFalse(compact['data']['stderr_truncated']);self.assertFalse(compact['program_truncated'])
+
 
 class SandboxTransport(unittest.TestCase):
     def setUp(self):
@@ -451,6 +471,24 @@ class CodePostgres(unittest.TestCase):
         self.assertEqual(model.calls[1]['prompt']['observations'][0]['data']['status'], 'failed')
         self.assertNotIn('data', model.calls[1]['prompt']['observations'][0]['data']['artifacts'][0])
         self.assertEqual(model.calls[0]['prompt']['execution_context']['inputs'][0]['name'], 'data.csv')
+        self.assertEqual(model.calls[1]['prompt']['observations'][0]['executed_program'],'print(bad)')
+        attempts=model.calls[2]['prompt']['observations']
+        self.assertEqual([row['executed_program'] for row in attempts],['print(bad)','print(4)'])
+        self.assertEqual([row['data']['status'] for row in attempts],['failed','succeeded'])
+        self.assertTrue(all(row['untrusted_data'] and not row['program_truncated'] for row in attempts))
+
+    def test_explanation_receives_executed_search_checks_and_captured_absent_result(self):
+        # Controlled tool/model responses check evidence plumbing, not live model accuracy.
+        program="values = [1,3,5,7,9,11,13,15]\nassert 4 not in values\nprint('target=4,index=-1,probes=3')"
+        result=sandbox.parse_result(guest_result(stdout='target=4,index=-1,probes=3\n'),program,[])
+        saved,model=self.execute([code_action(program),fixtures.action(answer='Target 4 is absent; the observed result was -1 after 3 midpoint probes.')],lambda *a,**k:result)
+        self.assertEqual(saved['state'],'completed',saved)
+        observation=model.calls[1]['prompt']['observations'][0]
+        self.assertEqual(observation['executed_program'],program)
+        self.assertEqual(observation['data']['stdout'],'target=4,index=-1,probes=3\n')
+        self.assertEqual(len(model.calls),2) # no extra paid judge or automatic code run
+        self.assertFalse(saved['result']['verified'])
+        self.assertEqual(saved['result']['code_result']['stdout'],result['stdout'])
 
     def test_failed_code_cannot_be_presented_as_completed(self):
         saved, _ = self.execute([code_action(), fixtures.action(answer='The code failed; no computed result is available.')], lambda *a, **k: observed(1))

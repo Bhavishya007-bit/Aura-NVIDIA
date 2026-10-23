@@ -5,6 +5,27 @@ algorithm experiment or small CSV analysis. Aura writes Python, executes it, rea
 the captured output and explains the result. It can correct code once. This is a
 bounded code-analysis skill, not a terminal, package installer or full IDE.
 
+## Teaching explanations and observed evidence
+
+The explanation step now receives the actual program associated with each execution, alongside the captured stdout/stderr. Previously its context contained execution results and file metadata but omitted the program body. This matters when explaining loop bounds, early exits, copies, comparison counts and failed/corrected attempts.
+
+Program text is bounded to 6,000 characters per attempt, and stdout/stderr context to 4,096 characters each. Context shortening sets explicit truncation flags while leaving the full saved execution record and downloads unchanged. Code/comments/output stay untrusted data, and artifact bytes are still stripped from model context. Existing token, time and execution-attempt budgets remain in force.
+
+The code-only teaching policy asks for a worked example, actual printed trace/results, assumptions and complexity. Search examples should print each target/index/count and assert membership consistency. Sort examples should print a short pass/swap trace and assert against a trusted sorted copy. Algorithm comparisons should prefer defined operation counts; explicitly requested timings require repeated trials, suitable sizes and measurement caveats. Copies, recursion and stored traces must be distinguished from an algorithm's auxiliary-space bound.
+
+These changes add no judge call or automatic extra code run. They do **not** deterministically verify arbitrary natural-language explanations. Results remain `verified=false`; live model quality still needs review. Existing saved answers retain their text: regenerate or start a fresh run to use the new context and instructions.
+
+A corrected reference for the reported search example, using ordinary linear search and iterative binary search with the lower midpoint:
+
+| Target | Status | Index | Linear items inspected | Binary midpoint probes |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | Found | 0 | 1 | 3 |
+| 4 | Absent | -1 | 8 | 3 |
+| 7 | Found | 3 | 4 | 1 |
+| 15 | Found | 7 | 8 | 4 |
+
+Input: `[1, 3, 5, 7, 9, 11, 13, 15]`. A probe counts one examined element, not every primitive comparison. These are deterministic counts, not speed measurements. Bubble sort with early exit has O(n) best-case time on already sorted input and O(n²) average/worst-case time; a nearly sorted list can still require quadratic work. An in-place sorting function can use O(1) auxiliary space while its demonstration's copied input and recorded trace use additional memory.
+
 ## Local setup without another API key
 
 Keep the existing working Nebius LLM configuration. Install/start Docker Desktop

@@ -180,8 +180,15 @@ def compact_observations(observations):
         elif item.get('tool') == 'code_execute':
             from backend.agents.sandbox import public_output
             data = public_output(item['data'])
-            data['stdout'], data['stderr'] = data.get('stdout', '')[:4096], data.get('stderr', '')[:4096]
-            result.append({**item, 'data': data, 'untrusted_data': True})
+            for stream in ('stdout', 'stderr'):
+                full = data.get(stream, '')
+                data[stream] = full[:4096]
+                data[stream + '_truncated'] = data.get(stream + '_truncated', False) or len(full) > 4096
+            entry = {**item, 'data': data, 'untrusted_data': True}
+            if isinstance(item.get('executed_program'), str):
+                entry['executed_program'] = item['executed_program'][:6000]
+                entry['program_truncated'] = item.get('program_truncated', False) or len(item['executed_program']) > 6000
+            result.append(entry)
         else:
             result.append(item)
     if web:
