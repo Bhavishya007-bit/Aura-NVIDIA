@@ -1,0 +1,198 @@
+{
+  "version": "phase4-calibration-30",
+  "note": "Synthetic fixture and assistant-authored reference labels. These are NOT human-reviewed judge outputs. Live outputs and independent human labels are required.",
+  "passages": [
+    {
+      "id": 1,
+      "text": "A biological membrane is a lipid bilayer with embedded proteins."
+    },
+    {
+      "id": 2,
+      "text": "A primary key uniquely identifies a table row and cannot contain null values."
+    },
+    {
+      "id": 3,
+      "text": "Binary search requires sorted input and halves the search interval at each step."
+    },
+    {
+      "id": 4,
+      "text": "A stack follows last in, first out."
+    },
+    {
+      "id": 5,
+      "text": "A queue follows first in, first out."
+    },
+    {
+      "id": 6,
+      "text": "Lexical analysis groups source characters into tokens before parsing."
+    },
+    {
+      "id": 7,
+      "text": "A process is a running program with its own execution state."
+    },
+    {
+      "id": 8,
+      "text": "Bubble sort compares adjacent elements and swaps out-of-order pairs."
+    },
+    {
+      "id": 9,
+      "text": "FRAP measures fluorescence recovery after a small region is photobleached."
+    },
+    {
+      "id": 10,
+      "text": "A foreign key references a key in another table."
+    }
+  ],
+  "cases": [
+    {
+      "id": "cal-01",
+      "question": "What is a biological membrane made of?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-02",
+      "question": "What are two properties of a primary key?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-03",
+      "question": "What input does binary search require?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-04",
+      "question": "Which removal order does a stack use?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-05",
+      "question": "Which removal order does a queue use?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-06",
+      "question": "What does lexical analysis produce?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-07",
+      "question": "What is a process?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-08",
+      "question": "How does bubble sort move elements?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-09",
+      "question": "What recovery does FRAP measure?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-10",
+      "question": "What does a foreign key reference?",
+      "reference_label": "fully_covered"
+    },
+    {
+      "id": "cal-11",
+      "question": "What is a biological membrane made of? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-12",
+      "question": "What are two properties of a primary key? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-13",
+      "question": "What input does binary search require? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-14",
+      "question": "Which removal order does a stack use? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-15",
+      "question": "Which removal order does a queue use? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-16",
+      "question": "What does lexical analysis produce? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-17",
+      "question": "What is a process? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-18",
+      "question": "How does bubble sort move elements? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-19",
+      "question": "What recovery does FRAP measure? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-20",
+      "question": "What does a foreign key reference? Also give the discoverer's date of birth.",
+      "reference_label": "partially_covered"
+    },
+    {
+      "id": "cal-21",
+      "question": "Which researcher first discovered membranes, and where was that researcher born?",
+      "reference_label": "not_covered"
+    },
+    {
+      "id": "cal-22",
+      "question": "Which researcher first discovered primary keys, and where was that researcher born?",
+      "reference_label": "not_covered"
+    },
+    {
+      "id": "cal-23",
+      "question": "Which researcher first discovered binary search, and where was that researcher born?",
+      "reference_label": "not_covered"
+    },
+    {
+      "id": "cal-24",
+      "question": "Which researcher first discovered stacks, and where was that researcher born?",
+      "reference_label": "not_covered"
+    },
+    {
+      "id": "cal-25",
+      "question": "Which researcher first discovered queues, and where was that researcher born?",
+      "reference_label": "not_covered"
+    },
+    {
+      "id": "cal-26",
+      "question": "Which researcher first discovered lexing, and where was that researcher born?",
+      "reference_label": "not_covered"
+    },
+    {
+      "id": "cal-27",
+      "question": "Which researcher first discovered processes, and where was that researcher born?",
+      "reference_label": "not_covered"
+    },
+    {
+      "id": "cal-28",
+      "question": "Which researcher first discovered bubble sort, and where was that researcher born?",
+      "reference_label": "not_covered"
+    },
+    {
+      "id": "cal-29",
+      "question": "Which researcher first discovered FRAP, and where was that researcher born?",
+      "reference_label": "not_covered"
+    },
+    {
+      "id": "cal-30",
+      "question": "Which researcher first discovered foreign keys, and where was that researcher born?",
+      "reference_label": "not_covered"
+    }
+  ]
+}

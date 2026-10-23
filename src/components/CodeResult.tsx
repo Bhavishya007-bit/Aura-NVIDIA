@@ -1,3 +1,4 @@
+import TeachingText from './TeachingText'
 import { useState } from 'react'
 import type { AgentRun, CodeOutput } from '../services/agentApi'
 import { downloadCodeArtifact } from '../services/agentApi'
@@ -50,7 +51,7 @@ export default function CodeResult({ run, courseId }: { run: AgentRun; courseId:
   return <div className="plan-code-result">
     <p role="status">{output.status === 'succeeded' ? 'Python finished successfully.' : output.status === 'timed_out' ? 'The calculation reached its time limit.' : 'Python stopped with an error.'}</p>
     <p className="plan-caption">These are captured execution results. A successful run does not verify the explanation or the underlying data.</p>
-    {run.result?.text && <div className="plan-code-explanation">{run.result.text}</div>}
+    {run.result?.text && <TeachingText text={run.result.text} />}
     {program && <details><summary>View Python code</summary><pre tabIndex={0}>{program}</pre></details>}
     <section aria-label="Python output"><h3>Output</h3><pre tabIndex={0}>{output.stdout || 'No printed output.'}</pre>{output.stdout_truncated && <p className="plan-caption">Output was shortened to fit the capture limit.</p>}</section>
     {output.stderr && <details><summary>Python messages</summary><pre tabIndex={0}>{output.stderr}</pre>{output.stderr_truncated && <p>Messages were shortened.</p>}</details>}

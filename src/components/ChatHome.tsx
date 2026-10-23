@@ -1,3 +1,4 @@
+import TutorReply from './TutorReply'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { askTutor, generateSourceEmbeddings } from '../services/studyApi'
@@ -31,6 +32,8 @@ type Props = {
 type Entry = {
   message: ChatMessage
   citations: Citation[]
+  clarifyingQuestion?: string
+  followUpOptions?: string[]
   grounded?: boolean
   answerMode?: 'source' | 'source_plus_background' | 'general_background' | 'visual' | 'excerpt'
   scope?: string
@@ -218,7 +221,7 @@ export default function ChatHome({
       })
       if (mounted.current) {
         setEntries(current => [...current, {
-          message: response.message, citations: response.citations,
+          message: response.message, citations: response.citations, clarifyingQuestion: response.clarifyingQuestion, followUpOptions: response.followUpOptions,
           grounded: response.groundingStatus === 'grounded', answerMode: response.answerMode,
           scope: chatScope,
         }])
@@ -290,7 +293,7 @@ export default function ChatHome({
         {hasConversation && <section className="aura-home__conversation" aria-label="Conversation" aria-busy={sending}>
           {entries.map(entry => <article key={entry.message.id} className={`aura-home__message aura-home__message--${entry.message.role}`}>
             <div className="aura-home__speaker">{entry.message.role === 'student' ? 'You' : '✦ Aura'}</div>
-            <div className="aura-home__message-text">{entry.message.content}</div>
+            <div className="aura-home__message-text">{entry.message.role === 'tutor' ? <TutorReply text={entry.message.content} clarification={entry.clarifyingQuestion} followUps={entry.followUpOptions} onFollowUp={value => { setQuestion(value); composer.current?.focus() }} /> : entry.message.content}</div>
             {entry.message.role === 'student' && onCreateStudyPlan && /\b(?:study plan|revision plan|exam|prepare for|study goal|\d+[- ]day plan)\b/i.test(entry.message.content) && <button className="aura-home__plan-link" type="button" onClick={() => onCreateStudyPlan(entry.message.content, uploaded?.sourceId)}>Turn this into a study plan ↗</button>}
             {entry.message.role === 'tutor' && entry.answerMode && <small>{entry.answerMode === 'visual' ? 'Visual interpretation — check against the image' : entry.answerMode === 'excerpt' ? 'Quoted source excerpts — explanation unavailable' : entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : (entry.answerMode === 'source' || entry.grounded) ? 'Source checked' : 'Answer could not be verified'}</small>}
             {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).length > 0 && <details className="aura-home__sources">

@@ -32,3 +32,11 @@ Avoid sentence fragments and
 pronouns that depend on a point outside the same sentence. If repairing a
 draft, use the supplied feedback to remove unsupported details. Previous drafts
 and feedback are not evidence.
+
+Teaching quality v2: order the points from the central idea to mechanisms, examples
+and implications supported by the slides. Define unfamiliar terms in context.
+Prefer explanations of relationships over a compressed inventory of slide labels.
+Keep sentences readable; do not stitch unrelated facts into one long sentence.
+Do not put Markdown headings or decorative emojis in factual sentence fields;
+the application presents the verified points and citations. Explicit requested
+length, source honesty and response_request still override presentation defaults.

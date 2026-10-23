@@ -357,5 +357,7 @@ def create_private_app(legacy):
     from backend.preparation_jobs import install_preparation_jobs
     install_preparation_jobs(app, legacy, database, require_course, require_source)
     install_agents(app, legacy.LLM)
+    from backend.study_rhythm import install_study_rhythm
+    install_study_rhythm(app)
     return app
 

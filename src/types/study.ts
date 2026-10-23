@@ -84,6 +84,8 @@ export interface TutorRequest {
 }
 
 export interface TutorResponse {
+  clarifyingQuestion?: string
+  followUpOptions?: string[]
   answerMode?: 'source' | 'source_plus_background' | 'general_background' | 'visual' | 'excerpt'
   message: ChatMessage
   citations: Citation[]

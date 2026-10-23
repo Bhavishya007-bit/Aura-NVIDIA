@@ -1,3 +1,5 @@
+import StudyRhythm from './StudyRhythm'
+import TeachingText from './TeachingText'
 import { useEffect, useRef, useState } from 'react'
 import { cancelAgent, deleteMemory, getAgentCapabilities, getAgentRuns, getMemories, getTasks, saveMemory, startAgent, updateTask } from '../services/agentApi'
 import type { AgentRun, CodeInput, MemoryItem, MemoryState, Task } from '../services/agentApi'
@@ -38,16 +40,7 @@ function duration(run: AgentRun) {
   const seconds = Math.max(0, Math.round((Date.parse(run.updated_at) - Date.parse(run.started_at)) / 1000))
   return Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}m ${seconds % 60}s${isActive(run) ? ' at last update' : ''}` : 'Not reported'
 }
-// Text-only Markdown: no HTML execution, embedded images, or untrusted links.
-function RichText({ text }: { text: string }) {
-  const inline = (line: string) => line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => part.startsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : part.startsWith('`') ? <code key={i}>{part.slice(1, -1)}</code> : part)
-  return <div className="plan-prose">{text.split(/\n\s*\n/).filter(Boolean).map((block, i) => {
-    const lines = block.trim().split('\n')
-    if (lines.every(l => /^\s*[-*+]\s/.test(l))) return <ul key={i}>{lines.map((l, n) => <li key={n}>{inline(l.replace(/^\s*[-*+]\s+(?:\[[ xX]\]\s*)?/, ''))}</li>)}</ul>
-    if (lines.every(l => /^\s*\d+[.)]\s/.test(l))) return <ol key={i}>{lines.map((l, n) => <li key={n}>{inline(l.replace(/^\s*\d+[.)]\s+/, ''))}</li>)}</ol>
-    return <div key={i}>{lines.map((line, n) => /^#{1,6}\s/.test(line) ? <h4 key={n}>{inline(line.replace(/^#{1,6}\s+/, ''))}</h4> : <p key={n}>{inline(line)}</p>)}</div>
-  })}</div>
-}
+function RichText({ text }: { text: string }) { return <TeachingText text={text} /> }
 
 export default function AgentPanel({ courseId, sourceId, materialReady, storageKey, initialGoal, materialNames = {}, onOpenTool }: Props) {
   const [saved] = useState(() => readWorkspace<Draft>(storageKey, {}))
@@ -209,7 +202,7 @@ export default function AgentPanel({ courseId, sourceId, materialReady, storageK
     {memoryNote && <div className="plan-notice" role="status">Noted: {memoryNote.item.record.text}<button type="button" disabled={busy} onClick={() => void act(async () => { if (memoryNote.before) await saveMemory(courseId, memoryNote.before.record, memoryNote.before.id); else await deleteMemory(courseId, memoryNote.item.id); setMemoryNote(undefined) })}>Undo</button><button type="button" aria-label="Dismiss memory notice" onClick={() => setMemoryNote(undefined)}>✕</button></div>}
     <div className="plan-sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
     {!loaded && !error && <p className="plan-loading" role="status">Opening your saved plans…</p>}
-    {pane === 'Today' ? <section className="plan-today"><div className="plan-section-heading"><div><span className="plan-kicker">ONE STEP AT A TIME</span><h2>What will you learn today?</h2><p>Your workspace checklist. Pick up where you left off.</p></div>{tasks.length > 0 && <span className="plan-status">{completedTasks} / {tasks.length} done</span>}</div>{loaded && !tasks.length ? <div className="plan-empty"><span aria-hidden="true">✓</span><h3>A clear next step starts with a plan</h3><p>Create a study plan and your saved tasks will appear here.</p><button type="button" onClick={() => { setPane('Plan'); goalInput.current?.focus() }}>Create a plan</button></div> : <div className="plan-checklist">{tasks.map(renderTask)}</div>}<p className="plan-caption">Checkmarks save automatically. Tasks are not assigned to a calendar date yet.</p></section> : <>
+    {pane === 'Today' ? <section className="plan-today"><StudyRhythm courseId={courseId} onPractice={(topic, source) => onOpenTool('Assessment', topic, source)} /><div className="plan-section-heading"><div><span className="plan-kicker">ONE STEP AT A TIME</span><h2>What will you learn today?</h2><p>Your workspace checklist. Pick up where you left off.</p></div>{tasks.length > 0 && <span className="plan-status">{completedTasks} / {tasks.length} done</span>}</div>{loaded && !tasks.length ? <div className="plan-empty"><span aria-hidden="true">✓</span><h3>A clear next step starts with a plan</h3><p>Create a study plan and your saved tasks will appear here.</p><button type="button" onClick={() => { setPane('Plan'); goalInput.current?.focus() }}>Create a plan</button></div> : <div className="plan-checklist">{tasks.map(renderTask)}</div>}<p className="plan-caption">Checkmarks save automatically. Tasks are not assigned to a calendar date yet.</p></section> : <>
       <form className="plan-compose" onSubmit={e => { e.preventDefault(); if (canStart) void create() }}>
         <div className="plan-section-heading"><div><span className="plan-kicker">A LITTLE STRUCTURE. A LOT MORE CLARITY.</span><h2>What do you want to achieve?</h2><p>Turn your material into a next step you can follow.</p></div><span className="plan-spark" aria-hidden="true">✦</span></div>
         <fieldset className="plan-outcomes"><legend className="plan-sr-only">Choose an outcome</legend>{[{ value: 'study_plan', title: 'Study plan', text: 'A daily path through your material.', icon: '▤' }, { value: 'research_brief', title: 'Research a topic', text: webEnabled ? 'Explore your material with web sources.' : 'Explore an idea in your uploaded material.', icon: '⌕' }, { value: 'assessment', title: 'Quiz me', text: 'Check your understanding with a saved quiz.', icon: '✓' }, { value: 'code_analysis', title: 'Code & data', text: codeEnabled ? 'Run Python and explore a small CSV.' : 'Execution needs to be enabled in setup.', icon: '⌘' }].map(item => <label key={item.value} className={skill === item.value ? 'is-selected' : ''}><input type="radio" name="plan-outcome" value={item.value} disabled={(item.value === 'assessment' && !assessmentEnabled) || (item.value === 'code_analysis' && !codeEnabled)} checked={skill === item.value} onChange={() => setSkill(item.value)} /><span className="plan-outcome-icon" aria-hidden="true">{item.icon}</span><span><strong>{item.title}</strong><small>{item.text}</small></span><span className="plan-radio-dot" aria-hidden="true" /></label>)}</fieldset>

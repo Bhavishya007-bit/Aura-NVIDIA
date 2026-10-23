@@ -171,6 +171,8 @@ export async function askTutor(
     content?: string
   }
   type BackendChatResponse = {
+    clarifying_question?: string
+    follow_up_options?: string[]
     answer: string
     coverage?: { status?: string }
     sources?: BackendSource[]
@@ -267,6 +269,8 @@ export async function askTutor(
     },
     citations,
     groundingStatus,
+    clarifyingQuestion: typeof response.clarifying_question === 'string' ? response.clarifying_question.slice(0, 240) : undefined,
+    followUpOptions: Array.isArray(response.follow_up_options) ? response.follow_up_options.filter((v): v is string => typeof v === 'string').slice(0,3).map(v => v.slice(0,240)) : [],
     answerMode: response.citation_validation?.stage === 'visual_interpretation' ? 'visual' : response.citation_validation?.response_mode === 'extractive' ? 'excerpt' : response.citation_validation?.stage === 'source_plus_background' ? 'source_plus_background' : response.citation_validation?.stage === 'general_background' ? 'general_background' : response.citation_validation?.valid === true ? 'source' : undefined,
   }
 }

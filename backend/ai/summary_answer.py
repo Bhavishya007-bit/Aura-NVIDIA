@@ -56,7 +56,7 @@ class SummaryDraft(StrictModel):
         if request.get('layout') == 'table':
             return '| Point | Explanation |\n| --- | --- |\n' + '\n'.join(
                 f'| {i} | {s.replace("|", " / ")} |' for i, s in enumerate(sentences, 1))
-        groups = request.get('target_paragraphs') or (max(2, round(len(sentences) / 6)) if request.get('long_form') else 1)
+        groups = request.get('target_paragraphs') or (max(2, round(len(sentences) / 6)) if request.get('long_form') else 2 if len(sentences) > 4 else 1)
         size = max(1, (len(sentences) + groups - 1) // groups)
         return '\n\n'.join(' '.join(sentences[i:i + size]) for i in range(0, len(sentences), size))
 

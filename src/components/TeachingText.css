@@ -1,0 +1,20 @@
+.aura-teaching-text{font-size:15px;line-height:1.85;overflow-wrap:anywhere;max-width:76ch}
+.aura-teaching-text>p{margin:0 0 1em;white-space:pre-wrap;line-height:1.85!important}.aura-teaching-text>p:last-child{margin-bottom:0}
+.aura-teaching-text h3{font-size:1.08em!important;line-height:1.5;margin:1.5em 0 .6em!important;font-weight:650}.aura-teaching-text h3:first-child{margin-top:0!important}
+.aura-teaching-text ol,.aura-teaching-text ul{padding-left:1.6em;margin:.6em 0 1.2em}.aura-teaching-text li{margin:.45em 0;padding-left:.2em;white-space:pre-wrap}
+.aura-teaching-text code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88em;background:var(--sw-tint,#332b25);color:inherit;padding:2px 5px;border-radius:4px}
+.aura-teaching-code{margin:1.2em 0;min-width:0}.aura-teaching-code figcaption{font-size:12px;font-weight:600;padding:7px 12px;border:1px solid var(--sw-line,#6a665e);border-bottom:0;border-radius:8px 8px 0 0}
+.aura-teaching-code pre{white-space:pre;overflow:auto;max-height:420px;padding:16px!important;margin:0!important;border:1px solid var(--sw-line,#6a665e);border-radius:8px;background:var(--sw-bg,#252621);color:var(--sw-text,#f2efe7);font-size:13px;line-height:1.7}.aura-teaching-code figcaption+pre{border-radius:0 0 8px 8px}.aura-teaching-code pre code{padding:0;background:none;font-size:inherit}
+.aura-teaching-table{max-width:100%;overflow-x:auto;margin:1em 0}.aura-teaching-table table{border-collapse:collapse;width:100%;font-size:.92em}.aura-teaching-table th,.aura-teaching-table td{padding:10px 13px;text-align:left;border:1px solid var(--sw-line,#6a665e)}
+.aura-teaching-text blockquote{margin:1em 0;padding:8px 16px;border-left:3px solid var(--sw-accent,#efac7e);white-space:pre-wrap}
+.aura-teaching-provenance{border-bottom:1px solid var(--sw-line,#6a665e);padding-bottom:9px}.aura-teaching-provenance.is-background{border-left:3px solid var(--sw-accent,#efac7e);padding-left:12px}
+.aura-teaching-text :focus-visible{outline:3px solid var(--sw-accent,#efac7e);outline-offset:3px}
+@media(max-width:600px){.aura-teaching-text{font-size:14px}.aura-teaching-code pre{font-size:12px}}
+
+.aura-home .aura-teaching-text{--sw-tint:var(--ah-soft);--sw-line:var(--ah-border);--sw-bg:var(--ah-bg);--sw-text:var(--ah-text);--sw-accent:var(--ah-accent)}
+.aura-tutor-followups{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}.aura-tutor-followups button{font:inherit;font-size:13px;padding:8px 13px;border:1px solid var(--sw-line,var(--ah-border,#6a665e));border-radius:18px;background:transparent;color:inherit;cursor:pointer}.aura-tutor-followups button:focus-visible{outline:3px solid var(--sw-accent,var(--ah-accent,#efac7e));outline-offset:3px}
+.aura-tutor-clarification{margin:18px 0;padding:15px 18px;border-left:3px solid var(--sw-accent,var(--ah-accent,#efac7e));background:var(--sw-tint,var(--ah-soft,#332b25));border-radius:8px}.aura-tutor-clarification p{margin:7px 0 0}
+/* Keep reading spacing and chip borders above the host pages' element resets. */
+.aura-home .aura-teaching-text>p,.aura-study .aura-teaching-text>p{margin:0 0 1em;white-space:pre-wrap}
+.aura-home .aura-teaching-text>p:last-child,.aura-study .aura-teaching-text>p:last-child{margin-bottom:0}
+.aura-home .aura-tutor-followups button,.aura-study .aura-tutor-followups button{border:1px solid var(--sw-line,var(--ah-border,#6a665e));border-radius:18px;padding:8px 13px;background:transparent}

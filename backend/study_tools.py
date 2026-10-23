@@ -1103,9 +1103,14 @@ def generate_tool(
 Return JSON {{"items":[...]}}. Each item follows this schema: {schema}
 Include valid citation_ids supporting each item. The backend attaches the actual
 source text using these IDs. Do not write evidence_quote or imitate source quotations.
-Use complete connected explanations. Summary: one paragraph of 5 to 8 supported sentences.
+Use complete connected explanations. Summary: 5 to 8 supported sentences in two short paragraphs.
 Notes: sections of 4 to 6 supported sentences when sufficient evidence exists. Explain
 what the concept is, how it works and why it matters where the passages support these.
+Teaching presentation v2: define unfamiliar terms, explain causal steps clearly,
+and prefer useful source-supported examples to compressed lists of names. Use
+bold for a few key terms. Notes and summaries may use one relevant emoji in an
+item title; respect a request for plain text or no emojis. Do not decorate quiz
+choices or introduce unsupported examples. Formatting does not replace evidence.
 Flashcards: focused, specific questions with 2 to 3 sentence answers when supported.
 Assessment feedback: explain the correct answer and its reasoning using the material.
 Do not pad sparse passages or invent details to meet a sentence target.

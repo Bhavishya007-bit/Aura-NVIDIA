@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SQL_FILES = [
     "database/schema.sql", "auth-migration.sql", "backend/private_workspaces.sql",
     "backend/study_tools.sql", "backend/material_preferences.sql", "backend/learning.sql",
+    "backend/study_rhythm.sql",
 ]
 
 
@@ -56,3 +57,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

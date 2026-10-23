@@ -10,7 +10,7 @@ import { build, stop } from '../../node_modules/esbuild/lib/main.js'
 const require = createRequire(import.meta.url)
 const { JSDOM } = require(require.resolve('jsdom', { paths: [process.env.AURA_UI_TEST_MODULES || process.cwd()] }))
 const scratch = await mkdtemp(`${tmpdir()}/aura-plan-dom-`)
-const result = await build({ stdin: { contents: `export { createElement, act } from 'react'; export { createRoot } from 'react-dom/client'; export { default as AgentPanel } from './src/components/AgentPanel'; export { default as AccountMenu } from './src/components/AccountMenu'; export { default as StudyWorkspace } from './src/components/StudyWorkspace'; export { default as App } from './src/App';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', loader: { '.css': 'empty' }, define: { 'import.meta.env.VITE_API_BASE_URL': '"http://127.0.0.1:8000"', 'process.env.NODE_ENV': '"test"' }, write: false })
+const result = await build({ stdin: { contents: `export { createElement, act } from 'react'; export { createRoot } from 'react-dom/client'; export { default as AgentPanel } from './src/components/AgentPanel'; export { default as AccountMenu } from './src/components/AccountMenu'; export { default as StudyWorkspace } from './src/components/StudyWorkspace'; export { default as App } from './src/App'; export { default as TeachingText } from './src/components/TeachingText'; export { default as TutorReply } from './src/components/TutorReply'; export { default as StudyRhythm } from './src/components/StudyRhythm'; export { default as EvaluationSummary } from './src/components/EvaluationSummary';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', loader: { '.css': 'empty' }, define: { 'import.meta.env.VITE_API_BASE_URL': '"http://127.0.0.1:8000"', 'process.env.NODE_ENV': '"test"' }, write: false })
 await writeFile(`${scratch}/components.mjs`, result.outputFiles[0].text)
 // React inspects input-event support at import time. Give it a real DOM before loading.
 const bootstrap = new JSDOM('<!doctype html><div></div>')
@@ -18,8 +18,8 @@ globalThis.window = bootstrap.window; globalThis.document = bootstrap.window.doc
 // Avoid Node MessagePorts keeping React's browser scheduler alive after tests.
 const channels = []
 globalThis.MessageChannel = class extends NodeMessageChannel { constructor() { super(); channels.push(this) } }
-const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App } = await import(pathToFileURL(`${scratch}/components.mjs`))
-let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable, assessmentAvailable, codeAvailable, savedArtifacts
+const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App, TeachingText, TutorReply, StudyRhythm, EvaluationSummary } = await import(pathToFileURL(`${scratch}/components.mjs`))
+let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable, assessmentAvailable, codeAvailable, savedArtifacts, rhythm, rhythmUnavailable
 const goal = 'Create a 3-day plan'
 const baseRun = (overrides = {}) => ({ id: 'run-a', source_id: 7, state: 'completed', request: { skill: 'study_plan', goal }, tokens_used: 1200, created_at: '2026-10-23T08:00:00Z', started_at: '2026-10-23T08:00:01Z', updated_at: '2026-10-23T08:00:21Z', steps: [{ tool: 'document_search', state: 'completed', plan: ['RAW INTERNAL NARRATION'], observation: { passages: [{ reference: 'D9', slide: 18 }] } }], result: { text: 'Review the membrane.\n\nDay 1: Membrane proteins\nRead and recall.\nReferences: D9', references: ['D9'], verified: false, structured_plan: { overview: 'Review the membrane.', days: [{ day: 1, title: 'Membrane proteins', details: 'Read and recall.', references: ['D9'] }] }, task_ids: ['task-a'] }, ...overrides })
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -43,13 +43,22 @@ beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   root = createRoot(document.getElementById('root'))
   requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false; generationUnavailable = false; webAvailable = true; assessmentAvailable = true; codeAvailable = true; savedArtifacts = []
+  rhythm = { settings: { enabled: false, timezone: 'UTC', daily_hour: 9 }, reviews: [], digests: [], notice: 'In-app only.' }; rhythmUnavailable = false
   materials = [{ source_id: 7, source_name: 'Biological membranes.ppt', source_type: 'pptx', status: 'success' }]
   globalThis.fetch = async (url, options = {}) => {
     const u = new URL(url), method = options.method || 'GET', body = options.body ? JSON.parse(options.body) : undefined
     requests.push({ path: u.pathname, query: u.search, method, body })
     if (failLoads && method === 'GET' && u.pathname.startsWith('/agents/')) throw new Error('Internal database_status_code')
     let value
-    if (u.pathname === '/auth/me') value = { student_id: 1, name: 'Sam Rivera', email: 'sam@example.test' }
+    if (u.pathname.startsWith('/study/rhythm')) {
+      if(rhythmUnavailable) throw new Error('Private failure detail')
+      if(u.pathname.endsWith('/settings')) rhythm.settings = body
+      if(u.pathname.endsWith('/refresh') && !rhythm.digests.length) rhythm.digests = [{id:'digest-a',local_date:'2026-10-23',created_at:'2026-10-23T09:00:00Z',payload:{title:'Your next study session',takeaway:'Review one topic.',tasks:[],reviews:[],method:'Graded practice.'}}]
+      if(u.pathname.endsWith('/snooze')) rhythm.reviews = rhythm.reviews.filter(r=>r.source_id!==body.source_id || r.topic_key!==body.topic_key)
+      value = rhythm
+    }
+    else if(u.pathname==='/study/evaluation') value={ mode:'controlled_offline',checked_at:'2026-10-23T09:00:00Z',checks:[{category:'agent_tasks',passed:10,total:10},{category:'injection_boundaries',passed:10,total:10},{category:'provenance',passed:2,total:2}],calibration:{reviewed:0,required:30,agreement:null,false_absence_rate:null,ready:false,notice:'Do not trust an LLM judge yet: collect 30 live outputs and have a person label them.'},your_runs:{completed:2,failed:1},limitations:[] }
+    else if (u.pathname === '/auth/me') value = { student_id: 1, name: 'Sam Rivera', email: 'sam@example.test' }
     else if (u.pathname === '/courses') value = { courses: [{ course_id: 6, course_name: 'Biology' }] }
     else if (u.pathname === '/agents/capabilities') value = { web_search: webAvailable, assessment_agent: assessmentAvailable, code_execution: codeAvailable, code_backend: codeAvailable ? 'docker' : null }
     else if (u.pathname.includes('/artifacts/') && u.pathname.startsWith('/agents/runs/')) return new Response('value\n4\n', { headers: { 'Content-Type': 'text/csv' } })
@@ -467,4 +476,93 @@ test('a Windows executable-format failure explains native docker.exe selection',
   assert.match(visibleText(), /Get-Command docker.exe/)
   assert(!visibleText().includes('docker_bad_executable'))
   assert(button('Retry'))
+})
+
+test('teaching text renders clear headings, examples, lists, code and tables while escaping HTML', async () => {
+  await mount(TeachingText,{text:'## 🧠 Key idea\nA **membrane** surrounds the cell [2].\n\n1. Read the evidence.\n2. Check the example.\n\n```python\nprint("<script>bad()</script>")\n```\n\n| Term | Meaning |\n| --- | --- |\n| Lipid | Bilayer component |\n\n<img src=x onerror=bad()>\n[Open](javascript:bad())'})
+  assert.match(document.querySelector('h3').textContent,/Key idea/)
+  assert.equal(document.querySelector('strong').textContent,'membrane')
+  assert.equal(document.querySelectorAll('ol li').length,2)
+  assert.match(document.querySelector('pre code').textContent,/<script>/)
+  assert.equal(document.querySelectorAll('table tbody tr').length,1)
+  assert.equal(document.querySelectorAll('img,script,a').length,0)
+  assert.match(document.body.textContent,/\[2\]/)
+  await mount(TeachingText,{text:'**Unclosed emphasis must retain the final letters\n\n`Unclosed code must stay intact'})
+  assert.match(document.body.textContent,/\*\*Unclosed emphasis must retain the final letters/)
+  assert.match(document.body.textContent,/`Unclosed code must stay intact/)
+})
+test('tutor replies separate source and background, deduplicate clarification and offer follow-ups', async () => {
+  const picked=[]
+  await mount(TutorReply,{text:'From your material:\nA bilayer has lipids [2].\n\nBeyond your material — model knowledge, not web verified:\nGeneral explanation.\n\nWhich part is hardest?',clarification:'Which part is hardest?',followUps:['Show an example','Go deeper'],onFollowUp:v=>picked.push(v)})
+  assert.equal(document.querySelectorAll('.aura-teaching-provenance').length,2)
+  assert(document.querySelector('.is-background'))
+  assert.equal(document.body.textContent.split('Which part is hardest?').length-1,1)
+  assert(document.querySelector('aside'))
+  await click(button('Go deeper'))
+  assert.deepEqual(picked,['Go deeper'])
+  await mount(TutorReply,{text:'Clear answer.',followUps:null,onFollowUp:()=>{}})
+  assert.equal(document.querySelectorAll('.aura-tutor-followups').length,0)
+})
+test('daily rhythm is opt-in, persists settings and briefs after remount, and makes no model requests', async () => {
+  await mount(StudyRhythm,{courseId:'6',onPractice:()=>{}})
+  assert.equal(document.querySelector('[role=switch]').checked,false)
+  assert.match(visibleText(),/No email/)
+  assert.equal(document.querySelector('.study-rhythm details').open,false)
+  await input(document.querySelector('[aria-label="Digest timezone"]'),'Asia/Calcutta')
+  await input(document.querySelector('[aria-label="Daily digest hour"]'),'8')
+  await click(document.querySelector('[role=switch]'))
+  const saved=requests.find(r=>r.path==='/study/rhythm/settings')
+  assert.deepEqual(saved.body,{enabled:true,timezone:'Asia/Calcutta',daily_hour:8})
+  assert.equal(saved.query,'?course_id=6')
+  await click(button('Update due topics'))
+  assert.match(visibleText(),/Your next study session/)
+  await act(async()=>root.unmount());root=createRoot(document.getElementById('root'))
+  await mount(StudyRhythm,{courseId:'6',onPractice:()=>{}})
+  assert(document.querySelector('[role=switch]').checked)
+  assert.match(visibleText(),/2026-10-23/)
+  assert(requests.every(r=>r.path.startsWith('/study/rhythm')))
+  await click(document.querySelector('[role=switch]'))
+  assert.equal(rhythm.settings.enabled,false)
+  assert(!button('Update due topics'))
+})
+test('due practice preserves its original material and Tomorrow uses the persisted scoped API', async () => {
+  rhythm.settings.enabled=true
+  rhythm.reviews=[{source_id:12,topic_key:'lipid-bilayer',topic:'Lipid bilayer',source_name:'Membrane slides.pptx',due_at:'2026-10-22T09:00:00Z'}]
+  const opened=[]
+  await mount(StudyRhythm,{courseId:'6',onPractice:(...args)=>opened.push(args)})
+  await click(button('Practice this topic'))
+  assert.deepEqual(opened,[['Lipid bilayer','12']])
+  await click(button('Tomorrow'))
+  assert(requests.some(r=>r.path==='/study/rhythm/snooze'&&r.query==='?course_id=6'&&r.body.source_id===12&&r.body.topic_key==='lipid-bilayer'))
+  assert.equal(document.querySelectorAll('.rhythm-reviews article').length,0)
+})
+test('rhythm load failure is recoverable and course changes discard prior workspace content', async () => {
+  rhythmUnavailable=true
+  await mount(StudyRhythm,{courseId:'6',onPractice:()=>{}})
+  assert.match(document.querySelector('[role=alert]').textContent,/could not be loaded/)
+  assert(!visibleText().includes('Private failure detail'))
+  rhythmUnavailable=false
+  await click(button('Retry'))
+  assert(document.querySelector('[role=switch]'))
+  rhythm.settings.enabled=true
+  rhythm.digests=[{id:'private',local_date:'2026-10-23',created_at:'2026-10-23T09:00:00Z',payload:{title:'Previous workspace private brief',takeaway:'Only in course 6',tasks:[],reviews:[],method:'Graded'}}]
+  await act(async()=>root.unmount());root=createRoot(document.getElementById('root'))
+  await mount(StudyRhythm,{courseId:'6',onPractice:()=>{}})
+  assert.match(visibleText(),/Previous workspace/)
+  rhythm={settings:{enabled:false,timezone:'UTC',daily_hour:9},digests:[],reviews:[],notice:''}
+  await mount(StudyRhythm,{courseId:'8',onPractice:()=>{}})
+  assert(!visibleText().includes('Previous workspace'))
+  assert(requests.some(r=>r.path==='/study/rhythm'&&r.query==='?course_id=8'))
+})
+test('quality summary is collapsed and distinguishes offline passes from unmeasured human agreement', async () => {
+  await mount(EvaluationSummary,{courseId:'6'})
+  assert.equal(document.querySelector('details').open,false)
+  await click(document.querySelector('summary'))
+  assert.match(visibleText(),/10 \/ 10/)
+  assert.match(visibleText(),/2 \/ 2/)
+  assert.match(visibleText(),/0 \/ 30 outputs reviewed/)
+  assert.match(visibleText(),/Not measured/)
+  assert.match(visibleText(),/3 total · 2 completed · 1 failed/)
+  assert.match(visibleText(),/completion is not a correctness score/)
+  assert(requests.some(r=>r.path==='/study/evaluation'&&r.query==='?course_id=6'))
 })
