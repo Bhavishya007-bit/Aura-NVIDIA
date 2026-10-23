@@ -23,6 +23,8 @@ from backend.figure_tools import router as figure_router
 from backend.figure_tools import image_tutor_answer
 from backend.learning import install_learning, learner_profile, tutor_style
 from backend.ai.source_aware import SourceAwareTutor
+from backend.agents.routes import install_agents
+from backend.agents.store import tutor_memory, preferred_depth
 
 
 @contextmanager
@@ -326,11 +328,15 @@ def create_private_app(legacy):
                 )
 
         try:
+            memory = tutor_memory(student['student_id'], body.course_id)
+            style = tutor_style(profile, body.question)
+            if memory.get('examples') is True:
+                style += ' Use concrete examples when the cited evidence supports them.'
             tutor = legacy.RAG(retriever=OwnedRetriever(), llm=legacy.LLM(),
-                               learning_style=tutor_style(profile, body.question),
+                               learning_style=style,
                                include_related_background=body.include_related_background, source_first_mode=True)
             mode = body.answer_mode or ("intelligence" if body.include_related_background else "grounded")
-            return SourceAwareTutor(tutor, mode=mode, depth=body.depth).answer(
+            return SourceAwareTutor(tutor, mode=mode, depth=preferred_depth(body.question, body.depth, memory)).answer(
                 question=body.question,
                 top_k=body.top_k,
                 course_id=body.course_id,
@@ -350,5 +356,6 @@ def create_private_app(legacy):
     install_learning(app, database)
     from backend.preparation_jobs import install_preparation_jobs
     install_preparation_jobs(app, legacy, database, require_course, require_source)
+    install_agents(app, legacy.LLM)
     return app
 

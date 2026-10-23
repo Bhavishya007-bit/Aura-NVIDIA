@@ -1,0 +1,272 @@
+"""Parameterized PostgreSQL operations. Account identity is never model supplied."""
+import hashlib
+import unicodedata
+from contextlib import contextmanager
+from uuid import uuid4
+from fastapi import HTTPException
+from psycopg2.extras import Json, RealDictCursor
+from backend.auth_db import get_auth_connection
+from backend.agents.contracts import RunInput, allowed_tools
+
+ACTIVE = ('queued', 'running')
+
+
+def signature(text):
+    return hashlib.sha256(' '.join(unicodedata.normalize('NFKC', text).casefold().split()).encode()).hexdigest()
+
+
+@contextmanager
+def database():
+    connection = get_auth_connection()
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def scope(cur, student, course, source=None):
+    cur.execute('SELECT course_id FROM courses WHERE course_id=%s AND owner_student_id=%s', (course, student))
+    if cur.fetchone() is None:
+        raise HTTPException(404, 'Workspace not found.')
+    if source is not None:
+        cur.execute('SELECT source_id FROM sources WHERE source_id=%s AND course_id=%s AND owner_student_id=%s',
+                    (source, course, student))
+        if cur.fetchone() is None:
+            raise HTTPException(404, 'Material not found.')
+
+
+def enabled(cur, student, course):
+    cur.execute('SELECT enabled FROM aura_memory_settings WHERE student_id=%s AND course_id=%s', (student, course))
+    row = cur.fetchone()
+    return row is None or row['enabled']
+
+
+def memories(cur, student, course, *, for_agent=False):
+    active = enabled(cur, student, course)
+    if for_agent and not active:
+        return {'enabled': False, 'items': []}
+    cur.execute('SELECT id,record,updated_at FROM aura_memories WHERE student_id=%s AND course_id=%s ORDER BY updated_at DESC LIMIT 100', (student, course))
+    return {'enabled': active, 'items': [dict(row) for row in cur.fetchall()]}
+
+
+def save_memory(cur, student, course, record):
+    cur.execute('''SELECT COUNT(*) AS count FROM aura_memories WHERE student_id=%s AND course_id=%s
+        AND NOT (kind=%s AND dedup_key=%s)''', (student, course, record.kind, signature(record.text)))
+    if cur.fetchone()['count'] >= 100:
+        raise HTTPException(409, 'Memory is full. Delete an older record before saving another.')
+    cur.execute('''INSERT INTO aura_memories(id,student_id,course_id,kind,dedup_key,record)
+        VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(student_id,course_id,kind,dedup_key)
+        DO UPDATE SET record=EXCLUDED.record,updated_at=NOW() RETURNING id,record,updated_at''',
+        (str(uuid4()), student, course, record.kind, signature(record.text), Json(record.model_dump())))
+    return dict(cur.fetchone())
+
+
+def save_task(cur, student, course, task):
+    cur.execute('''INSERT INTO aura_agent_tasks(id,student_id,course_id,title,details,dedup_key)
+        VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(student_id,course_id,dedup_key)
+        DO UPDATE SET title=aura_agent_tasks.title RETURNING id,title,details,done,created_at''',
+        (str(uuid4()), student, course, task.title.strip(), task.details, signature(task.title)))
+    return dict(cur.fetchone())
+
+
+class Store:
+    def __init__(self, connect=database):
+        self.connect = connect
+
+    @contextmanager
+    def cursor(self, student=None, course=None, source=None):
+        with self.connect() as con:
+            with con.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SET LOCAL statement_timeout = '5s'")
+                cur.execute("SET LOCAL lock_timeout = '2s'")
+                if student is not None:
+                    scope(cur, student, course, source)
+                yield cur
+
+    def memory(self, student, course):
+        with self.cursor(student, course) as cur:
+            return memories(cur, student, course)
+
+    def memory_change(self, student, course, record=None, record_id=None, *, remove=False, active=None):
+        with self.cursor(student, course) as cur:
+            # Also serializes the toggle with an agent's memory write.
+            cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (student, course))
+            if active is not None:
+                cur.execute('''INSERT INTO aura_memory_settings(student_id,course_id,enabled) VALUES(%s,%s,%s)
+                    ON CONFLICT(student_id,course_id) DO UPDATE SET enabled=EXCLUDED.enabled''', (student, course, active))
+                return {'enabled': active}
+            if record_id is None:
+                return save_memory(cur, student, course, record)
+            if remove:
+                cur.execute('DELETE FROM aura_memories WHERE id=%s AND student_id=%s AND course_id=%s RETURNING id', (record_id, student, course))
+            else:
+                cur.execute('''UPDATE aura_memories SET record=%s,kind=%s,dedup_key=%s,updated_at=NOW()
+                    WHERE id=%s AND student_id=%s AND course_id=%s RETURNING id,record,updated_at''',
+                    (Json(record.model_dump()), record.kind, signature(record.text), record_id, student, course))
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(404, 'Memory not found.')
+            return dict(row)
+
+    def tasks(self, student, course):
+        with self.cursor(student, course) as cur:
+            cur.execute('SELECT id,title,details,done,created_at FROM aura_agent_tasks WHERE student_id=%s AND course_id=%s ORDER BY created_at DESC LIMIT 100', (student, course))
+            return [dict(row) for row in cur.fetchall()]
+
+    def task_done(self, student, course, task_id, done):
+        with self.cursor(student, course) as cur:
+            cur.execute('UPDATE aura_agent_tasks SET done=%s WHERE id=%s AND student_id=%s AND course_id=%s RETURNING id,title,details,done,created_at', (done, task_id, student, course))
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(404, 'Task not found.')
+            return dict(row)
+
+    def create(self, student, request):
+        with self.cursor(student, request.course_id, request.source_id) as cur:
+            cur.execute('SELECT pg_advisory_xact_lock(817264,3)')
+            cur.execute("SELECT COUNT(*) AS count FROM aura_agent_runs WHERE state IN ('queued','running')")
+            if cur.fetchone()['count'] >= 20:
+                raise HTTPException(429, 'The agent queue is full. Try again shortly.')
+            cur.execute("SELECT COUNT(*) AS count FROM aura_agent_runs WHERE student_id=%s AND state IN ('queued','running')", (student,))
+            if cur.fetchone()['count'] >= 2:
+                raise HTTPException(429, 'Finish or cancel one of your active runs first.')
+            cur.execute('''INSERT INTO aura_agent_runs(id,student_id,course_id,source_id,request)
+                VALUES(%s,%s,%s,%s,%s) RETURNING *''',
+                (str(uuid4()), student, request.course_id, request.source_id, Json(request.model_dump())))
+            return dict(cur.fetchone())
+
+    def runs(self, student, course, run_id=None):
+        with self.cursor(student, course) as cur:
+            cur.execute('''SELECT * FROM aura_agent_runs WHERE student_id=%s AND course_id=%s
+                AND (%s::uuid IS NULL OR id=%s)
+                ORDER BY CASE WHEN state IN ('queued','running') THEN 0 ELSE 1 END,created_at DESC LIMIT 20''',
+                (student, course, run_id, run_id))
+            rows = [dict(row) for row in cur.fetchall()]
+            if run_id and not rows:
+                raise HTTPException(404, 'Agent run not found.')
+            return rows[0] if run_id else rows
+
+    def cancel(self, student, course, run_id):
+        with self.cursor(student, course) as cur:
+            cur.execute('''UPDATE aura_agent_runs SET state=CASE WHEN state IN ('queued','running')
+                THEN 'cancelled' ELSE state END,updated_at=NOW()
+                WHERE id=%s AND student_id=%s AND course_id=%s RETURNING *''', (run_id, student, course))
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(404, 'Agent run not found.')
+            return dict(row)
+
+    def claim(self, worker):
+        with self.cursor() as cur:
+            cur.execute('''WITH next AS (SELECT id FROM aura_agent_runs WHERE state='queued'
+                ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+                UPDATE aura_agent_runs r SET state='running',worker_id=%s,started_at=NOW(),updated_at=NOW()
+                FROM next WHERE r.id=next.id RETURNING r.*''', (worker,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def expire(self, worker=None):
+        with self.cursor() as cur:
+            if worker:
+                cur.execute("UPDATE aura_agent_runs SET state='interrupted',error_code='server_stopped',updated_at=NOW() WHERE worker_id=%s AND state='running'", (worker,))
+            else:
+                cur.execute("""UPDATE aura_agent_runs SET state='timed_out',error_code='time_budget',updated_at=NOW()
+                    WHERE state='running' AND started_at + ((request->>'max_seconds')::int * interval '1 second') < NOW()""")
+
+    @contextmanager
+    def locked(self, run):
+        with self.cursor(run['student_id'], run['course_id'], run['source_id']) as cur:
+            cur.execute('''SELECT *,EXTRACT(EPOCH FROM clock_timestamp()-started_at)::float8 AS elapsed FROM aura_agent_runs
+                WHERE id=%s AND student_id=%s AND course_id=%s FOR UPDATE''',
+                (run['id'], run['student_id'], run['course_id']))
+            current = cur.fetchone()
+            if not current or current['state'] != 'running':
+                raise RunStopped()
+            if current['elapsed'] >= current['request']['max_seconds']:
+                cur.execute("UPDATE aura_agent_runs SET state='timed_out',error_code='time_budget' WHERE id=%s AND student_id=%s", (run['id'], run['student_id']))
+            else:
+                yield cur, current
+                return
+        # Leave the transaction before raising, so the expiry is committed.
+        raise RunStopped()
+
+    def record(self, run, step=None, *, tokens=0, state=None, result=None, error=None):
+        with self.locked(run) as (cur, current):
+            cur.execute('''UPDATE aura_agent_runs SET steps=steps || %s::jsonb,tokens_used=tokens_used+%s,
+                state=COALESCE(%s,state),result=COALESCE(%s,result),error_code=%s,updated_at=NOW()
+                WHERE id=%s AND student_id=%s AND course_id=%s''',
+                (Json([step] if step else []), tokens, state, Json(result) if result is not None else None,
+                 error, run['id'], run['student_id'], run['course_id']))
+            return True
+
+    def tool(self, run, action, step):
+        with self.locked(run) as (cur, current):
+            if action.tool not in allowed_tools(RunInput.model_validate(current['request'])):
+                raise HTTPException(403, 'This tool is not enabled for the run.')
+            student, course = run['student_id'], run['course_id']
+            if action.tool == 'memory_read':
+                output = memories(cur, student, course, for_agent=True)
+                output['items'] = [{'record': {**row['record'], 'text': row['record']['text'][:300]}}
+                                   for row in output['items'][:8]]
+            elif action.tool == 'memory_write':
+                cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (student, course))
+                if not enabled(cur, student, course):
+                    raise HTTPException(409, 'Memory is turned off.')
+                output = save_memory(cur, student, course, action.record)
+            elif action.tool == 'task_list':
+                cur.execute('SELECT id,title,left(details,300) AS details,done FROM aura_agent_tasks WHERE student_id=%s AND course_id=%s ORDER BY created_at DESC LIMIT 8', (student, course))
+                output = [dict(row) for row in cur.fetchall()]
+            elif action.tool == 'task_create':
+                output = save_task(cur, student, course, action.task)
+            elif action.tool == 'document_search':
+                cur.execute('''SELECT ch.chunk_id,ch.content,ch.page_number,ch.slide_number,s.source_name
+                    FROM chunks ch JOIN sources s ON s.source_id=ch.source_id JOIN courses c ON c.course_id=s.course_id
+                    WHERE s.course_id=%s AND s.owner_student_id=%s AND c.owner_student_id=%s
+                    AND (%s::integer IS NULL OR s.source_id=%s) AND btrim(COALESCE(ch.content,''))<>''
+                    ORDER BY ts_rank_cd(to_tsvector('simple',ch.content),plainto_tsquery('simple',%s)) DESC,ch.chunk_id LIMIT 4''',
+                    (course, student, student, run['source_id'], run['source_id'], action.query))
+                output = {'passages': [{'reference': 'D'+str(row['chunk_id']), 'text': row['content'][:900],
+                    'title': row['source_name'], 'page': row['page_number'], 'slide': row['slide_number']}
+                    for row in cur.fetchall()], 'source': 'uploaded_material', 'untrusted_data': True}
+            else:
+                raise ValueError('Unknown tool.')
+            # Data effects and their observed step commit as one transaction.
+            from fastapi.encoders import jsonable_encoder
+            step['observation'] = jsonable_encoder(output)
+            cur.execute('UPDATE aura_agent_runs SET steps=steps || %s::jsonb,updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s',
+                (Json([step]), run['id'], student, course))
+            return step['observation']
+
+
+class RunStopped(Exception):
+    pass
+
+
+def preference_settings(data):
+    if not data['enabled']:
+        return {}
+    result = {}
+    for row in data['items']:
+        record = row['record']
+        if record.get('kind') != 'preference':
+            continue
+        for key in ('depth', 'examples'):
+            if key not in result and record.get(key) is not None:
+                result[key] = record[key]
+    return result
+
+
+def tutor_memory(student, course):
+    return preference_settings(Store().memory(student, course))
+
+
+def preferred_depth(question, explicit, memory):
+    from backend.ai.answer_contract import choose_depth
+    if explicit:
+        return explicit
+    current = choose_depth(question)
+    return current if current != 'standard' else memory.get('depth')

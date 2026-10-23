@@ -1,6 +1,22 @@
 
 # Changelog
 
+## 2026-10-23 — Begin Phase 3 agents, editable memory and tasks
+
+- Add typed, owner-scoped document/memory/task tools and two initial skills:
+  study plan and research brief over uploaded material.
+- Persist background runs and observations with step/token/time budgets,
+  cancellation, safe shutdown and no automatic replay of side effects.
+- Add editable typed memory, deduplication, on/off control, and depth/example
+  preferences in the text tutor. Explicit depth requests retain priority.
+- Add an Agents page with Memory, Tasks, run history, source snippets and cancel.
+- Keep agent output labelled as a draft. Web search, sandbox execution and agent
+  assessment are not yet implemented. The summary-length bug remains deferred.
+- Validation: 20 new agent/runtime/PostgreSQL/API checks pass; broader suite
+  173 passed, two optional OCR checks skipped. Frontend build passes. No live
+  hosted agent call was made; skill quality remains to be evaluated.
+
+
 ## 2026-10-22 — Check generic file summaries through selected-file support
 
 - The next live run generated two 916-word, 21-point drafts, but both were

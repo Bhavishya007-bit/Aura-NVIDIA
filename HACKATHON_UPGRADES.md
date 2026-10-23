@@ -5,7 +5,7 @@
 
 Authentication, private workspaces, multimodal document ingestion, pgvector
 retrieval, citation checking, assessments, learner estimates and source viewing
-predate this Phase 2 change.
+predate these hackathon changes.
 
 ## Confirmed integration baseline
 
@@ -23,11 +23,26 @@ establish the quality of the new coverage classifier.
 - 45 checks including real synthetic slide/PDF OCR, synthetic coverage fixtures and an updated live API collector.
 - Conversation continuity for background answers, source-heading recovery, whole-slide reading and visible extraction notices.
 
+## Phase 3 first increment — in progress
+
+- Typed agent decisions and account-scoped document, memory and task tools.
+- Durable background runs, short plans/timeline, cancellation and bounded work.
+- User-managed typed memories, deduplication, edit/delete and on/off control.
+- Depth/example preferences feed subsequent text tutoring, with explicit user
+  requests taking priority.
+- Study-plan and uploaded-material research-brief skills; agent output is clearly
+  labelled a draft. It does not inherit the tutor's source-verification badge.
+- Agents, Memory and Tasks panels inside the study workspace.
+
+Web search, sandbox/code execution and agent assessment remain pending. The
+summary-length problem is deferred by user direction, not declared resolved.
+See [Phase 3 implementation and remaining work](docs/PHASE3_AGENTS_MEMORY.md).
+
 ## Not yet demonstrated
 
 Measured production routing, real cache hit rates, live coverage/provenance exit
 metrics, human judge calibration, improved ingestion timings, web research,
-tool execution, agent loops, persistent memory, reminders, production hosting
+hosted agent-task quality, reminder jobs, production hosting
 and the final submission package. Offline tests are not model benchmarks.
 
 Full details: [Phase 2 implementation](docs/PHASE2_SOURCE_AWARE.md).

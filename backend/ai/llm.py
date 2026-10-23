@@ -57,6 +57,7 @@ class LLM:
         self.model_name = os.getenv("NEBIUS_MODEL", "").strip()
         self.task = "answer"
         self.reasoning_effort = None
+        self.last_usage = None
 
         base = os.getenv(
             "NEBIUS_BASE_URL",
@@ -193,6 +194,7 @@ class LLM:
                 completion_details = usage.get("completion_tokens_details")
                 if isinstance(completion_details, dict):
                     reasoning_tokens = _token_count(completion_details.get("reasoning_tokens"))
+                self.last_usage = {'prompt_tokens': input_tokens, 'completion_tokens': output_tokens}
 
                 failure_code = "completion_shape"
                 choices = data.get("choices")

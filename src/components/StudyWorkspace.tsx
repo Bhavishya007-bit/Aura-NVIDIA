@@ -8,6 +8,7 @@ import type { PreparationJob, UploadEntry } from '../services/preparationApi'
 import PreparationStatus from './PreparationStatus'
 import UploadBatchStatus from './UploadBatchStatus'
 import LearningPanel from './LearningPanel'
+import AgentPanel from './AgentPanel'
 import TutorCheck from './TutorCheck'
 import SourceViewer from './SourceViewer'
 import { citedNumbers, groupToolCitations } from '../services/citationDisplay'
@@ -16,8 +17,8 @@ import type { Artifact, LearningMode, Material, PracticeProgress, ToolCitation, 
 import { readWorkspace, saveWorkspace } from '../services/workspaceStorage'
 import './StudyWorkspace.css'
 
-type Tab = 'Overview' | 'Tutor' | 'Notes' | 'Summary' | 'Flashcards' | 'Assessment' | 'Progress'
-const tabs: Tab[] = ['Overview', 'Tutor', 'Notes', 'Summary', 'Flashcards', 'Assessment', 'Progress']
+type Tab = 'Overview' | 'Tutor' | 'Notes' | 'Summary' | 'Flashcards' | 'Assessment' | 'Progress' | 'Agents'
+const tabs: Tab[] = ['Overview', 'Tutor', 'Notes', 'Summary', 'Flashcards', 'Assessment', 'Progress', 'Agents']
 const iconPaths = ['M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z', 'M4 4h16v12H9l-5 4z', 'M5 5h14 M5 10h14 M5 15h14 M5 20h9', 'M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5', 'M7 3h14v15H7z M3 7v14h14', 'M4 12l5 5L20 6', 'M4 19V5 M4 19h16 M7 15l4-5 4 2 5-7']
 function WorkspaceIcon({ path }: { path: string }) { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path} /></svg> }
 const kinds: Partial<Record<Tab, ToolKind>> = { Notes: 'notes', Summary: 'summary', Flashcards: 'flashcards', Assessment: 'assessment' }
@@ -235,7 +236,7 @@ export default function StudyWorkspace(props: Props) {
     <aside className="sw-rail">
       <button className="sw-brand" onClick={props.onChatHome} disabled={!!busy} type="button"><span>A.</span>Aura</button>
       <p className="sw-rail-label">YOUR WORKSPACE</p>
-      <nav aria-label="Study tools">{tabs.map((item, index) => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} className={tab === item ? 'is-active' : ''} onClick={() => selectTab(item)}><span aria-hidden="true"><WorkspaceIcon path={iconPaths[index]} /></span>{item}</button>)}</nav>
+      <nav aria-label="Study tools">{tabs.map((item, index) => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} className={tab === item ? 'is-active' : ''} onClick={() => selectTab(item)}><span aria-hidden="true"><WorkspaceIcon path={iconPaths[index] ?? 'M4 12h16 M12 4v16'} /></span>{item}</button>)}</nav>
       <div className="sw-account"><strong title={user.fullName}>{user.fullName}</strong><small>Study account</small><button type="button" onClick={props.onSignOut} disabled={props.signingOut || !!busy}>{props.signingOut ? 'Signing out…' : 'Sign out'}</button></div>
     </aside>
     <div className="sw-shell">
@@ -265,6 +266,7 @@ export default function StudyWorkspace(props: Props) {
           <UploadBatchStatus entries={uploadEntries} busy={!!busy} onRetry={() => void upload(uploadEntries.filter(entry => entry.state === 'failed').map(entry => entry.file))} />
           <PreparationStatus pendingIds={preparationIds} courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={job => { setPreparationIds(current => current.filter(id => id !== job.id)); setReload(value => value + 1) }} />
           {busy && <div className="sw-status" role="status"><span className="sw-spinner" aria-hidden="true" />{busy}</div>}
+          {tab === 'Agents' && <AgentPanel key={`${user.id}:${courseId}`} courseId={courseId} sourceId={sourceId} materialReady={sourceReady} />}
           {tab === 'Overview' && <>
             <LearningPanel courseId={courseId} sourceId={sourceId} refreshKey={progressReload} disabled={!!busy || !sourceReady} onPractice={(mode, topic) => void startLearning(mode, topic)} />
             <section className="sw-start"><span className="sw-eyebrow">CONTINUE WITH</span><h2>{material?.title ?? 'Your first study material'}</h2><p>{material ? 'Ask a question, build revision material, or check what you know.' : 'Upload a lecture, textbook, or presentation to get started.'}</p><button className="sw-primary" type="button" disabled={!material} onClick={() => selectTab('Tutor')}>Open tutor →</button></section>
