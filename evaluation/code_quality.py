@@ -74,7 +74,7 @@ def cases():
         ('duplicates-bad', SEARCH, SEARCH_STDOUT,
          'Does not handle duplicate values (returns any match).', 'unsupported'),
         ('duplicates-good', SEARCH, SEARCH_STDOUT,
-         'The algorithms accept duplicates and can return any matching index; neither guarantees the first or last occurrence. Duplicate inputs were not tested here.', 'supported'),
+         'Both algorithms accept duplicates. This left-to-right linear scan returns the first matching index; binary search can return any matching index and does not guarantee the first or last occurrence. Duplicate inputs were not tested here.', 'supported'),
         ('csv-bad', 'import csv, io\nrows = csv.DictReader(io.StringIO("value\\n2\\n6\\n"))\nvalues = [int(row["value"]) for row in rows]\nprint("mean", sum(values)/len(values))\n',
          'mean 4.0\n', 'The synthetic CSV values are 2 and 6. The execution printed mean 8.0.', 'unsupported'),
         ('csv-good', 'import csv, io\nrows = csv.DictReader(io.StringIO("value\\n2\\n6\\n"))\nvalues = [int(row["value"]) for row in rows]\nprint("mean", sum(values)/len(values))\n',
@@ -118,6 +118,16 @@ def scores(packet, label_key='fixture_expected'):
     return result
 
 
+def fixture_warnings(packet):
+    """Keep historical packets intact, but disclose the flawed v1 good example."""
+    flawed = any(row.get('id') == 'duplicates-good' and
+                 'neither guarantees the first or last occurrence' in
+                 row.get('request', {}).get('draft_answer', '')
+                 for row in packet['records'])
+    return (['The duplicates-good reference is flawed: this linear scan guarantees the first match. Recorded fixture agreement is not a valid correctness score; review the original claims independently. New collections use corrected version 2 fixtures.']
+            if flawed else [])
+
+
 def _save(path, packet):
     # Atomic checkpoints belong to this collection; initial creation is exclusive.
     temporary = path.with_name(path.name+'.tmp')
@@ -128,7 +138,7 @@ def _save(path, packet):
 def collect(path, client_factory=production_client, model=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    packet = {'version': 1, 'created_at': datetime.now(timezone.utc).isoformat(),
+    packet = {'version': 2, 'created_at': datetime.now(timezone.utc).isoformat(),
               'evidence_origin': 'assistant-authored synthetic program/output pairs; not live code executions',
               'note': 'Fixture agreement is not human calibration or general teaching accuracy.',
               'system_prompt': REVIEW_SYSTEM, 'records': cases()}
@@ -190,7 +200,10 @@ def main(argv=None):
                   json.loads(Path(args.packet).read_text(encoding='utf-8')))
     except (OSError, ValueError, KeyError):
         parser.exit(1, 'Cannot use this packet. Collection never overwrites an existing file; choose a new --packet path.\n')
+    warnings = fixture_warnings(packet)
     print(json.dumps({'fixture_comparison': scores(packet), 'human_comparison': scores(packet, 'human_label'),
+                      'fixture_reference_status': 'known_flawed' if warnings else 'assistant_authored_not_human_calibrated',
+                      'fixture_warnings': warnings,
                       'setup_error': packet.get('setup_error'),
                       'note': 'Eight synthetic cases do not establish general accuracy. Inspect evidence independently before labelling.'}, indent=2))
     return 1 if packet.get('setup_error') or any(row.get('error') for row in packet['records']) else 0

@@ -62,6 +62,12 @@ python -m evaluation.code_quality
 
 Labels are `supported` or `unsupported`; all eight start unlabelled. The report shows human agreement only for labelled cases, separately from assistant-authored expectations. Eight synthetic cases are a diagnostic sample, not a release-quality claim. This audit has been tested with controlled model responses; no live model accuracy is claimed from those tests. It does not replace Phase 4's separate 30-output coverage-judge calibration. No application API, database field or dependency is added.
 
+#### Version 1 reference correction
+
+Reviewing a live packet exposed an error in our own `duplicates-good` fixture: it said neither algorithm guarantees the first occurrence. The supplied linear implementation scans left to right and returns immediately on equality, so it guarantees the first match. Binary search in this fixture can return any match. Version 2 corrects this example, and the production reviewer instructions explicitly distinguish the implementations.
+
+For an old packet, `python -m evaluation.code_quality` now flags this known flawed reference. The original collected verdicts, fixture expectations and empty human labels remain intact; the recorded reference score must not be presented as independent correctness. In the reviewed version 1 packet, the model accepted both the deliberately incorrect duplicate claim and this incorrectly labelled good example. The local rule caught the former, not the latter. The resulting assistant assessment is 6/8 for the model and 7/8 with local rules, rather than the original reference-based 7/8 and 8/8. This assessment is not a human label or a new live run. No recollection is needed to review the existing packet; use a new packet path only if deliberately collecting version 2 results later.
+
 A corrected reference for the reported search example, using ordinary linear search and iterative binary search with the lower midpoint:
 
 | Target | Status | Index | Linear items inspected | Binary midpoint probes |

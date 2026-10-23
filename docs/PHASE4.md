@@ -134,6 +134,8 @@ CI installs a smaller test dependency set and stubs external providers; full loc
 
 The optional `python -m evaluation.code_quality --collect-live` audit collects eight synthetic review verdicts through the production review prompt/schema/evidence shaping. It spends up to eight existing-provider calls and never runs code or accesses student data. Model verdicts, local-rule verdicts and independently entered human labels are reported separately. See `docs/CODE_ANALYSIS.md` for packet handling and review commands. This diagnostic sample does not replace the 30-case coverage calibration above, and neither the offline tests nor authored expectations establish live teaching accuracy.
 
+Version 1 contained a flawed `duplicates-good` reference: the supplied linear scan guarantees the first matching index. Version 2 corrects the example; viewing an old packet warns about the original reference score without rewriting collected outputs or human labels. Independent review remains required.
+
 ## Clean-database demo checklist
 
 Use a separate empty demo database and synthetic material, following README initialization. Do not delete your working database.

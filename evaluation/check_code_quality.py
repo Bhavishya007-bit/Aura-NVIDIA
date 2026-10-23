@@ -1,5 +1,8 @@
 """No-credit audit checks with controlled reviewer responses, never code execution."""
 import json
+import copy
+import contextlib
+import io
 from pathlib import Path
 import tempfile
 import unittest
@@ -23,6 +26,7 @@ class ReviewerAudit(unittest.TestCase):
             execute.assert_not_called()
             self.assertEqual(client.generate_json.call_count, 8)
             self.assertEqual(packet, json.loads(path.read_text()))
+            self.assertEqual(packet['version'], 2)
             self.assertTrue(all(row['human_label'] is None for row in packet['records']))
             for call in client.generate_json.call_args_list:
                 self.assertEqual(call.kwargs, {'max_retries': 1, 'system_prompt': REVIEW_SYSTEM})
@@ -45,6 +49,33 @@ class ReviewerAudit(unittest.TestCase):
                 audit.collect(path, factory)
             factory.assert_not_called()
             self.assertEqual(path.read_text(), 'keep this')
+
+    def test_duplicate_reference_distinguishes_linear_first_match_from_binary_any(self):
+        rows = {row['id']: row for row in audit.cases()}
+        answer = rows['duplicates-good']['request']['draft_answer']
+        self.assertIn('linear scan returns the first matching index', answer)
+        self.assertIn('binary search can return any matching index', answer)
+        self.assertNotIn('neither guarantees', answer)
+        self.assertEqual(audit.fixture_warnings({'records': list(rows.values())}), [])
+
+    def test_legacy_flawed_reference_is_disclosed_without_rewriting_or_human_labels(self):
+        packet = {'version': 1, 'records': audit.cases()}
+        row = next(row for row in packet['records'] if row['id'] == 'duplicates-good')
+        row['request']['draft_answer'] = 'The algorithms accept duplicates; neither guarantees the first or last occurrence.'
+        before = copy.deepcopy(packet)
+        self.assertTrue(audit.fixture_warnings(packet))
+        self.assertEqual(packet, before)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'packet.json'
+            path.write_text(json.dumps(packet))
+            raw = path.read_text()
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(audit.main(['--packet', str(path)]), 0)
+            summary = json.loads(output.getvalue())
+            self.assertEqual(summary['fixture_reference_status'], 'known_flawed')
+            self.assertEqual(summary['human_comparison']['labelled'], 0)
+            self.assertEqual(path.read_text(), raw)
 
     def test_errors_and_invalid_model_payload_are_redacted_and_checkpointed(self):
         with tempfile.TemporaryDirectory() as directory:
