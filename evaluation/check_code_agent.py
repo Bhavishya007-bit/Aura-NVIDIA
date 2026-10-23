@@ -600,6 +600,34 @@ class CodePostgres(unittest.TestCase):
         self.assertEqual(saved['result']['code_result']['stdout'],'4\n')
         self.assertEqual(execute.call_count,1);self.assertEqual(len(model.calls),5)
 
+    def test_timing_only_answer_is_corrected_even_with_approving_model_review(self):
+        bad=(Path(__file__).parent/'fixtures'/'search_timing_reviewer_miss.md').read_text()
+        fixed='Both algorithms returned index 3 for target 7. The displayed timings are 0.00s, which do not identify a winner. No comparison counters were recorded. Binary search has logarithmic worst-case complexity; linear search has linear worst-case complexity.'
+        program='print("Target 7: Linear index 3 (0.00s), Binary index 3 (0.00s)")'
+        output=sandbox.parse_result(guest_result(stdout='Target 7: Linear index 3 (0.00s), Binary index 3 (0.00s)\n'),program,[])
+        execute=Mock(return_value=output)
+        saved,model=self.execute([code_action(program),fixtures.action(answer=bad),accepted_review(),
+            {'answer':fixed},accepted_review()],execute)
+        self.assertEqual(saved['state'],'completed',saved)
+        self.assertEqual(saved['result']['text'],fixed)
+        self.assertEqual({row['rule'] for row in model.calls[2]['prompt']['deterministic_findings']},
+            {'unrecorded_comparison_counts','timer_resolution_inference','unobserved_time_unit'})
+        self.assertFalse(model.calls[4]['prompt']['deterministic_findings'])
+        self.assertEqual(execute.call_count,1);self.assertEqual(len(model.calls),5)
+
+    def test_repeated_unrecorded_timing_claims_are_withheld_despite_model_approval(self):
+        bad=(Path(__file__).parent/'fixtures'/'search_timing_reviewer_miss.md').read_text()
+        program='print("Linear index 3 (0.00s), Binary index 3 (0.00s)")'
+        output=sandbox.parse_result(guest_result(stdout='Linear index 3 (0.00s), Binary index 3 (0.00s)\n'),program,[])
+        execute=Mock(return_value=output)
+        saved,model=self.execute([code_action(program),fixtures.action(answer=bad),accepted_review(),
+            {'answer':'Updated report.\n'+bad},accepted_review()],execute)
+        self.assertEqual(saved['state'],'failed',saved)
+        self.assertEqual(saved['error_code'],'code_explanation_not_supported')
+        self.assertEqual(saved['result']['text'],'')
+        self.assertEqual(saved['result']['code_result']['stdout'],output['stdout'])
+        self.assertEqual(execute.call_count,1);self.assertEqual(len(model.calls),5)
+
     def test_failed_second_review_withholds_both_drafts_but_keeps_downloads(self):
         bad='UNSUPPORTED_DRAFT';revision='STILL_UNSUPPORTED'
         execute=Mock(return_value=observed(outputs=['result.csv']))

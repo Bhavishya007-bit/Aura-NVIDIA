@@ -127,3 +127,55 @@ def explanation_findings(answer):
     # Bound repair context without copying raw answer sentences or instructions.
     unique = {str(finding): finding for finding in findings}
     return list(unique.values())[:8]
+
+
+def execution_findings(answer, observation):
+    """Guard recognized timing-only search reports against invented count data.
+
+    This does not infer timer resolution or run the program. Unknown report
+    formats remain outside the guard; the model review still checks them.
+    """
+    data = observation.get('data', {})
+    if not isinstance(data, dict):
+        return []
+    stdout = data.get('stdout', '')
+    if not isinstance(stdout, str):
+        return []
+    times = list(re.finditer(r'\b(\d{1,18}(?:\.\d{1,18})?(?:[eE][+-]?\d{1,3})?)\s*(s|seconds?|ms|us|µs|ns)\b', stdout))
+    index_report = re.search(r'\b(?:linear|binary)[ _]+index\b', stdout, re.I)
+    time_header = re.search(r'\b(?:linear|binary)[ _]+time\b', stdout, re.I)
+    count_label = re.search(r'\b(?:linear|binary)[ _]+(?:comparisons?|comps?|probes?|checks|inspected_items)\b', stdout, re.I)
+    count_value = re.search(r'\b(?:comparisons?|comps?|probes?|checks|inspected(?:_items)?)\s*[:=]?\s*\d+|\b\d+\s+(?:comparisons?|comps?|probes?|checks)\b|\b(?:linear|binary)\s*[:=]\s*\d+\s*(?:comps?|comparisons?|probes?|checks)\b', stdout, re.I)
+    trace_label = re.search(r'\b(?:(?:linear|binary)[_ ])?(?:trace|visited)\b|\b(?:mid|midpoint)\s*[:=]', stdout, re.I)
+    if not index_report or not (times or time_header):
+        return []
+    text = _text(answer)
+    findings = []
+    number = r'(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)'
+    numeric_count = re.search(r'\b'+number+r'\s+(?:comparisons?|comps?|probes?|checks)\b', text, re.I)
+    # Count tables are quantitative assertions too, not a workaround for prose.
+    count_table = False
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        cells = [cell.strip() for cell in line.strip().strip('|').split('|')]
+        columns = [i for i, cell in enumerate(cells) if re.search(r'comparisons?|probes?|checks', cell, re.I)] if '|' in line else []
+        for row in lines[index+1:index+6] if columns else []:
+            if '|' not in row:
+                break
+            values = [cell.strip() for cell in row.strip().strip('|').split('|')]
+            if any(i < len(values) and re.fullmatch(r'[~≈]?\s*\d+(?:\.\d+)?', values[i]) for i in columns):
+                count_table = True
+    if (numeric_count or count_table) and not (count_label or count_value or trace_label):
+        findings.append({'category':'counts_and_timing','rule':'unrecorded_comparison_counts',
+            'instruction':'Visible execution evidence reports indices and times, not comparison counters. Remove numerical count/average estimates and invented count tables from this timing-only experiment. Explain qualitative complexity instead; do not relabel unrecorded numbers as measured or confirmed.'})
+    zeros_only = bool(times) and all(Decimal(match.group(1)) == 0 for match in times)
+    resolution_reported = re.search(r'\bresolution\b', stdout, re.I)
+    clock_blame = re.search(r'\btoo\s+(?:fast|small)\s+for\s+[^\n]{0,60}\b(?:perf_counter|timer|clock)\b|\b(?:perf_counter|timer|clock)\b[^\n]{0,50}\b(?:lacks?|insufficient|too low|too coarse)\b[^\n]{0,25}\b(?:precision|resolution)\b', text, re.I)
+    if zeros_only and clock_blame and not resolution_reported:
+        findings.append({'category':'counts_and_timing','rule':'timer_resolution_inference',
+            'instruction':'Displayed 0.00s values do not establish timer resolution or show that perf_counter lacks precision. Explain that the displayed timings are insufficient to identify a winner; distinguish formatting/rounding and benchmark noise from clock resolution.'})
+    unit_claim = re.search(r'\b(?:complete|completes|completed|finish|finished|execute|executed|take|takes|took|run|runs)\s+(?:in\s+)?(?:a\s+few\s+)?(?:microseconds|nanoseconds)\b', text, re.I)
+    if zeros_only and unit_claim and not re.search(r'\b(?:may|might|could|typically)\s+[^.\n]{0,25}'+re.escape(unit_claim.group(0)), text, re.I):
+        findings.append({'category':'counts_and_timing','rule':'unobserved_time_unit',
+            'instruction':'Only zero-valued displayed timings are visible. Do not claim observed microsecond/nanosecond durations from them; no such precise durations were captured in the review evidence.'})
+    return findings

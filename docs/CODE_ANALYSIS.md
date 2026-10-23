@@ -31,6 +31,14 @@ These findings force the corresponding review verdict to false even if the model
 
 The checks establish contradictions **within recognized answer text**, not truth of its data relative to execution. Unknown syntax/languages, dynamic or oversized lists, multiple distinct arrays/tables, even-length middle interpretations, and other kinds of claims remain outside this guard. The separate model review still compares the explanation with execution evidence. This narrows a demonstrated failure; it does not make arbitrary explanations verified.
 
+### Timing-only experiments
+
+A later answer reported correct indices and `0.00s` times, then added unrecorded comparison-count estimates and attributed the lack of a visible timing difference to `perf_counter` precision. The execution-aware guard now recognizes search reports containing indices and times. When the visible output provides no counter labels or traces, concrete numerical comparison claims and count tables trigger correction even if the model approves them. The editor removes these unsupported estimates and can retain qualitative complexity; it does not rerun Python to repair prose.
+
+When all displayed times are zero, recognized claims that the timer lacks precision or that observed searches finished in microseconds/nanoseconds are also flagged unless supporting clock/duration evidence is visible. A `0.00s` display alone cannot establish clock resolution or those durations. Actual counters/traces permit count discussion, and precise recorded durations permit corresponding timing discussion; the model reviewer still owns correctness of those claims.
+
+Tests replay the reported timing answer with approving model verdicts and check both successful correction and withholding of a repeated failure. These checks use the same bounded review/revision/recheck allowance and introduce no additional calls, dependencies or API fields. They are conservative English-pattern checks for recognized timing reports, not proof of arbitrary performance claims. Other output formats and kinds of claims still need model and human review.
+
 A corrected reference for the reported search example, using ordinary linear search and iterative binary search with the lower midpoint:
 
 | Target | Status | Index | Linear items inspected | Binary midpoint probes |
