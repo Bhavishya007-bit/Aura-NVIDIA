@@ -24,6 +24,8 @@ def main(argv=None):
     mode = os.getenv('AURA_CODE_BACKEND', 'disabled').strip().lower()
     try:
         if mode == 'docker':
+            client = sandbox.docker_executable()
+            print('Docker client selection: ' + ('native .exe' if client and client.lower().endswith('.exe') else 'POSIX executable' if client and sys.platform != 'win32' else 'unavailable'))
             expected = os.getenv('AURA_DOCKER_IMAGE', 'aura-code:1') == 'aura-code:1'
             print('Configured image: ' + ('aura-code:1' if expected else 'custom image (check AURA_DOCKER_IMAGE in backend/.env)'))
             sandbox.inspect_docker_image()

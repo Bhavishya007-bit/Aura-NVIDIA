@@ -7,6 +7,7 @@ export function codeFailureMessage(run: AgentRun): string {
   const code = lastFailure ?? run.error_code ?? ''
   const messages: Record<string, string> = {
     docker_cli_unavailable: 'Docker is not available to the backend. Install Docker Desktop and restart the backend terminal.',
+    docker_bad_executable: 'Windows could not launch the Docker client selected by Aura. Set the backend Docker executable to the docker.exe path shown by Get-Command docker.exe.',
     docker_daemon_unavailable: 'Aura could not connect to Docker. Start Docker Desktop, wait for the engine to be ready, then retry.',
     docker_image_missing: 'The Aura Python image is missing. Build it from sandbox/Dockerfile, then retry.',
     docker_requires_linux: 'Aura needs Linux containers. Switch Docker Desktop to Linux containers, then rebuild the Python image.',

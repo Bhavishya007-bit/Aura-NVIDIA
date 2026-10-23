@@ -459,3 +459,12 @@ test('older failed runs with a saved step reason still show Docker connection gu
   assert.match(visibleText(), /Start Docker Desktop/)
   assert(!visibleText().includes('docker_daemon_unavailable'))
 })
+
+test('a Windows executable-format failure explains native docker.exe selection', async () => {
+  jobs = [baseRun({ state: 'failed', request: { skill: 'code_analysis', goal: 'Teach me bubble sort' }, error_code: 'docker_bad_executable', result: null, steps: [] })]
+  await mount(AgentPanel, props())
+  assert.match(visibleText(), /Windows could not launch/)
+  assert.match(visibleText(), /Get-Command docker.exe/)
+  assert(!visibleText().includes('docker_bad_executable'))
+  assert(button('Retry'))
+})

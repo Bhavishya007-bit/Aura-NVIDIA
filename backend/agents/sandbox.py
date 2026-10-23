@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from uuid import UUID
@@ -35,6 +36,7 @@ FAILURE_MESSAGES = {
     'invalid_result': 'The execution environment did not return a complete readable result. Try a smaller calculation.',
     'execution_timeout': 'The execution environment took too long. Try a smaller calculation.',
     'docker_cli_unavailable': 'Docker is not available to the backend. Install Docker Desktop and restart the backend terminal.',
+    'docker_bad_executable': 'Windows could not launch the selected Docker client. Set AURA_DOCKER_EXECUTABLE to the full docker.exe path shown by Get-Command docker.exe.',
     'docker_daemon_unavailable': 'Aura could not connect to Docker. Start Docker Desktop, wait for the engine to be ready, then retry.',
     'docker_image_missing': 'The Aura Python image is missing. Build it from sandbox/Dockerfile, then retry.',
     'docker_requires_linux': 'Aura needs Linux containers. Switch Docker Desktop to Linux containers, then rebuild the Python image.',
@@ -58,6 +60,21 @@ class SandboxUnavailable(Exception):
         super().__init__(self.code)
 
 
+def docker_executable():
+    """Select a native Windows executable; never launch an extensionless shim."""
+    configured = os.getenv('AURA_DOCKER_EXECUTABLE', '').strip()
+    executable = shutil.which(configured or ('docker.exe' if sys.platform == 'win32' else 'docker'))
+    if sys.platform == 'win32' and executable and not executable.lower().endswith('.exe'):
+        return None
+    return executable
+
+
+def _docker_os_error(error, stage):
+    code = ('docker_bad_executable' if getattr(error, 'winerror', None) == 193 else
+            'docker_cli_unavailable' if isinstance(error, FileNotFoundError) else 'docker_launch_failed')
+    return SandboxUnavailable(code, stage=stage, errno=error.errno, winerror=getattr(error, 'winerror', None))
+
+
 def backend_name():
     mode = os.getenv('AURA_CODE_BACKEND', 'disabled').strip().lower()
     if mode == 'nebius':
@@ -70,7 +87,7 @@ def backend_name():
         return 'nebius' if key and not key.startswith('replace_') and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', project) else None
     if mode == 'docker':
         image = os.getenv('AURA_DOCKER_IMAGE', 'aura-code:1')
-        return 'docker' if shutil.which('docker') and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/@:-]{0,200}', image) else None
+        return 'docker' if docker_executable() and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/@:-]{0,200}', image) else None
     return None
 
 
@@ -213,7 +230,10 @@ def _docker_env():
 
 
 def _docker_control(args, timeout=5):
-    return subprocess.run([shutil.which('docker') or 'docker', *args], stdin=subprocess.DEVNULL,
+    executable = docker_executable()
+    if not executable:
+        raise SandboxUnavailable('docker_cli_unavailable')
+    return subprocess.run([executable, *args], stdin=subprocess.DEVNULL,
                           capture_output=True, timeout=timeout, env=_docker_env(), check=False)
 
 
@@ -230,7 +250,7 @@ def _docker_failure(stderr, default):
 
 def inspect_docker_image():
     """Read-only setup check, shared by execution and the operator diagnostic."""
-    if not shutil.which('docker'):
+    if not docker_executable():
         raise SandboxUnavailable('docker_cli_unavailable')
     try:
         inspected = _docker_control(['image', 'inspect', os.getenv('AURA_DOCKER_IMAGE', 'aura-code:1')])
@@ -249,14 +269,10 @@ def inspect_docker_image():
                 or any(value.split('=', 1)[0] not in allowed_env for value in (config.get('Env') or []))):
             raise SandboxUnavailable('docker_image_rejected')
         return image['Id']
-    except FileNotFoundError as error:
-        raise SandboxUnavailable('docker_cli_unavailable', stage='image_inspect',
-                                 errno=error.errno, winerror=getattr(error, 'winerror', None)) from error
     except subprocess.TimeoutExpired as error:
         raise SandboxUnavailable('docker_daemon_unavailable') from error
     except OSError as error:
-        raise SandboxUnavailable('docker_launch_failed', stage='image_inspect',
-                                 errno=error.errno, winerror=getattr(error, 'winerror', None)) from error
+        raise _docker_os_error(error, 'image_inspect') from error
     except (ValueError, KeyError, TypeError, AttributeError) as error:
         raise SandboxUnavailable('docker_launch_failed', stage='image_metadata') from error
 
@@ -269,7 +285,10 @@ def _docker(request, deadline, check_active, on_start, name):
         check_active()
         image_id = inspect_docker_image()
         check_active()
-        args = [shutil.which('docker') or 'docker', 'run', '--rm', '--pull=never', '--name', name,
+        executable = docker_executable()
+        if not executable:
+            raise SandboxUnavailable('docker_cli_unavailable')
+        args = [executable, 'run', '--rm', '--pull=never', '--name', name,
             '--network=none', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
             '--memory=320m', '--memory-swap=320m', '--cpus=1', '--pids-limit=64', '--user=65534:65534',
             '--tmpfs=/tmp:rw,noexec,nosuid,size=32m,mode=1777', '--workdir=/tmp',
@@ -296,7 +315,9 @@ def _docker(request, deadline, check_active, on_start, name):
             if len(raw) > MAX_RESPONSE:
                 raise SandboxUnavailable('invalid_result')
             return raw.decode('utf-8')
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
+    except OSError as error:
+        raise _docker_os_error(error, 'container_start') from error
+    except (subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
         raise SandboxUnavailable('runtime_unavailable') from error
     finally:
         cleanup(handle)

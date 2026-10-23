@@ -116,8 +116,8 @@ and no-material execution. Fixed, authored fixture programs test the guest wrapp
 no model-produced code is executed on the test host. Transport tests simulate the
 provider/Docker engine. A live configured sandbox remains an operator smoke test.
 
-Last implementation check: 34 focused code-agent checks and 43 frontend checks
-passed, alongside the full backend suite (283 passed, two optional OCR skips) and production build.
+Last implementation check: 39 focused code-agent checks and 44 frontend checks
+passed, alongside the full backend suite (288 passed, two optional OCR skips) and production build.
 Live Docker/Nebius execution was not available in the implementation environment.
 
 
@@ -173,3 +173,30 @@ Windows error number where available. This separates process-launch failure
 from image-metadata parsing without exposing raw stderr or credential-bearing
 connection strings. A successful direct Docker command alone does not establish
 which host-process setting caused an earlier failure; confirm with the check.
+
+
+### Windows error 193 during image inspection
+
+Windows error 193 is `ERROR_BAD_EXE_FORMAT`: Windows rejected the selected host
+program before Docker could inspect an image. A working `docker` command in
+PowerShell does not prove Python selected the same file. Aura now explicitly
+resolves **docker.exe** on Windows and refuses extensionless scripts or
+`.cmd`/`.bat`/`.ps1` wrappers. Image checks, container launch and cleanup share the
+same resolver, without enabling a shell. POSIX systems still resolve `docker`.
+
+Pull the update and rerun the smoke check. If native executable lookup still
+fails, get the real path in PowerShell:
+
+```powershell
+(Get-Command docker.exe -CommandType Application).Source
+```
+
+Set `AURA_DOCKER_EXECUTABLE` in `backend/.env` to that exact returned path (quotes
+are allowed around paths containing spaces). Restart the backend and rerun the
+check. This setting points to the host Docker CLI; it does not change the
+container's `/usr/local/bin/python` entrypoint or the database. No reinstall or
+image rebuild is required when the native Docker CLI and image already work.
+
+References:
+- https://learn.microsoft.com/windows/win32/debug/system-error-codes--0-499-
+- https://docs.python.org/3.12/library/shutil.html#shutil.which

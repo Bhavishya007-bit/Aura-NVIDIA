@@ -262,6 +262,54 @@ class SandboxTransport(unittest.TestCase):
             sandbox.inspect_docker_image()
         self.assertEqual(caught.exception.diagnostics, {'stage': 'image_inspect', 'exit_code': 1})
 
+    def test_windows_selects_native_exe_instead_of_the_extensionless_docker_shim(self):
+        def lookup(name):
+            return r'C:\Program Files\Docker\resources\bin\docker.exe' if name == 'docker.exe' else r'C:\Program Files\Docker\resources\bin\docker'
+        with patch('backend.agents.sandbox.sys.platform', 'win32'), patch.dict(os.environ, {'AURA_DOCKER_EXECUTABLE': ''}), patch('backend.agents.sandbox.shutil.which', side_effect=lookup) as which:
+            self.assertTrue(sandbox.docker_executable().endswith('docker.exe'))
+        which.assert_called_once_with('docker.exe')
+
+    def test_windows_never_falls_back_to_a_script_or_shell(self):
+        for selected in [None, 'docker', 'docker.cmd', 'docker.bat', 'docker.ps1']:
+            with self.subTest(selected=selected), patch('backend.agents.sandbox.sys.platform', 'win32'), patch.dict(os.environ, {'AURA_DOCKER_EXECUTABLE': ''}), patch('backend.agents.sandbox.shutil.which', return_value=selected) as which:
+                self.assertIsNone(sandbox.docker_executable())
+                which.assert_called_once_with('docker.exe')
+
+    def test_explicit_native_path_and_non_windows_path_lookup(self):
+        custom = r'C:\Program Files\Docker\Docker\resources\bin\docker.exe'
+        with patch('backend.agents.sandbox.sys.platform', 'win32'), patch.dict(os.environ, {'AURA_DOCKER_EXECUTABLE': custom}), patch('backend.agents.sandbox.shutil.which', return_value=custom) as which:
+            self.assertEqual(sandbox.docker_executable(), custom)
+            which.assert_called_once_with(custom)
+        with patch('backend.agents.sandbox.sys.platform', 'linux'), patch.dict(os.environ, {'AURA_DOCKER_EXECUTABLE': ''}), patch('backend.agents.sandbox.shutil.which', return_value='/usr/bin/docker') as which:
+            self.assertEqual(sandbox.docker_executable(), '/usr/bin/docker')
+            which.assert_called_once_with('docker')
+
+    def test_image_checks_run_and_cleanup_share_the_native_executable(self):
+        custom = r'C:\Program Files\Docker\resources\bin\docker.exe'
+        image = {'Os':'linux', 'Id':'sha256:'+'a'*64, 'Config':{'Env':[]}}
+        commands = []
+        def control(args, **kwargs):
+            commands.append(args)
+            return Mock(returncode=0, stdout=json.dumps([image]).encode(), stderr=b'')
+        def spawn(args, **kwargs):
+            commands.append(args)
+            kwargs['stdout'].write(guest_result().encode())
+            return Mock(returncode=0, poll=lambda:0)
+        # Exercise Windows resolution while transport calls are simulated on Linux.
+        with patch.object(sandbox, 'docker_executable', return_value=custom), patch('backend.agents.sandbox.subprocess.run', side_effect=control), patch('backend.agents.sandbox.subprocess.Popen', side_effect=spawn):
+            sandbox._docker({}, time.monotonic()+10, lambda:None, lambda h:None, 'aura-code-'+'a'*32+'-1')
+        self.assertEqual(len(commands), 3)
+        self.assertTrue(all(cmd[0] == custom for cmd in commands))
+        self.assertEqual(commands[-1][1:3], ['rm', '-f'])
+
+    def test_reported_winerror_193_has_an_actionable_code(self):
+        error = OSError(8, 'private path or command'); error.winerror = 193
+        with patch.object(sandbox, '_docker_control', side_effect=error), self.assertRaises(sandbox.SandboxUnavailable) as caught:
+            sandbox.inspect_docker_image()
+        self.assertEqual(caught.exception.code, 'docker_bad_executable')
+        self.assertEqual(caught.exception.diagnostics, {'stage':'image_inspect','errno':8,'winerror':193})
+        self.assertNotIn('private', str(caught.exception)+str(caught.exception.diagnostics))
+
 
 class RuntimeDiagnostic(unittest.TestCase):
     def test_missing_docker_image_survives_runtime_log_and_saved_run(self):
