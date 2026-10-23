@@ -30,11 +30,12 @@ establish the quality of the new coverage classifier.
 - User-managed typed memories, deduplication, edit/delete and on/off control.
 - Depth/example preferences feed subsequent text tutoring, with explicit user
   requests taking priority.
-- Study-plan and uploaded-material research-brief skills; agent output is clearly
+- Study-plan and uploaded-material/web research-brief skills; agent output is clearly
   labelled a draft. It does not inherit the tutor's source-verification badge.
-- Agents, Memory and Tasks panels inside the study workspace.
+- Study Plan and Today views, account-menu memory controls and source-separated research results.
+- Optional Tavily Search with bounded paid attempts, persisted source links and credit reports, cancellation-safe network calls and material-only fallback.
 
-Web search, sandbox/code execution and agent assessment remain pending. The
+Live Tavily/Nemotron research quality still needs a configured local retest. Sandbox/code execution and agent assessment remain pending. The
 summary-length problem is deferred by user direction, not declared resolved.
 See [Phase 3 implementation and remaining work](docs/PHASE3_AGENTS_MEMORY.md).
 

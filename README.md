@@ -7,9 +7,12 @@ generation, including its agent runtime. Configure `NEBIUS_API_KEY` and the exac
 is used separately for configured visual interpretation.
 
 **Current work:** [Phase 3 agents and memory](docs/PHASE3_AGENTS_MEMORY.md).
-Open **Study tools → Agents** for study-plan/research-brief runs, editable Memory
-and Tasks. Agent tables are added automatically when the backend starts. The
-summary-length issue remains deferred. Older local-model setup sections below
+Open **Study tools → Study Plan** for plans and research briefs. The **Today**
+view keeps your study checklist; the account menu contains **What Aura remembers**.
+Optional Tavily research adds linked web findings alongside uploaded material; configure
+`TAVILY_API_KEY` server-side. See [web research setup](docs/TAVILY_RESEARCH.md).
+Agent tables are added automatically when the backend starts. The summary-length
+issue remains deferred. Older local-model setup sections below
 describe the original Aura; they do not replace the hackathon text-model settings.
 
 ## What to try

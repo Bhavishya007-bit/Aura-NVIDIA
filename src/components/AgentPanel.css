@@ -126,3 +126,11 @@
 .study-plan{--plan-control-line:#8b8f86}.aura-study[data-theme="dark"] .study-plan{--plan-control-line:#737d75}
 .aura-study .study-plan textarea,.aura-study .plan-option-fields input,.aura-study .plan-option-fields select{border-color:var(--plan-control-line)}
 .aura-memory textarea,.aura-memory select{border-color:#7c867e}
+.research-section{padding:22px;border:1px solid var(--plan-line);border-radius:12px;margin:18px 0;background:var(--plan-soft)}
+.research-section--web{border-left:3px solid var(--sw-accent);background:var(--sw-tint)}
+.aura-study .research-section h3{font-size:17px;margin-bottom:14px}
+.research-section .plan-prose p{white-space:pre-wrap}.research-result .plan-citations{align-items:center}
+.research-result .plan-citations a,.research-inline-source>a,.research-inline-source>span{display:inline-block;border:1px solid var(--plan-line);border-radius:5px;padding:2px 7px;font-size:12px;color:var(--sw-accent);text-decoration:none;overflow-wrap:anywhere;max-width:100%}
+.research-inline-source{display:inline;margin:0 3px}.research-result a:hover{text-decoration:underline;text-underline-offset:3px}
+.research-limitations{margin-top:22px;border-top:1px solid var(--plan-line);padding-top:18px;color:var(--plan-muted);font-size:13px}.research-limitations h3{font-size:15px!important}.research-limitations ul{padding-left:20px}
+@media(max-width:540px){.research-section{padding:17px 14px}}

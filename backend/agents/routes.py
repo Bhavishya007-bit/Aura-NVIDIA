@@ -12,6 +12,7 @@ from backend.auth_routes import get_current_student
 from backend.agents.contracts import Strict, MemoryInput, RunInput, SKILLS
 from backend.agents.store import Store
 from backend.agents.runtime import run_agent
+from backend.agents.web import web_search_enabled
 
 log = logging.getLogger(__name__)
 
@@ -34,8 +35,9 @@ def install_agents(app, llm_factory):
 
     @router.get('/capabilities')
     def capabilities(student=Depends(get_current_student)):
-        return {'skills': list(SKILLS), 'tools': ['document_search', 'memory_read', 'memory_write', 'task_list', 'task_create', 'study_plan_create'],
-                'web_search': False, 'code_execution': False, 'assessment_agent': False}
+        enabled = web_search_enabled()
+        return {'skills': list(SKILLS), 'tools': ['document_search', 'memory_read', 'memory_write', 'task_list', 'task_create', 'study_plan_create'] + (['web_search'] if enabled else []),
+                'web_search': enabled, 'code_execution': False, 'assessment_agent': False}
 
     @router.get('/memory')
     def memory(course_id: int = Query(gt=0), student=Depends(get_current_student)):

@@ -19,7 +19,7 @@ globalThis.window = bootstrap.window; globalThis.document = bootstrap.window.doc
 const channels = []
 globalThis.MessageChannel = class extends NodeMessageChannel { constructor() { super(); channels.push(this) } }
 const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App } = await import(pathToFileURL(`${scratch}/components.mjs`))
-let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable
+let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable
 const goal = 'Create a 3-day plan'
 const baseRun = (overrides = {}) => ({ id: 'run-a', source_id: 7, state: 'completed', request: { skill: 'study_plan', goal }, tokens_used: 1200, created_at: '2026-10-23T08:00:00Z', started_at: '2026-10-23T08:00:01Z', updated_at: '2026-10-23T08:00:21Z', steps: [{ tool: 'document_search', state: 'completed', plan: ['RAW INTERNAL NARRATION'], observation: { passages: [{ reference: 'D9', slide: 18 }] } }], result: { text: 'Review the membrane.\n\nDay 1: Membrane proteins\nRead and recall.\nReferences: D9', references: ['D9'], verified: false, structured_plan: { overview: 'Review the membrane.', days: [{ day: 1, title: 'Membrane proteins', details: 'Read and recall.', references: ['D9'] }] }, task_ids: ['task-a'] }, ...overrides })
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -42,7 +42,7 @@ beforeEach(() => {
   globalThis.requestAnimationFrame = callback => setTimeout(callback, 0)
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   root = createRoot(document.getElementById('root'))
-  requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false; generationUnavailable = false
+  requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false; generationUnavailable = false; webAvailable = true
   materials = [{ source_id: 7, source_name: 'Biological membranes.ppt', source_type: 'pptx', status: 'success' }]
   globalThis.fetch = async (url, options = {}) => {
     const u = new URL(url), method = options.method || 'GET', body = options.body ? JSON.parse(options.body) : undefined
@@ -51,6 +51,7 @@ beforeEach(() => {
     let value
     if (u.pathname === '/auth/me') value = { student_id: 1, name: 'Sam Rivera', email: 'sam@example.test' }
     else if (u.pathname === '/courses') value = { courses: [{ course_id: 6, course_name: 'Biology' }] }
+    else if (u.pathname === '/agents/capabilities') value = { web_search: webAvailable }
     else if (u.pathname === '/agents/runs' && method === 'GET') value = { items: jobs }
     else if (u.pathname === '/agents/runs' && method === 'POST') { value = baseRun({ id: 'run-new', state: 'queued', request: body, steps: [], result: null }); jobs.unshift(value) }
     else if (u.pathname.endsWith('/cancel')) { jobs[0].state = 'cancelled'; value = jobs[0] }
@@ -232,4 +233,55 @@ test('generation failures do not expose stale provider advice and retain materia
   assert.equal(document.querySelector('.sw-focus input').value, 'Membrane proteins')
   assert.match(document.querySelector('.sw-using').textContent, /Biological membranes.ppt/)
   assert(button('Generate').disabled === false)
+})
+
+test('research results keep web findings separate and link only observed safe URLs', async () => {
+  jobs = [baseRun({ request: { skill: 'research_brief', goal: 'Research membrane proteins' }, result: {
+    text: 'Research draft', verified: false, references: ['D9', 'Wabc123'], web_status: 'searched',
+    research_sections: [
+      { kind: 'material', text: 'Your slides explain membrane proteins [D9].', references: ['D9'] },
+      { kind: 'web', text: 'Additional findings [Wabc123]. Untrusted Markdown [click](javascript:alert(1)).', references: ['Wabc123'] }
+    ], sources: [
+      { reference: 'D9', kind: 'material', title: 'Biological membranes.ppt', slide: 18 },
+      { reference: 'Wabc123', kind: 'web', title: 'Public reference', url: 'https://www.ncbi.nlm.nih.gov/books/' }
+    ], limitations: ['Search snippets have not been independently verified.']
+  } })]
+  await mount(AgentPanel, props())
+  assert(document.querySelector('[aria-label="From your material"]'))
+  assert(document.querySelector('[aria-label="From the web"]'))
+  const links = [...document.querySelectorAll('.research-result a')]
+  assert(links.length > 0)
+  assert(links.every(a => a.href === 'https://www.ncbi.nlm.nih.gov/books/' && a.rel.includes('noopener')))
+  assert(!document.querySelector('a[href^="javascript:"]'))
+  assert.match(visibleText(), /not been independently verified/)
+})
+test('a failed research lookup is shown as a limitation without a web-backed section', async () => {
+  jobs = [baseRun({ request: { skill: 'research_brief', goal: 'Research' }, result: {
+    text: 'Findings', verified: false, references: ['D9'], web_status: 'unavailable',
+    research_sections: [{ kind: 'material', text: 'Material findings.', references: ['D9'] }],
+    sources: [{ reference: 'D9', kind: 'material', title: 'Slides', slide: 18 }],
+    limitations: ['Web search was unavailable; this brief uses uploaded material only.']
+  } })]
+  await mount(AgentPanel, props())
+  assert(!document.querySelector('[aria-label="From the web"]'))
+  assert.match(visibleText(), /Web search was unavailable/)
+})
+
+test('research does not inherit day-plan instructions from saved study options', async () => {
+  localStorage.setItem('plan:test:learner:6', JSON.stringify({ skill: 'research_brief', goal: 'Research membrane proteins', options: { days: '3', minutes: '45', depth: 'deep' } }))
+  await mount(AgentPanel, props())
+  assert(!visibleText().includes('Days available'))
+  assert.match(visibleText(), /public topic keywords/)
+  await click(button('Start research'))
+  const body = requests.find(r => r.method === 'POST' && r.path === '/agents/runs').body
+  assert.equal(body.skill, 'research_brief')
+  assert(!body.goal.includes('3-day'))
+  assert.match(body.goal, /Explanation depth: deep/)
+})
+test('unconfigured web is disclosed while material research remains available', async () => {
+  webAvailable = false
+  localStorage.setItem('plan:test:learner:6', JSON.stringify({ skill: 'research_brief', goal: 'Research membrane proteins' }))
+  await mount(AgentPanel, props())
+  assert.match(visibleText(), /Web search is unavailable/)
+  assert(!button('Start research').disabled)
 })

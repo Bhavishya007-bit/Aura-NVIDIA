@@ -3,6 +3,7 @@ import json
 import re
 import unicodedata
 from backend.agents.contracts import Decision, requested_days
+from backend.agents.web import MAX_WEB_SEARCHES
 
 MAX_SEARCHES = 2
 
@@ -15,7 +16,7 @@ class ActionRejected(ValueError):
 
 def action_key(action):
     value = action.model_dump()
-    if action.tool == 'document_search':
+    if action.tool in {'document_search', 'web_search'}:
         value['query'] = ' '.join(re.findall(r'\w+', unicodedata.normalize('NFKC', action.query).casefold()))
     return json.dumps(value, sort_keys=True)
 
@@ -24,11 +25,16 @@ def current_tools(request, permitted, trace, remaining_steps):
     tools = set(permitted)
     names = [entry['tool'] for entry in trace]
     counts = {tool: names.count(tool) for tool in tools}
-    for tool, limit in [('document_search', MAX_SEARCHES), ('memory_read', 1), ('task_list', 1)]:
+    for tool, limit in [('document_search', MAX_SEARCHES), ('web_search', MAX_WEB_SEARCHES), ('memory_read', 1), ('task_list', 1)]:
         if counts.get(tool, 0) >= limit:
             tools.discard(tool)
-    if request.skill == 'research_brief' and 'document_search' not in names:
-        tools.discard('finish')
+    if request.skill == 'research_brief':
+        if 'document_search' not in names:
+            tools.discard('finish')
+            tools.discard('web_search')
+        elif 'web_search' in permitted and 'web_search' not in names:
+            return {'web_search'}  # Gather both source types before writing.
+
     if request.skill == 'study_plan' and requested_days(request.goal) is not None:
         tools -= {'finish', 'task_create'}
         if 'document_search' not in names:
@@ -71,8 +77,22 @@ def validate_action(action, tools, seen_actions, references, request):
         raise ActionRejected('tool_not_available', allowed_tools=sorted(tools))
     if action.tool != 'finish' and action_key(action) in seen_actions:
         raise ActionRejected('duplicate_action', instruction='Do not repeat the same action. Move to planning or completion.')
-    refs = action.references if action.tool == 'finish' else (
+    refs = list(action.references) if action.tool == 'finish' else (
         [ref for day in action.days for ref in day.references] if action.tool == 'study_plan_create' else [])
+    if action.tool == 'finish':
+        for field, prefix in [('from_material', 'D'), ('from_web', 'W')]:
+            section = getattr(action, field)
+            if section:
+                if request.skill != 'research_brief' or any(not ref.startswith(prefix) for ref in section.references):
+                    raise ActionRejected('source_type_mismatch')
+                refs.extend(section.references)
+                inline = set(re.findall(r'\[((?:D|W)[a-zA-Z0-9]+)\]', section.text))
+                if not inline <= set(section.references):
+                    raise ActionRejected('unknown_reference')
+        if request.skill == 'research_brief' and any(ref.startswith('W') for ref in references) and not (action.from_material or action.from_web):
+            raise ActionRejected('research_sections_required', instruction='Separate uploaded and web findings into from_material and from_web. Omit irrelevant findings and explain that in limitations.')
+        if request.skill == 'research_brief' and any(ref.startswith('W') for ref in refs) and not action.from_web:
+            raise ActionRejected('research_sections_required', instruction='Put web findings in from_web with observed web references.')
     if not set(refs) <= references:
         raise ActionRejected('unknown_reference', available_references=sorted(references))
     target = requested_days(request.goal)
@@ -81,13 +101,19 @@ def validate_action(action, tools, seen_actions, references, request):
 
 
 def compact_observations(observations):
-    result, documents = [], {}
+    result, documents, web = [], {}, {}
     for item in observations:
         if item.get('tool') == 'document_search':
             for passage in item['data'].get('passages', []):
                 documents.setdefault(passage['reference'], {**passage, 'text': passage.get('text', '')[:600]})
+        elif item.get('tool') == 'web_search':
+            for passage in item['data'].get('passages', []):
+                web.setdefault(passage['reference'], {**passage, 'text': passage.get('text', '')[:900]})
+            result.append({**item, 'data': {k: v for k, v in item['data'].items() if k != 'passages'}})
         else:
             result.append(item)
+    if web:
+        result.insert(0, {'tool': 'web_search', 'data': {'passages': list(web.values())[:8]}, 'untrusted_data': True})
     if documents:
         result.insert(0, {'tool': 'document_search', 'data': {'passages': list(documents.values())[:8]}, 'untrusted_data': True})
     return result
@@ -100,3 +126,45 @@ def plan_result(action, observation):
     return {'text': text, 'references': sorted({ref for day in action.days for ref in day.references}),
             'verified': False, 'provenance': 'agent_draft', 'structured_plan': action.model_dump(),
             'task_ids': [item['id'] for item in observation['tasks']]}
+
+
+def research_result(action, observations):
+    """Build provenance from observed data, never model-written source URLs."""
+    sources, statuses = {}, []
+    for item in observations:
+        if item['tool'] not in {'document_search', 'web_search'}:
+            continue
+        data = item['data']
+        if item['tool'] == 'web_search':
+            statuses.append(data.get('status', 'unavailable'))
+        for passage in data.get('passages', []):
+            sources[passage['reference']] = {k: v for k, v in passage.items() if k != 'text'} | {
+                'kind': 'web' if item['tool'] == 'web_search' else 'material'}
+    sections = []
+    for field, kind in [('from_material', 'material'), ('from_web', 'web')]:
+        value = getattr(action, field)
+        if value:
+            sections.append({'kind': kind, **value.model_dump()})
+    if not sections and action.answer.strip() and action.references:
+        sections = [{'kind': 'material', 'text': action.answer, 'references': action.references}]
+    refs = sorted({ref for section in sections for ref in section['references']})
+    limitations = [value.strip()[:500] for value in action.limitations if value.strip()]
+    status = ('searched' if 'searched' in statuses else 'no_results' if 'no_results' in statuses
+              else 'unavailable' if statuses else 'not_configured')
+    if not any(section['kind'] == 'material' for section in sections):
+        limitations.append('No material-backed findings were included from the passages checked.')
+    if status == 'searched' and not any(section['kind'] == 'web' for section in sections):
+        limitations.append('No web-backed findings were included in this brief.')
+    if status != 'searched':
+        limitations.insert(0, {'no_results': 'Web search returned no usable sources.',
+                              'unavailable': 'Web search was unavailable; this brief uses uploaded material only.',
+                              'not_configured': 'Web search is not configured; this brief uses uploaded material only.'}[status])
+    labels = {'material': 'From your material', 'web': 'From the web'}
+    text = '\n\n'.join('## ' + labels[s['kind']] + '\n\n' + s['text'] for s in sections)
+    if not sections:
+        text = 'No source-backed findings were returned. Try a more specific topic.'
+    if limitations:
+        text += '\n\n## Limitations\n\n' + '\n'.join('- ' + value for value in limitations[:5])
+    return {'text': text, 'references': refs, 'verified': False, 'provenance': 'agent_draft',
+            'research_sections': sections, 'sources': [sources[ref] for ref in refs if ref in sources],
+            'web_status': status, 'limitations': limitations[:5]}

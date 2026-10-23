@@ -1,4 +1,5 @@
 """Parameterized PostgreSQL operations. Account identity is never model supplied."""
+import logging
 import hashlib
 import unicodedata
 from contextlib import contextmanager
@@ -8,6 +9,9 @@ from psycopg2.extras import Json, RealDictCursor
 from backend.auth_db import get_auth_connection
 from backend.agents.contracts import RunInput, TaskInput, allowed_tools, requested_days
 from backend.agents.planning import action_key
+from backend.agents.web import MAX_WEB_SEARCHES, WebSearchUnavailable, search_web
+
+log = logging.getLogger(__name__)
 
 ACTIVE = ('queued', 'running')
 
@@ -205,6 +209,8 @@ class Store:
             return True
 
     def tool(self, run, action, step):
+        if action.tool == 'web_search':
+            return self.web_tool(run, action, step)
         with self.locked(run) as (cur, current):
             request = RunInput.model_validate(current['request'])
             if action.tool not in allowed_tools(request):
@@ -264,6 +270,42 @@ class Store:
             cur.execute('UPDATE aura_agent_runs SET steps=steps || %s::jsonb,updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s',
                 (Json([step]), run['id'], student, course))
             return step['observation']
+
+
+    def web_tool(self, run, action, step):
+        # Reserve a paid attempt while locked, release the transaction for I/O,
+        # then re-check ownership, cancellation and deadline before saving output.
+        with self.locked(run) as (cur, current):
+            request = RunInput.model_validate(current['request'])
+            if action.tool not in allowed_tools(request):
+                raise HTTPException(403, 'Web search is not enabled for this run.')
+            attempted = [item for item in current['steps'] if item.get('tool') == 'web_search']
+            if len(attempted) >= MAX_WEB_SEARCHES or any(item.get('action_key') == action_key(action) for item in attempted):
+                raise HTTPException(409, 'This web search has already run or reached its limit.')
+            if not any(item.get('tool') == 'document_search' and item.get('state') == 'completed' for item in current['steps']):
+                raise HTTPException(409, 'Read the selected material before web search.')
+            if current['tokens_used'] >= request.max_tokens or len(current['steps']) >= request.max_steps:
+                raise HTTPException(409, 'The run has reached its budget.')
+            index = len(current['steps'])
+            remaining = max(.2, min(15, request.max_seconds - current['elapsed']))
+            step.update(state='running', action=action.model_dump(), action_key=action_key(action))
+            cur.execute('UPDATE aura_agent_runs SET steps=steps || %s::jsonb,updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s',
+                        (Json([step]), run['id'], run['student_id'], run['course_id']))
+        try:
+            output = search_web(action.query, timeout=remaining)
+        except WebSearchUnavailable as error:
+            log.warning('agent_web_search=unavailable failure_code=%s http_status=%s', error.code, error.http_status)
+            output = {'source': 'web', 'status': 'unavailable', 'passages': [],
+                      'credits': None, 'untrusted_data': True}
+        with self.locked(run) as (cur, current):
+            reserved = current['steps'][index] if len(current['steps']) > index else {}
+            if reserved.get('state') != 'running' or reserved.get('action_key') != action_key(action):
+                raise RunStopped()
+            step.update(state='completed', observation=output)
+            cur.execute('''UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s]::text[],%s::jsonb),updated_at=NOW()
+                WHERE id=%s AND student_id=%s AND course_id=%s''',
+                (str(index), Json(step), run['id'], run['student_id'], run['course_id']))
+            return output
 
 
 class RunStopped(Exception):

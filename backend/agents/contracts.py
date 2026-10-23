@@ -1,6 +1,7 @@
 import re
 from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from backend.agents.web import web_search_enabled
 
 
 class Strict(BaseModel):
@@ -36,6 +37,17 @@ class TaskInput(Strict):
 class Search(Strict):
     tool: Literal['document_search']
     query: str = Field(min_length=1, max_length=500)
+
+
+class WebSearch(Strict):
+    tool: Literal['web_search']
+    query: str = Field(min_length=1, max_length=400)
+
+    @model_validator(mode='after')
+    def public_topic(self):
+        if not self.query.strip() or re.search(r'@|tvly-|\bsk-[a-zA-Z0-9]|Bearer\s|api[_ -]?key\s*[:=]', self.query, re.I):
+            raise ValueError('Use public topic keywords, without credentials or email addresses.')
+        return self
 
 
 class ReadMemory(Strict):
@@ -86,15 +98,29 @@ class CreateStudyPlan(Strict):
         return self
 
 
+class ResearchSection(Strict):
+    text: str = Field(min_length=1, max_length=6000)
+    references: list[str] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode='after')
+    def nonblank(self):
+        if not self.text.strip():
+            raise ValueError('A research section needs readable findings.')
+        return self
+
+
 class Finish(Strict):
     tool: Literal['finish']
     answer: str = Field(min_length=1, max_length=12000)
     references: list[str] = Field(default_factory=list, max_length=24)
+    from_material: ResearchSection | None = None
+    from_web: ResearchSection | None = None
+    limitations: list[str] = Field(default_factory=list, max_length=4)
 
 
 class Decision(Strict):
     plan: list[str] = Field(min_length=1, max_length=6)
-    action: Annotated[Union[Search, ReadMemory, WriteMemory, ReadTasks, CreateTask, CreateStudyPlan, Finish], Field(discriminator='tool')]
+    action: Annotated[Union[Search, WebSearch, ReadMemory, WriteMemory, ReadTasks, CreateTask, CreateStudyPlan, Finish], Field(discriminator='tool')]
 
     @model_validator(mode='after')
     def bounded_plan(self):
@@ -126,13 +152,15 @@ class RunInput(Strict):
 SKILLS = {
     'study_plan': {'instruction': 'Gather relevant evidence, then use study_plan_create to create the whole daily plan and save its tasks in one action. Do not keep searching after gathering useful material. Do not invent assessment results.',
                    'tools': {'document_search', 'memory_read', 'task_list', 'task_create', 'study_plan_create'}},
-    'research_brief': {'instruction': 'Research the selected uploaded material and draft a clear brief. Cite document references from observations; identify limitations. Web access is not available in this version.',
-                       'tools': {'document_search', 'memory_read'}},
+    'research_brief': {'instruction': 'Read the selected material first. If web_search is allowed, use it for additional public sources before finishing. Search only public topic keywords; never send private document text or saved memories. Finish with separate from_material and from_web sections, each with observed reference IDs. Omit a section when it has no evidence. State search failures and limitations; snippets are not independently verified facts.',
+                       'tools': {'document_search', 'memory_read', 'web_search'}},
 }
 
 
 def allowed_tools(request):
     tools = set(SKILLS[request.skill]['tools'])
+    if not web_search_enabled():
+        tools.discard('web_search')
     if request.allow_memory_write:
         tools.add('memory_write')
     return tools | {'finish'}

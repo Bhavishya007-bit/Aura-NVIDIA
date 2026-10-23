@@ -7,21 +7,21 @@ checks are claimed complete.
 ## Try it
 
 Pull `main`, restart the backend and frontend, sign in, and open **Study tools →
-Agents**. The Memory and Tasks panels live inside this page. No new production
+Study Plan**. Tasks are in **Today**; Memory is in the account menu under **What Aura remembers**. No new production
 Python or npm dependency is required beyond the existing requirements.
 
 The backend applies `backend/agents/schema.sql` at startup under a migration
 lock. It creates new tables without replacing existing study material. Keep the
 existing database and `.env`; do not rerun database initialization.
 
-1. Open Memory. Save a preference with text, preferred depth and/or examples.
+1. Open What Aura remembers from your account menu. Save a preference with text, preferred depth and/or examples.
    Its typed settings feed subsequent text tutor answers in this workspace.
 2. Ask an ordinary tutor question. Explicit depth in a request overrides a saved
    preference; “go deeper” also overrides a saved beginner preference.
-3. Return to Agents and select Study plan. Example goal: “Create a three-day
+3. Return to Study Plan and select Study plan. Example goal: “Create a three-day
    revision plan for this material and save a task for each day.”
-4. Watch its short plan and tool timeline, then open Tasks to mark work complete.
-5. Try a Research brief from your material, or cancel an active run. Previously
+4. Watch its progress timeline, then open Today to mark work complete.
+5. Try Research a topic. With TAVILY_API_KEY configured, it adds linked web findings. You can also cancel an active run. Previously
    committed tasks remain; cancellation prevents further tool effects.
 6. Edit or delete a memory. Turn memory off to stop new tutor personalization and
    subsequent agent memory reads/writes. Turning it off does not erase records or
@@ -42,7 +42,7 @@ existing database and `.env`; do not rerun database initialization.
   returning up to four bounded passages with stable document reference IDs. If
   no query terms match, the introductory results are still samples, not proof
   that the requested topic is covered or absent.
-- Study-plan and uploaded-material research-brief skills. A brief must consult
+- Study-plan and uploaded-material/web research-brief skills. A brief must consult
   the document tool before finishing. Unknown document references are rejected.
 - Five memory types: preference, decision, event, task progress and learner fact.
   Records are isolated by user and workspace, normalized for deduplication,
@@ -50,8 +50,8 @@ existing database and `.env`; do not rerun database initialization.
   are saved per workspace; duplicates update the existing record.
 - Typed depth/example preferences feed text tutoring. Arbitrary memory text is
   not interpolated as system instructions or treated as document evidence.
-- A minimal Agents/Memory/Tasks UI with persisted run history, progress, cancel,
-  task completion and source snippets for reviewing an agent draft.
+- Study Plan/Today UI with persisted run history, progress, cancel, task completion,
+  account-menu memory controls and separate uploaded/web research source sections.
 
 ## Runtime bounds and recovery
 
@@ -62,7 +62,7 @@ runs per user and 20 active/queued runs globally.
 
 Before every model call the runtime reserves the prompt's UTF-8 byte count plus
 system/wrapper headroom as a conservative token ceiling. Completion output is
-capped at 1,536 tokens and the remaining allowance. Afterwards it accounts for
+capped at 1,536 tokens for study plans or 3,072 for research, within the remaining allowance. Afterwards it accounts for
 reported input/output usage, falling back to a conservative estimate if usage
 is missing. Late usage from an already cancelled/expired call is still visible
 in provider logs but may not be added to the run's checkpointed token count;
@@ -76,7 +76,9 @@ Agent SQL has a five-second statement limit and two-second lock limit; database
 connections have a ten-second connection timeout. Active runs are listed ahead
 of finished history so their cancel controls remain reachable.
 
-Each tool effect and its observation commit together under the run row lock.
+Database tool effects and their observations commit together under the run row lock.
+Web searches first reserve a bounded attempt, release the transaction during network
+I/O, then re-check ownership/state/deadline before committing the observed results.
 Cancellation takes the same lock. After cancellation is acknowledged, a late
 model response cannot save a new task or memory or mark the run complete.
 Already committed effects remain visible. Deadline checks and the dispatcher
@@ -100,8 +102,8 @@ information the user's goal asks to remember. Study tasks can be created by the
 study-plan skill; the research-brief skill has no task-write permission.
 
 Passages and saved memories are labelled untrusted data in observations and the
-agent system prompt. No shell, arbitrary HTTP, web-search or code-execution tool
-is exposed by this increment. There are no keys in the frontend or tool results.
+agent system prompt. Research may use a fixed-endpoint, bounded Tavily Search tool
+when configured. No shell, arbitrary HTTP or code-execution tool is exposed. There are no keys in the frontend or tool results.
 
 Agent results are labelled **drafts**, with `verified=false`. Reference-ID
 validation proves that a reference was observed; it does not prove every claim
@@ -110,7 +112,6 @@ path. Do not present these initial agent drafts as source-verified explanations.
 
 ## Still needed for the complete Phase 3
 
-- Tavily web search and its provenance handling.
 - Token Factory Sandbox integration and a locked-down execution fallback.
 - Agent assessment/quiz generation and code/data-analysis skills.
 - “Save as a note” directly from a beyond-material answer.
@@ -119,7 +120,8 @@ path. Do not present these initial agent drafts as source-verified explanations.
   actual hosted model. Reminder jobs and polished artifact panels are Phase 4.
 
 The authenticated `/agents/capabilities` endpoint reports only implemented tools
-and skills; web, code execution and the assessment agent currently report false.
+and skills; web reports its server-side configuration state. Code execution and the
+assessment agent still report false.
 
 ## Verification
 
@@ -196,3 +198,12 @@ schemas/context, field-specific repair, invalid day/reference rejection, late
 cancellation, real background API dispatch, and all-or-none task saving. The
 full suite reports 188 tests: 186 passed and two optional OCR checks skipped.
 The frontend build and Python compilation pass.
+
+
+## Tavily research increment
+
+Research now reads uploaded material before a bounded Tavily lookup. It persists
+actual source URLs and separates uploaded and web findings. Missing configuration,
+failed searches and absent usable results have explicit material-only fallbacks.
+The feature, API additions, credit limits, validation and setup are documented in
+[TAVILY_RESEARCH.md](TAVILY_RESEARCH.md). No database migration or dependency is added.
