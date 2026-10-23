@@ -146,6 +146,10 @@ class Store:
 
     def create(self, student, request):
         with self.cursor(student, request.course_id, request.source_id) as cur:
+            if request.skill == 'code_analysis':
+                from backend.agents.sandbox import backend_name
+                if not backend_name():
+                    raise HTTPException(503, 'Code execution is unavailable on this server.')
             cur.execute('SELECT pg_advisory_xact_lock(817264,3)')
             cur.execute("SELECT COUNT(*) AS count FROM aura_agent_runs WHERE state IN ('queued','running')")
             if cur.fetchone()['count'] >= 20:
@@ -223,6 +227,8 @@ class Store:
             return True
 
     def tool(self, run, action, step):
+        if action.tool == 'code_execute':
+            return self.code_tool(run, action, step)
         if action.tool == 'assessment_create':
             raise HTTPException(409, 'Assessment drafts must be checked before saving.')
         if action.tool == 'web_search':
@@ -289,6 +295,72 @@ class Store:
                 (Json([step]), run['id'], student, course))
             return step['observation']
 
+
+    def code_tool(self, run, action, step):
+        from backend.agents import sandbox
+        with self.locked(run) as (cur, current):
+            request = RunInput.model_validate(current['request'])
+            if request.skill != 'code_analysis' or action.tool not in allowed_tools(request):
+                raise HTTPException(403, 'Code execution is not enabled for this run.')
+            attempts = [item for item in current['steps'] if item.get('tool') == 'code_execute']
+            if len(attempts) >= sandbox.MAX_EXECUTIONS or any(item.get('action_key') == action_key(action) for item in attempts):
+                raise HTTPException(409, 'Code execution has already run or reached its limit.')
+            if current['tokens_used'] >= request.max_tokens or len(current['steps']) >= request.max_steps:
+                raise HTTPException(409, 'The run has reached its budget.')
+            index = len(current['steps'])
+            remaining = min(30, request.max_seconds - current['elapsed'])
+            files = {item.name: item.text for item in request.inputs}
+            passages = {p['reference']: p for item in current['steps'] if item.get('tool') == 'document_search'
+                        and item.get('state') == 'completed' for p in item.get('observation', {}).get('passages', [])}
+            if passages:
+                files['material.json'] = json.dumps(list(passages.values()))
+            step.update(state='running', action=action.model_dump(), action_key=action_key(action), cleanup_pending=False)
+            cur.execute('UPDATE aura_agent_runs SET steps=steps || %s::jsonb,updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s',
+                        (Json([step]), run['id'], run['student_id'], run['course_id']))
+
+        def check_active():
+            with self.locked(run):
+                pass
+
+        def on_start(handle):
+            with self.locked(run) as (cur, current):
+                step.update(execution=handle, cleanup_pending=True)
+                cur.execute('UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s]::text[],%s::jsonb),updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s',
+                            (str(index), Json(step), run['id'], run['student_id'], run['course_id']))
+
+        try:
+            output = sandbox.execute(action.code, action.outputs, files, run_id=run['id'], attempt=len(attempts)+1,
+                                     seconds=remaining, check_active=check_active, on_start=on_start)
+        except sandbox.SandboxUnavailable as error:
+            with self.locked(run) as (cur, current):
+                step.update(state='failed', error_code=error.code)
+                cur.execute('UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s]::text[],%s::jsonb),updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s',
+                            (str(index), Json(step), run['id'], run['student_id'], run['course_id']))
+            raise
+        with self.locked(run) as (cur, current):
+            reserved = current['steps'][index] if len(current['steps']) > index else {}
+            if reserved.get('state') != 'running' or reserved.get('action_key') != action_key(action):
+                raise RunStopped()
+            step.update(state='completed', observation=output, cleanup_pending=False)
+            cur.execute('UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s]::text[],%s::jsonb),updated_at=NOW() WHERE id=%s AND student_id=%s AND course_id=%s',
+                        (str(index), Json(step), run['id'], run['student_id'], run['course_id']))
+        return output
+
+    def cleanup_code(self):
+        """Retry cleanup of owned terminal-run handles after cancellation/restart."""
+        from backend.agents.sandbox import cleanup
+        with self.cursor() as cur:
+            cur.execute('''SELECT id,student_id,course_id,steps FROM aura_agent_runs
+                WHERE state NOT IN ('queued','running') AND steps @> %s::jsonb ORDER BY updated_at LIMIT 2''',
+                (Json([{'tool': 'code_execute', 'cleanup_pending': True}]),))
+            rows = [dict(row) for row in cur.fetchall()]
+        for row in rows:
+            for index, step in enumerate(row['steps']):
+                if step.get('tool') == 'code_execute' and step.get('cleanup_pending') and step.get('execution') and cleanup(step['execution']):
+                    with self.cursor() as cur:
+                        cur.execute('''UPDATE aura_agent_runs SET steps=jsonb_set(steps,ARRAY[%s,'cleanup_pending']::text[],%s::jsonb)
+                            WHERE id=%s AND student_id=%s AND course_id=%s''',
+                            (str(index), Json(False), row['id'], row['student_id'], row['course_id']))
 
     def assessment_draft(self, run, action):
         from backend.agents.assessment import assessment_payload

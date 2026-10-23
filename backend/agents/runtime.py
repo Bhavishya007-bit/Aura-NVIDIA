@@ -63,7 +63,17 @@ For research, finish with answer as a short title and separate from_material/fro
 Use only observed references of the matching source type in each section. Omit a section
 when evidence is absent or irrelevant and explain why in limitations. Never invent URLs.
 A failed web lookup means no web-backed explanation; finish from uploaded evidence and state
-that limitation. A web lookup is not independent fact verification. Finish once useful evidence is gathered; do not repeat searches merely to use the allowance. No code execution exists.
+that limitation. A web lookup is not independent fact verification. Finish once useful evidence is gathered; do not repeat searches merely to use the allowance.
+Code execution exists ONLY for code_analysis when code_execute is allowed. Return
+{"plan":["Run Python"],"action":{"tool":"code_execute","title":"Compute results",
+"code":"print(2 + 2)","outputs":[]}} using self-contained Python. No shell command,
+package install or network access is available. Supplied files are in the working
+directory. Never read host paths, credentials or another user's files. Do not
+invent uploaded data. Write output files only to simple filenames, list them in
+outputs, and inspect the observed status, stdout, stderr and missing_outputs.
+Failed code or missing outputs may be corrected once. Finish only after actual
+execution, and distinguish computed results from assumptions or synthetic examples.
+Successful execution does not establish factual correctness or learning progress.
 Final output is a draft for review, not a source-verified tutor answer.'''
 
 
@@ -156,12 +166,18 @@ def run_agent(store, run, llm_factory, stopping=None):
                 'allow_memory_write': request.allow_memory_write, 'allowed_tools': sorted(available),
                 'output_schema': action_schema(available), 'observations': compact_observations(observations),
                 'execution_state': {'completed_actions': trace, 'available_references': sorted(references),
-                    'next_phase': ('write_quiz' if trace else 'gather_sources') if request.skill == 'assessment' else ('write_brief' if any(item['tool'] == 'web_search' for item in trace) else 'gather_sources') if request.skill == 'research_brief' else ('produce_plan' if 'document_search' not in available else 'gather_then_plan'),
+                    'next_phase': ('execute_then_explain' if not trace else 'observe_or_explain') if request.skill == 'code_analysis' else ('write_quiz' if trace else 'gather_sources') if request.skill == 'assessment' else ('write_brief' if any(item['tool'] == 'web_search' for item in trace) else 'gather_sources') if request.skill == 'research_brief' else ('produce_plan' if 'document_search' not in available else 'gather_then_plan'),
                     'searches_remaining': max(0, 2 - sum(item['tool'] == 'document_search' for item in trace)),
                     'web_searches_remaining': max(0, 2 - sum(item['tool'] == 'web_search' for item in trace))},
                 'validation_feedback': feedback, 'remaining_steps': remaining_steps}
+            if request.skill == 'code_analysis':
+                payload['execution_context'] = {'language': 'python', 'standard_library_only': True,
+                    'inputs': [{'name': item.name, 'bytes': len(item.text.encode('utf-8')), 'preview': item.text[:1500]}
+                               for item in request.inputs], 'selected_material': request.source_id is not None,
+                    'max_executions': 2, 'max_runtime_seconds': 12,
+                    'output_extensions': ['csv', 'json', 'txt', 'md', 'png']}
             prompt = json.dumps(payload, default=str)
-            raw = ask(prompt, 4096 if request.skill == 'assessment' else 3072 if request.skill == 'research_brief' else 1536)
+            raw = ask(prompt, 4096 if request.skill in {'assessment', 'code_analysis'} else 3072 if request.skill == 'research_brief' else 1536)
             try:
                 decision = parse_decision(raw)
                 validate_action(decision.action, available, seen_actions, references, request)
@@ -171,8 +187,8 @@ def run_agent(store, run, llm_factory, stopping=None):
                     {'code': 'invalid_action', 'fields': [{'path': [part if type(part) is int or part in
                       {'plan','action','tool','query','task','title','details','record','kind','text','depth','examples',
                        'answer','references','overview','days','day','arguments','parameters','from_material','from_web','limitations',
-                       'questions','choices','correct_choice_id','prompt','explanation','topic','focus','difficulty','id',
-                       'document_search','web_search','memory_read','memory_write','task_create','task_list','study_plan_create','assessment_create','finish'} else '<field>' for part in row['loc']],
+                       'questions','choices','correct_choice_id','prompt','explanation','topic','focus','difficulty','id','code','outputs',
+                       'document_search','web_search','memory_read','memory_write','task_create','task_list','study_plan_create','assessment_create','code_execute','finish'} else '<field>' for part in row['loc']],
                       'type': row['type']} for row in error.errors(include_input=False, include_context=False)[:6]]})
                 step = {'tool': 'validation', 'state': 'rejected', 'error_code': feedback['code'],
                         'validation_fields': feedback.get('fields', [])}
@@ -253,6 +269,13 @@ def run_agent(store, run, llm_factory, stopping=None):
                          len(decision.action.questions), len(steps) + 1, used)
                 return
             if decision.action.tool == 'finish':
+                if request.skill == 'code_analysis':
+                    from backend.agents.sandbox import code_result
+                    result = code_result(decision.action, observations)
+                    ok = result['code_result']['status'] == 'succeeded'
+                    store.record(run, step, state='completed' if ok else 'failed', result=result,
+                                 error=None if ok else 'code_execution_failed')
+                    return
                 result = (research_result(decision.action, observations) if request.skill == 'research_brief' else {
                     'text': decision.action.answer, 'references': decision.action.references,
                     'verified': False, 'provenance': 'agent_draft'})

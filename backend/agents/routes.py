@@ -1,11 +1,13 @@
 """Authenticated memory/tasks API and a durable, two-worker agent queue."""
 import asyncio
+import base64
 import logging
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from psycopg2 import IntegrityError
 from starlette.concurrency import run_in_threadpool
 from backend.auth_routes import get_current_student
@@ -13,6 +15,7 @@ from backend.agents.contracts import Strict, MemoryInput, RunInput, SKILLS
 from backend.agents.store import Store
 from backend.agents.runtime import run_agent
 from backend.agents.web import web_search_enabled
+from backend.agents import sandbox
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +33,11 @@ def public_run(run):
     # Answer keys stay in private artifact storage until the existing submit flow.
     public['steps'] = [{key: value for key, value in step.items() if key not in {'action', 'plan'}}
                        if step.get('tool') == 'assessment_create' else step for step in run.get('steps', [])]
+    public['steps'] = [{**{key: value for key, value in step.items()
+                          if key not in {'execution', 'cleanup_pending', 'action_key'}},
+                       **({'observation': sandbox.public_output(step['observation'])}
+                          if isinstance(step.get('observation'), dict) else {})}
+                       if step.get('tool') == 'code_execute' else step for step in public['steps']]
     return public
 
 
@@ -40,8 +48,9 @@ def install_agents(app, llm_factory):
     @router.get('/capabilities')
     def capabilities(student=Depends(get_current_student)):
         enabled = web_search_enabled()
-        return {'skills': list(SKILLS), 'tools': ['document_search', 'memory_read', 'memory_write', 'task_list', 'task_create', 'study_plan_create', 'assessment_create'] + (['web_search'] if enabled else []),
-                'web_search': enabled, 'code_execution': False, 'assessment_agent': True}
+        return {'skills': list(SKILLS), 'tools': ['document_search', 'memory_read', 'memory_write', 'task_list', 'task_create', 'study_plan_create', 'assessment_create'] + (['web_search'] if enabled else []) + (['code_execute'] if sandbox.backend_name() else []),
+                'web_search': enabled, 'code_execution': bool(sandbox.backend_name()),
+                'code_backend': sandbox.backend_name(), 'assessment_agent': True}
 
     @router.get('/memory')
     def memory(course_id: int = Query(gt=0), student=Depends(get_current_student)):
@@ -90,6 +99,21 @@ def install_agents(app, llm_factory):
     def cancel(run_id: UUID, course_id: int, student=Depends(get_current_student)):
         return public_run(store.cancel(student['student_id'], course_id, str(run_id)))
 
+    @router.get('/runs/{run_id}/artifacts/{filename}')
+    def artifact(run_id: UUID, filename: str, course_id: int, student=Depends(get_current_student)):
+        run = store.runs(student['student_id'], course_id, str(run_id))
+        # Resolve only server-observed bytes from this account's saved run.
+        for step in reversed(run['steps']):
+            if step.get('tool') != 'code_execute' or step.get('state') != 'completed':
+                continue
+            for item in step.get('observation', {}).get('artifacts', []):
+                if item.get('name') == filename:
+                    return Response(base64.b64decode(item['data'], validate=True), media_type=item['mime'],
+                        headers={'Content-Disposition': f'attachment; filename="{filename}"',
+                                 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store'})
+            break  # Only the most recent execution supplies the displayed output files.
+        raise HTTPException(404, 'This output file was not saved.')
+
     app.include_router(router)
     previous = app.router.lifespan_context
 
@@ -106,6 +130,7 @@ def install_agents(app, llm_factory):
             while not stopping.is_set():
                 try:
                     await run_in_threadpool(store.expire)
+                    await run_in_threadpool(store.cleanup_code)
                     for task in list(active):
                         if task.done():
                             active.remove(task)

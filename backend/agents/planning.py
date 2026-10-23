@@ -57,7 +57,7 @@ def current_tools(request, permitted, trace, remaining_steps):
     tools = set(permitted)
     names = [entry['tool'] for entry in trace]
     counts = {tool: names.count(tool) for tool in tools}
-    for tool, limit in [('document_search', MAX_SEARCHES), ('web_search', MAX_WEB_SEARCHES), ('memory_read', 1), ('task_list', 1)]:
+    for tool, limit in [('document_search', MAX_SEARCHES), ('web_search', MAX_WEB_SEARCHES), ('code_execute', 2), ('memory_read', 1), ('task_list', 1)]:
         if counts.get(tool, 0) >= limit:
             tools.discard(tool)
     if request.skill == 'research_brief':
@@ -71,6 +71,14 @@ def current_tools(request, permitted, trace, remaining_steps):
         tools.discard('finish')
         if 'document_search' not in names:
             return {'document_search'}
+
+    if request.skill == 'code_analysis':
+        if request.source_id is None:
+            tools.discard('document_search')
+        if 'code_execute' not in names:
+            tools.discard('finish')
+        elif counts.get('code_execute', 0) >= 2:
+            return {'finish'}
 
     if request.skill == 'study_plan' and requested_days(request.goal) is not None:
         tools -= {'finish', 'task_create'}
@@ -155,6 +163,11 @@ def compact_observations(observations):
             for passage in item['data'].get('passages', []):
                 web.setdefault(passage['reference'], {**passage, 'text': passage.get('text', '')[:900]})
             result.append({**item, 'data': {k: v for k, v in item['data'].items() if k != 'passages'}})
+        elif item.get('tool') == 'code_execute':
+            from backend.agents.sandbox import public_output
+            data = public_output(item['data'])
+            data['stdout'], data['stderr'] = data.get('stdout', '')[:4096], data.get('stderr', '')[:4096]
+            result.append({**item, 'data': data, 'untrusted_data': True})
         else:
             result.append(item)
     if web:

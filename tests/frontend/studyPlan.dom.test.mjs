@@ -19,7 +19,7 @@ globalThis.window = bootstrap.window; globalThis.document = bootstrap.window.doc
 const channels = []
 globalThis.MessageChannel = class extends NodeMessageChannel { constructor() { super(); channels.push(this) } }
 const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App } = await import(pathToFileURL(`${scratch}/components.mjs`))
-let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable, assessmentAvailable, savedArtifacts
+let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable, assessmentAvailable, codeAvailable, savedArtifacts
 const goal = 'Create a 3-day plan'
 const baseRun = (overrides = {}) => ({ id: 'run-a', source_id: 7, state: 'completed', request: { skill: 'study_plan', goal }, tokens_used: 1200, created_at: '2026-10-23T08:00:00Z', started_at: '2026-10-23T08:00:01Z', updated_at: '2026-10-23T08:00:21Z', steps: [{ tool: 'document_search', state: 'completed', plan: ['RAW INTERNAL NARRATION'], observation: { passages: [{ reference: 'D9', slide: 18 }] } }], result: { text: 'Review the membrane.\n\nDay 1: Membrane proteins\nRead and recall.\nReferences: D9', references: ['D9'], verified: false, structured_plan: { overview: 'Review the membrane.', days: [{ day: 1, title: 'Membrane proteins', details: 'Read and recall.', references: ['D9'] }] }, task_ids: ['task-a'] }, ...overrides })
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -42,7 +42,7 @@ beforeEach(() => {
   globalThis.requestAnimationFrame = callback => setTimeout(callback, 0)
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   root = createRoot(document.getElementById('root'))
-  requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false; generationUnavailable = false; webAvailable = true; assessmentAvailable = true; savedArtifacts = []
+  requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false; generationUnavailable = false; webAvailable = true; assessmentAvailable = true; codeAvailable = true; savedArtifacts = []
   materials = [{ source_id: 7, source_name: 'Biological membranes.ppt', source_type: 'pptx', status: 'success' }]
   globalThis.fetch = async (url, options = {}) => {
     const u = new URL(url), method = options.method || 'GET', body = options.body ? JSON.parse(options.body) : undefined
@@ -51,9 +51,10 @@ beforeEach(() => {
     let value
     if (u.pathname === '/auth/me') value = { student_id: 1, name: 'Sam Rivera', email: 'sam@example.test' }
     else if (u.pathname === '/courses') value = { courses: [{ course_id: 6, course_name: 'Biology' }] }
-    else if (u.pathname === '/agents/capabilities') value = { web_search: webAvailable, assessment_agent: assessmentAvailable }
+    else if (u.pathname === '/agents/capabilities') value = { web_search: webAvailable, assessment_agent: assessmentAvailable, code_execution: codeAvailable, code_backend: codeAvailable ? 'docker' : null }
+    else if (u.pathname.includes('/artifacts/') && u.pathname.startsWith('/agents/runs/')) return new Response('value\n4\n', { headers: { 'Content-Type': 'text/csv' } })
     else if (u.pathname === '/agents/runs' && method === 'GET') value = { items: jobs }
-    else if (u.pathname === '/agents/runs' && method === 'POST') { value = baseRun({ id: 'run-new', state: 'queued', request: body, steps: [], result: null }); jobs.unshift(value) }
+    else if (u.pathname === '/agents/runs' && method === 'POST') { value = baseRun({ id: `run-new-${jobs.length}`, state: 'queued', request: body, steps: [], result: null }); jobs.unshift(value) }
     else if (u.pathname.endsWith('/cancel')) { jobs[0].state = 'cancelled'; value = jobs[0] }
     else if (u.pathname === '/agents/tasks') value = { items: tasks }
     else if (u.pathname.startsWith('/agents/tasks/')) { const t = tasks.find(t => t.id === u.pathname.split('/').at(-1)); t.done = body.done; value = t }
@@ -81,7 +82,7 @@ test('empty screen is goal-first and cannot start without selected ready materia
   await click(button('3-day plan'))
   assert(button('Create my plan').disabled)
   assert.match(visibleText(), /Choose a material/)
-  assert.equal(document.querySelectorAll('.plan-outcomes input[type=radio]').length, 3)
+  assert.equal(document.querySelectorAll('.plan-outcomes input[type=radio]').length, 4)
 })
 test('create action preserves the run POST contract and serializes options only inside goal', async () => {
   await mount(AgentPanel, props())
@@ -355,4 +356,89 @@ test('direct quiz link restores the exact saved assessment after refresh', async
   await mount(StudyWorkspace, { user: { id: 'learner-1', fullName: 'Sam Rivera', email: 'sam@example.test' }, courses: [{ id: '6', title: 'Biology' }], courseId: '6', coursesLoading: false, coursesError: '', theme: 'dark', onCourseChange() {}, onThemeChange() {}, onChatHome() {}, onSignOut() {}, signingOut: false, sessionNotice: '' })
   assert.match(document.body.textContent, /Which component forms the bilayer/)
   assert(!document.body.textContent.includes('A different saved quiz?'))
+})
+
+
+test('code analysis can start without material and sends only the additive input field', async () => {
+  await mount(AgentPanel, props({ sourceId: '', materialReady: false }))
+  await click(document.querySelector('input[value=code_analysis]'))
+  await click(button('Calculate and explain'))
+  assert(!button('Run analysis').disabled)
+  assert(!document.querySelector('.plan-options'))
+  await click(button('Run analysis'))
+  const start = requests.find(r => r.method === 'POST' && r.path === '/agents/runs')
+  assert.equal(start.body.skill, 'code_analysis'); assert.equal(start.body.source_id, null)
+  assert.deepEqual(start.body.inputs, []); assert.equal(start.body.allow_memory_write, false)
+  assert.match(start.body.goal, /fixed seed/)
+})
+test('code capability is off until the server advertises an execution backend', async () => {
+  codeAvailable = false
+  await mount(AgentPanel, props())
+  assert(document.querySelector('input[value=code_analysis]').disabled)
+  assert.match(visibleText(), /Execution needs to be enabled/)
+})
+test('code results are observed text with authenticated artifact downloads and recover after refresh', async () => {
+  const observation = { status: 'succeeded', exit_code: 0, stdout: '<img src=x onerror=alert(1)>\n4', stderr: '', stdout_truncated: false, stderr_truncated: false, missing_outputs: [], artifacts: [{ name: 'result.csv', mime: 'text/csv', size: 8, sha256: 'a'.repeat(64) }] }
+  jobs = [baseRun({ source_id: null, request: { skill: 'code_analysis', goal: 'Calculate four' }, steps: [{ tool: 'code_execute', state: 'completed', action: { code: 'print(4)' }, observation }], result: { text: 'The calculation returned four.', code_result: observation, verified: false } })]
+  const downloads = [], urls = []
+  const previousCreate = URL.createObjectURL, previousRevoke = URL.revokeObjectURL
+  URL.createObjectURL = blob => { urls.push(blob); return 'blob:test-code' }; URL.revokeObjectURL = () => {}
+  window.HTMLAnchorElement.prototype.click = function () { downloads.push({ href: this.href, name: this.download }) }
+  try {
+    await mount(AgentPanel, props({ sourceId: '', materialReady: false }))
+    assert.match(visibleText(), /Python finished successfully/)
+    assert.equal(document.querySelector('.plan-code-result img'), null)
+    assert.match(document.querySelector('.plan-code-result pre').textContent, /print\(4\)/)
+    assert(!button('Download .md'))
+    await click(document.querySelector('.plan-code-files button'))
+    assert.equal(downloads[0].name, 'result.csv'); assert.equal(urls[0].size, 8)
+    assert(requests.some(r => r.path === '/agents/runs/run-a/artifacts/result.csv' && r.query === '?course_id=6'))
+    await act(async () => root.unmount()); root = createRoot(document.getElementById('root'))
+    await mount(AgentPanel, props({ sourceId: '', materialReady: false }))
+    assert.match(visibleText(), /calculation returned four/)
+    assert(!button('Regenerate').disabled)
+  } finally { URL.createObjectURL = previousCreate; URL.revokeObjectURL = previousRevoke }
+})
+test('CSV inputs remain out of local storage and regenerate uses the saved attachment', async () => {
+  await mount(AgentPanel, props({ sourceId: '', materialReady: false }))
+  await click(document.querySelector('input[value=code_analysis]'))
+  await click(button('Analyze my CSV'))
+  const field = document.getElementById('plan-code-files')
+  const csv = new TextEncoder().encode('x\n4\n')
+  Object.defineProperty(field, 'files', { configurable: true, value: [{ name: 'data.csv', size: csv.length, arrayBuffer: async () => csv.buffer }] })
+  await act(async () => { field.dispatchEvent(new dom.window.Event('change', { bubbles: true })); await tick() })
+  assert.match(visibleText(), /data.csv/)
+  assert(!localStorage.getItem('plan:test:learner:6').includes('x\\n4'))
+  await click(button('Run analysis'))
+  assert.deepEqual(requests.find(r => r.method === 'POST' && r.path === '/agents/runs').body.inputs, [{ name: 'data.csv', text: 'x\n4\n' }])
+  jobs[0].state = 'completed'; jobs[0].result = { text: 'Four.', references: [], verified: false }
+  await act(async () => root.unmount()); root = createRoot(document.getElementById('root'))
+  await mount(AgentPanel, props({ sourceId: '', materialReady: false }))
+  await click(button('Regenerate'))
+  assert.deepEqual(requests.filter(r => r.method === 'POST' && r.path === '/agents/runs').at(-1).body.inputs, [{ name: 'data.csv', text: 'x\n4\n' }])
+})
+test('CSV path and size checks prevent run submission without affecting other skills', async () => {
+  await mount(AgentPanel, props())
+  await click(document.querySelector('input[value=code_analysis]'))
+  await click(button('Analyze my CSV'))
+  const field = document.getElementById('plan-code-files')
+  Object.defineProperty(field, 'files', { configurable: true, value: [{ name: '../data.csv', size: 4, arrayBuffer: async () => new ArrayBuffer(4) }] })
+  await act(async () => { field.dispatchEvent(new dom.window.Event('change', { bubbles: true })); await tick() })
+  assert(button('Run analysis').disabled)
+  assert(document.querySelector('[role=alert]'))
+  await click(document.querySelector('input[value=study_plan]'))
+  assert(!button('Create my plan').disabled)
+})
+
+test('a stopped code run retains observed output and Make it simpler narrows the retry', async () => {
+  const output = { status: 'succeeded', exit_code: 0, stdout: '4', stderr: '', stdout_truncated: false, stderr_truncated: false, missing_outputs: [], artifacts: [] }
+  jobs = [baseRun({ state: 'budget_exhausted', source_id: null, request: { skill: 'code_analysis', goal: 'Calculate four' }, result: null, steps: [{ tool: 'code_execute', state: 'completed', observation: output }] })]
+  await mount(AgentPanel, props({ sourceId: '', materialReady: false }))
+  assert.match(visibleText(), /Stopped early/)
+  assert.match(visibleText(), /Python finished successfully/)
+  await click(button('Make it simpler'))
+  const body = requests.find(r => r.method === 'POST' && r.path === '/agents/runs').body
+  assert.equal(body.skill, 'code_analysis')
+  assert.match(body.goal, /one small calculation/)
+  assert.match(body.goal, /skip output files/)
 })

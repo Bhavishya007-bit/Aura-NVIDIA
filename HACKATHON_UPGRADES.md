@@ -49,3 +49,8 @@ and the final submission package. Offline tests are not model benchmarks.
 
 Full details: [Phase 2 implementation](docs/PHASE2_SOURCE_AWARE.md).
 Reported-failure fixes: [Follow-ups and slide evidence](docs/TUTOR_RECOVERY.md).
+
+- Code & data agent: bounded isolated Python with optional CSV input, captured
+  results and owned downloads. Token Factory Sandboxes VM adapter plus explicit
+  Docker development fallback; disabled until configured. No host-code execution
+  path or additional production dependencies. Setup: `docs/CODE_ANALYSIS.md`.

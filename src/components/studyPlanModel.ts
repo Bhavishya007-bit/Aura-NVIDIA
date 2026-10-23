@@ -7,7 +7,7 @@ export function stateLabel(state: string): string {
   return ({ completed: 'Done', budget_exhausted: 'Stopped early', failed: 'Something went wrong', cancelled: 'Cancelled', queued: 'Getting ready', running: 'In progress', timed_out: 'Stopped early', interrupted: 'Stopped early' } as Record<string, string>)[state] ?? 'Unavailable'
 }
 export function stepLabel(tool: string): string {
-  return ({ document_search: 'Reading your slides', memory_read: "Checking what you’ve studied", web_search: 'Looking up sources', study_plan_create: 'Building your plan', assessment_create: 'Creating your quiz', task_create: 'Saving your study checklist', task_list: 'Checking your study checklist', memory_write: 'Remembering your preferences', verification: 'Checking the plan', verify: 'Checking the plan', finish: 'Putting it all together' } as Record<string, string>)[tool] ?? 'Working on your plan'
+  return ({ code_execute: 'Running your Python code', document_search: 'Reading your slides', memory_read: "Checking what you’ve studied", web_search: 'Looking up sources', study_plan_create: 'Building your plan', assessment_create: 'Creating your quiz', task_create: 'Saving your study checklist', task_list: 'Checking your study checklist', memory_write: 'Remembering your preferences', verification: 'Checking the plan', verify: 'Checking the plan', finish: 'Putting it all together' } as Record<string, string>)[tool] ?? 'Working on your plan'
 }
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []

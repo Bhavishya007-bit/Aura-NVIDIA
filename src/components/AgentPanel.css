@@ -135,8 +135,16 @@
 .research-limitations{margin-top:22px;border-top:1px solid var(--plan-line);padding-top:18px;color:var(--plan-muted);font-size:13px}.research-limitations h3{font-size:15px!important}.research-limitations ul{padding-left:20px}
 @media(max-width:540px){.research-section{padding:17px 14px}}
 
-.plan-outcomes{grid-template-columns:repeat(3,minmax(0,1fr))}
+.plan-outcomes{grid-template-columns:repeat(2,minmax(0,1fr))}
 .plan-outcomes label:has(input:disabled){opacity:.6;cursor:not-allowed}
 .plan-quiz-ready{padding:24px;background:var(--plan-soft);border:1px solid var(--plan-line);border-radius:12px}
 .plan-quiz-ready p{margin:10px 0 18px}
 @media(max-width:760px){.plan-outcomes{grid-template-columns:1fr}}
+
+/* Execution output uses the workspace's existing color and spacing tokens. */
+.plan-code-input{margin:18px 0;padding:16px;border:1px solid var(--plan-line);border-radius:10px;background:var(--plan-soft)}
+.plan-code-input label{display:block;font-weight:600;margin-bottom:10px}.plan-code-input small{display:block;font-weight:400;margin-top:4px;color:var(--sw-muted)}
+.plan-code-input input{max-width:100%;font:inherit;font-size:13px}.plan-code-input ul{padding-left:20px;overflow-wrap:anywhere}
+.plan-code-result{display:grid;gap:18px;margin-top:24px;min-width:0}.plan-code-result h3{margin:0 0 8px;font-size:16px}
+.plan-code-result pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:380px;overflow:auto;background:var(--plan-soft);border:1px solid var(--plan-line);border-radius:9px;padding:16px;color:var(--sw-text);line-height:1.6;font-size:13px;tab-size:4}
+.plan-code-result summary{cursor:pointer;font-weight:600;padding:8px 0}.plan-code-files{list-style:none;padding:0;display:grid;gap:10px}.plan-code-files li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;border:1px solid var(--plan-line);padding:12px;border-radius:9px}.plan-code-files small{color:var(--sw-muted)}.plan-code-files button{margin-left:auto}.plan-code-explanation{white-space:pre-wrap;line-height:1.75;overflow-wrap:anywhere}

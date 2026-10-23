@@ -335,3 +335,11 @@ leakage. All 26 assessment-agent checks pass. The full backend suite reports 251
 checks: 249 passed and two optional OCR checks skipped. No live hosted credentials
 are available here, so the same quiz still needs a local retest. Pull main,
 restart FastAPI and create a new quiz; the old failed run is not replayed.
+
+### Code and data analysis
+
+The `code_analysis` skill adds bounded Python execution, optional small CSV inputs,
+actual stdout/stderr and owned downloadable artifacts. Execution is disabled by
+default; configure Token Factory Sandboxes or the explicit local Docker fallback.
+See [CODE_ANALYSIS.md](CODE_ANALYSIS.md) for setup, limits, additive API fields and
+validation. Existing plan/research/quiz flows keep their contracts.
