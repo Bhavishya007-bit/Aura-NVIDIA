@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from backend.ai.llm import LLMResponseError
 from backend.agents.contracts import RunInput, SKILLS, allowed_tools
 from backend.agents.store import RunStopped
+from backend.agents.sandbox import SandboxUnavailable
 from backend.agents.planning import (
     ActionRejected, action_key, action_schema, compact_observations,
     current_tools, parse_decision, plan_result, research_result, validate_action,
@@ -304,6 +305,12 @@ def run_agent(store, run, llm_factory, stopping=None):
             pass
     except RunStopped:
         return  # cancelled/expired runs cannot be revived by late model output
+    except SandboxUnavailable as error:
+        log.warning('agent_run=failed error_type=SandboxUnavailable failure_code=%s', error.code)
+        try:
+            store.record(run, state='failed', error=error.code)
+        except RunStopped:
+            pass
     except Exception as error:
         log.warning('agent_run=failed error_type=%s', type(error).__name__)
         try:

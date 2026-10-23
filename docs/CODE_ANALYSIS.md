@@ -116,6 +116,41 @@ and no-material execution. Fixed, authored fixture programs test the guest wrapp
 no model-produced code is executed on the test host. Transport tests simulate the
 provider/Docker engine. A live configured sandbox remains an operator smoke test.
 
-Last implementation check: 25 focused code-agent checks and 41 frontend checks
-passed, alongside the full backend suite (274 passed, two optional OCR skips) and production build.
+Last implementation check: 30 focused code-agent checks and 43 frontend checks
+passed, alongside the full backend suite (279 passed, two optional OCR skips) and production build.
 Live Docker/Nebius execution was not available in the implementation environment.
+
+
+## When a code run says “Something went wrong”
+
+A successful LLM request does not establish that Python executed. Run the
+read-only setup check from the repository root in your activated environment:
+
+```powershell
+python scripts/check_code_runtime.py
+```
+
+It loads the same `backend/.env`, checks Docker connectivity and the prepared
+Linux image, and prints a fixed actionable reason without keys, paths or raw
+provider messages. It does not call an LLM, query PostgreSQL, execute code or
+contact Nebius. For Nebius it validates configuration format only.
+
+Then explicitly test the complete isolation adapter (one VM operation may incur
+provider charges when using the Nebius backend):
+
+```powershell
+python scripts/check_code_runtime.py --smoke
+```
+
+This runs a fixed CSV calculation inside the configured Docker/VM backend and
+checks the actual JSON output. No generated program runs on the host. For a
+missing local image, start Docker Desktop and rebuild:
+
+```powershell
+docker build -f sandbox/Dockerfile -t aura-code:1 sandbox
+```
+
+Execution setup failures now retain a specific safe reason in the server log and
+Run details. The result panel maps it to plain-language guidance. Raw Docker
+stderr, image environments and provider responses remain excluded. An older run
+may still contain only the generic reason; use the check above, then retry.

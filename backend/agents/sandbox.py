@@ -28,10 +28,26 @@ NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,74}\.(csv|json|txt|md|png)\Z')
 MIME = {'csv': 'text/csv', 'json': 'application/json', 'txt': 'text/plain', 'md': 'text/markdown', 'png': 'image/png', 'py': 'text/plain'}
 
 
+FAILURE_MESSAGES = {
+    'not_configured': 'Code execution is not configured. Enable Docker or Nebius Sandboxes in the backend settings.',
+    'runtime_unavailable': 'Aura could not reach its execution environment. Check the configured backend and try again.',
+    'submission_uncertain': 'The sandbox submission could not be confirmed. Check the provider before starting another run.',
+    'invalid_result': 'The execution environment did not return a complete readable result. Try a smaller calculation.',
+    'execution_timeout': 'The execution environment took too long. Try a smaller calculation.',
+    'docker_cli_unavailable': 'Docker is not available to the backend. Install Docker Desktop and restart the backend terminal.',
+    'docker_daemon_unavailable': 'Aura could not connect to Docker. Start Docker Desktop, wait for the engine to be ready, then retry.',
+    'docker_image_missing': 'The Aura Python image is missing. Build it from sandbox/Dockerfile, then retry.',
+    'docker_requires_linux': 'Aura needs Linux containers. Switch Docker Desktop to Linux containers, then rebuild the Python image.',
+    'docker_image_rejected': 'The configured image does not match the required execution settings. Rebuild it from sandbox/Dockerfile.',
+    'docker_launch_failed': 'Docker could not start the isolated Python environment. Run the code-runtime check in the setup guide.',
+    'docker_python_unavailable': 'The configured image could not start Python. Rebuild it from sandbox/Dockerfile.',
+    'docker_guest_failed': 'The Python execution wrapper stopped before returning results. Run the code-runtime check in the setup guide.',
+}
+
+
 class SandboxUnavailable(Exception):
     def __init__(self, code):
-        allowed = {'not_configured', 'runtime_unavailable', 'submission_uncertain', 'invalid_result', 'execution_timeout'}
-        self.code = code if code in allowed else 'runtime_unavailable'
+        self.code = code if code in FAILURE_MESSAGES else 'runtime_unavailable'
         super().__init__(self.code)
 
 
@@ -188,29 +204,59 @@ def _docker_control(args, timeout=5):
                           capture_output=True, timeout=timeout, env=_docker_env(), check=False)
 
 
+def _docker_failure(stderr, default):
+    # Classify known setup failures without logging untrusted stderr, paths or credentials.
+    message = stderr[:8192].decode('utf-8', errors='replace').lower()
+    if any(text in message for text in ('cannot connect', 'error during connect', 'is the docker daemon running',
+                                       'dockerdesktoplinuxengine', 'the system cannot find the file specified')):
+        return 'docker_daemon_unavailable'
+    if any(text in message for text in ('no such image', 'unable to find image')):
+        return 'docker_image_missing'
+    return default
+
+
+def inspect_docker_image():
+    """Read-only setup check, shared by execution and the operator diagnostic."""
+    if not shutil.which('docker'):
+        raise SandboxUnavailable('docker_cli_unavailable')
+    try:
+        inspected = _docker_control(['image', 'inspect', os.getenv('AURA_DOCKER_IMAGE', 'aura-code:1')])
+        if inspected.returncode:
+            raise SandboxUnavailable(_docker_failure(inspected.stderr, 'docker_launch_failed'))
+        images = json.loads(inspected.stdout)
+        if not isinstance(images, list) or len(images) != 1:
+            raise SandboxUnavailable('docker_image_missing')
+        image = images[0]
+        if image.get('Os') != 'linux':
+            raise SandboxUnavailable('docker_requires_linux')
+        allowed_env = {'PATH','LANG','LC_ALL','HOME','TZ','PYTHON_VERSION','PYTHON_SHA256','GPG_KEY','PYTHONUNBUFFERED'}
+        config = image.get('Config') or {}
+        if (not re.fullmatch(r'sha256:[a-f0-9]{64}', image.get('Id', '')) or config.get('Volumes')
+                or any(value.split('=', 1)[0] not in allowed_env for value in (config.get('Env') or []))):
+            raise SandboxUnavailable('docker_image_rejected')
+        return image['Id']
+    except FileNotFoundError as error:
+        raise SandboxUnavailable('docker_cli_unavailable') from error
+    except subprocess.TimeoutExpired as error:
+        raise SandboxUnavailable('docker_daemon_unavailable') from error
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        raise SandboxUnavailable('docker_launch_failed') from error
+
+
 def _docker(request, deadline, check_active, on_start, name):
     handle = {'backend': 'docker', 'id': name}
     proc = None
     on_start(handle)  # Store the owned name before starting the container.
     try:
         check_active()
-        inspected = _docker_control(['image', 'inspect', os.getenv('AURA_DOCKER_IMAGE', 'aura-code:1')])
-        images = json.loads(inspected.stdout)
-        if inspected.returncode or not isinstance(images, list) or len(images) != 1:
-            raise SandboxUnavailable('runtime_unavailable')
-        image = images[0]
-        allowed_env = {'PATH','LANG','LC_ALL','HOME','TZ','PYTHON_VERSION','PYTHON_SHA256','GPG_KEY','PYTHONUNBUFFERED'}
-        if (image.get('Os') != 'linux' or not re.fullmatch(r'sha256:[a-f0-9]{64}', image.get('Id', ''))
-                or image.get('Config', {}).get('Volumes')
-                or any(value.split('=', 1)[0] not in allowed_env for value in image.get('Config', {}).get('Env', []))):
-            raise SandboxUnavailable('runtime_unavailable')
+        image_id = inspect_docker_image()
         check_active()
         args = [shutil.which('docker') or 'docker', 'run', '--rm', '--pull=never', '--name', name,
             '--network=none', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
             '--memory=320m', '--memory-swap=320m', '--cpus=1', '--pids-limit=64', '--user=65534:65534',
             '--tmpfs=/tmp:rw,noexec,nosuid,size=32m,mode=1777', '--workdir=/tmp',
             '--env=HOME=/tmp', '--env=LANG=C.UTF-8', '--entrypoint=/usr/local/bin/python', '-i',
-            image['Id'], '-I', '-B', '-u', '-c', GUEST]
+            image_id, '-I', '-B', '-u', '-c', GUEST]
         # Host streams are regular files and are capped by the monitoring loop.
         with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err, tempfile.TemporaryFile() as source:
             source.write(json.dumps(request).encode()); source.seek(0)
@@ -223,7 +269,10 @@ def _docker(request, deadline, check_active, on_start, name):
                     raise SandboxUnavailable('invalid_result')
                 time.sleep(.2)
             if proc.returncode:
-                raise SandboxUnavailable('runtime_unavailable')
+                err.seek(0)
+                default = ('docker_python_unavailable' if proc.returncode in (126, 127) else
+                           'docker_launch_failed' if proc.returncode == 125 else 'docker_guest_failed')
+                raise SandboxUnavailable(_docker_failure(err.read(8192), default))
             out.seek(0); raw = out.read(MAX_RESPONSE+1)
             if len(raw) > MAX_RESPONSE:
                 raise SandboxUnavailable('invalid_result')

@@ -90,6 +90,7 @@ class SandboxTransport(unittest.TestCase):
         self.env = patch.dict(os.environ, {'AURA_CODE_BACKEND': 'nebius', 'NEBIUS_API_KEY': 'private-test-key',
             'NEBIUS_PROJECT_ID': 'project_test', 'NEBIUS_SANDBOX_IMAGE': str(uuid4())})
         self.env.start(); self.addCleanup(self.env.stop)
+        cli = patch('backend.agents.sandbox.shutil.which', return_value='/test/docker'); cli.start(); self.addCleanup(cli.stop)
 
     def success(self, identity):
         return {'uuid': identity, 'status': 'SUCCESS', 'metadata': {'result': {
@@ -186,6 +187,65 @@ class SandboxTransport(unittest.TestCase):
             self.assertFalse(sandbox.cleanup({'backend': 'docker', 'id': 'another-users-container'}))
             self.assertFalse(sandbox.cleanup({'backend': 'nebius', 'id': '../anything'}))
         docker.assert_not_called(); http.assert_not_called()
+
+    def test_docker_setup_failures_keep_specific_codes_without_raw_messages(self):
+        failures = [
+            (Mock(returncode=1, stdout=b'', stderr=b'error during connect: private pipe path'), 'docker_daemon_unavailable'),
+            (Mock(returncode=1, stdout=b'[]', stderr=b'Error: No such image: private-image'), 'docker_image_missing'),
+            (Mock(returncode=1, stdout=b'', stderr=b'private unknown detail'), 'docker_launch_failed'),
+            (Mock(returncode=0, stdout=b'[{"Os":"windows"}]'), 'docker_requires_linux'),
+            (Mock(returncode=0, stdout=b'not json private'), 'docker_launch_failed'),
+        ]
+        for reply, code in failures:
+            with self.subTest(code=code), patch.object(sandbox, '_docker_control', return_value=reply), self.assertRaises(sandbox.SandboxUnavailable) as caught:
+                sandbox.inspect_docker_image()
+            self.assertEqual(caught.exception.code, code)
+            self.assertNotIn('private', str(caught.exception))
+        with patch('backend.agents.sandbox.shutil.which', return_value=None), self.assertRaises(sandbox.SandboxUnavailable) as caught:
+            sandbox.inspect_docker_image()
+        self.assertEqual(caught.exception.code, 'docker_cli_unavailable')
+        with patch.object(sandbox, '_docker_control', side_effect=subprocess.TimeoutExpired('private', 5)), self.assertRaises(sandbox.SandboxUnavailable) as caught:
+            sandbox.inspect_docker_image()
+        self.assertEqual(caught.exception.code, 'docker_daemon_unavailable')
+
+    def test_docker_exit_failure_captures_only_classified_reason(self):
+        image = {'Os': 'linux', 'Id': 'sha256:'+'a'*64, 'Config': {'Env': []}}
+        def spawn(args, **kw):
+            kw['stderr'].write(b'private contents: error during connect')
+            return Mock(returncode=125, poll=lambda: 125)
+        with patch.object(sandbox, '_docker_control', return_value=Mock(returncode=0, stdout=json.dumps([image]).encode())), patch.object(sandbox, 'cleanup'), patch('backend.agents.sandbox.subprocess.Popen', side_effect=spawn), self.assertRaises(sandbox.SandboxUnavailable) as caught:
+            sandbox._docker({}, time.monotonic()+10, lambda: None, lambda h: None, 'aura-code-'+'a'*32+'-1')
+        self.assertEqual(caught.exception.code, 'docker_daemon_unavailable')
+        self.assertNotIn('private', str(caught.exception))
+
+
+class RuntimeDiagnostic(unittest.TestCase):
+    def test_missing_docker_image_survives_runtime_log_and_saved_run(self):
+        store = fixtures.FakeStore(req()); store.run['source_id'] = None; model = fixtures.Model([code_action()])
+        with patch.object(sandbox, 'backend_name', return_value='docker'), patch.object(store, 'tool', side_effect=sandbox.SandboxUnavailable('docker_image_missing')), self.assertLogs('backend.agents.runtime', level='WARNING') as logs:
+            run_agent(store, store.run, lambda: model)
+        self.assertEqual(store.run['error_code'], 'docker_image_missing')
+        self.assertEqual(store.run['state'], 'failed')
+        self.assertIn('failure_code=docker_image_missing', ''.join(logs.output))
+        self.assertEqual(len(model.calls), 1)
+
+    def test_unknown_exception_text_is_not_exposed(self):
+        store = fixtures.FakeStore(req()); store.run['source_id'] = None; model = fixtures.Model([code_action()])
+        with patch.object(sandbox, 'backend_name', return_value='docker'), patch.object(store, 'tool', side_effect=sandbox.SandboxUnavailable('private-error-contents')), self.assertLogs('backend.agents.runtime', level='WARNING') as logs:
+            run_agent(store, store.run, lambda: model)
+        self.assertEqual(store.run['error_code'], 'runtime_unavailable')
+        self.assertNotIn('private-error', str(store.run)+str(logs.output))
+
+    def test_operator_check_is_read_only_by_default_and_smoke_uses_the_isolation_adapter(self):
+        from scripts.check_code_runtime import main
+        with patch.dict(os.environ, {'AURA_CODE_BACKEND': 'docker'}), patch('scripts.check_code_runtime.load_dotenv'), patch.object(sandbox, 'inspect_docker_image', return_value='sha256:'+'a'*64), patch.object(sandbox, 'execute') as execute:
+            self.assertEqual(main([]), 0)
+            execute.assert_not_called()
+            artifact = {'name': 'result.json', 'data': base64.b64encode(b'{"mean":4}').decode()}
+            execute.return_value = {'status': 'succeeded', 'missing_outputs': [], 'artifacts': [artifact]}
+            self.assertEqual(main(['--smoke']), 0)
+            execute.assert_called_once()
+            self.assertIn('assert mean == 4', execute.call_args.args[0])
 
 
 @unittest.skipUnless(sys.platform == 'linux', 'Guest fixtures use Linux resource limits')

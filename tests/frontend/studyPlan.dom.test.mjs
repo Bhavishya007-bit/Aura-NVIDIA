@@ -442,3 +442,20 @@ test('a stopped code run retains observed output and Make it simpler narrows the
   assert.match(body.goal, /one small calculation/)
   assert.match(body.goal, /skip output files/)
 })
+
+
+test('sandbox setup failures give actionable copy without exposing internal codes', async () => {
+  jobs = [baseRun({ state: 'failed', source_id: null, request: { skill: 'code_analysis', goal: 'Teach me bubble sort' }, error_code: 'docker_image_missing', result: null, steps: [{ tool: 'code_execute', state: 'failed', error_code: 'docker_image_missing' }] })]
+  await mount(AgentPanel, props())
+  assert.match(visibleText(), /Python image is missing/)
+  assert.match(visibleText(), /Build it from sandbox\/Dockerfile/)
+  assert(!visibleText().includes('docker_image_missing'))
+  assert(!visibleText().includes('SandboxUnavailable'))
+  assert(button('Retry'))
+})
+test('older failed runs with a saved step reason still show Docker connection guidance', async () => {
+  jobs = [baseRun({ state: 'failed', request: { skill: 'code_analysis', goal: 'Teach me bubble sort' }, error_code: 'model_or_tool_unavailable', result: null, steps: [{ tool: 'code_execute', state: 'failed', error_code: 'docker_daemon_unavailable' }] })]
+  await mount(AgentPanel, props())
+  assert.match(visibleText(), /Start Docker Desktop/)
+  assert(!visibleText().includes('docker_daemon_unavailable'))
+})

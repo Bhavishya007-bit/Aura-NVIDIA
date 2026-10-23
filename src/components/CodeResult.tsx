@@ -2,6 +2,26 @@ import { useState } from 'react'
 import type { AgentRun, CodeOutput } from '../services/agentApi'
 import { downloadCodeArtifact } from '../services/agentApi'
 
+export function codeFailureMessage(run: AgentRun): string {
+  const lastFailure = [...run.steps].reverse().find(step => step.tool === 'code_execute' && step.state === 'failed')?.error_code
+  const code = lastFailure ?? run.error_code ?? ''
+  const messages: Record<string, string> = {
+    docker_cli_unavailable: 'Docker is not available to the backend. Install Docker Desktop and restart the backend terminal.',
+    docker_daemon_unavailable: 'Aura could not connect to Docker. Start Docker Desktop, wait for the engine to be ready, then retry.',
+    docker_image_missing: 'The Aura Python image is missing. Build it from sandbox/Dockerfile, then retry.',
+    docker_requires_linux: 'Aura needs Linux containers. Switch Docker Desktop to Linux containers, then rebuild the Python image.',
+    docker_image_rejected: 'The configured image does not match the required execution settings. Rebuild it from sandbox/Dockerfile.',
+    docker_launch_failed: 'Docker could not start the isolated Python environment. Run the code-runtime check in the setup guide.',
+    docker_python_unavailable: 'The configured image could not start Python. Rebuild it from sandbox/Dockerfile.',
+    docker_guest_failed: 'The Python execution wrapper stopped before returning results. Run the code-runtime check in the setup guide.',
+    not_configured: 'Code execution is not configured. Enable an execution backend before trying again.',
+    submission_uncertain: 'The sandbox submission could not be confirmed. Check the provider before starting another run.',
+    invalid_result: 'Aura did not receive a complete readable execution result. Try a smaller calculation.',
+    execution_timeout: 'The execution environment took too long. Try a smaller calculation.',
+  }
+  return messages[code] ?? 'Aura could not finish the code run. Check that execution is enabled, or try a smaller calculation.'
+}
+
 export function savedCodeOutput(run: AgentRun): CodeOutput | undefined {
   const value = run.result?.code_result ?? [...run.steps].reverse().find(step => step.tool === 'code_execute' && step.state === 'completed')?.observation
   if (!value || typeof value !== 'object') return undefined
