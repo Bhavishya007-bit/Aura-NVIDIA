@@ -207,3 +207,35 @@ actual source URLs and separates uploaded and web findings. Missing configuratio
 failed searches and absent usable results have explicit material-only fallbacks.
 The feature, API additions, credit limits, validation and setup are documented in
 [TAVILY_RESEARCH.md](TAVILY_RESEARCH.md). No database migration or dependency is added.
+
+## Follow-up: successful model responses rejected before tool execution
+
+The reported live run received two valid JSON responses from Nebius, but both
+failed Aura's decision validation (`invalid_action`). No study tool ran. The
+previous log did not identify the fields, so it does not prove the exact shape
+of those responses. The JWT short-key warning is separate: login subsequently
+returned 200, and the model requests succeeded.
+
+The agent prompt now includes a complete top-level `plan`/`action` example.
+Before strict validation, a small adapter accepts unambiguous flat tool calls,
+string action names, and `arguments` or `parameters` wrappers. A string plan
+becomes a one-item list; an omitted display plan gets a generic intention.
+No action or argument is invented. Explicit invalid plans, unknown/extra fields,
+conflicting envelopes, missing/incorrect argument types, forbidden tools, and
+unobserved references remain rejected. Limits and the single repair allowance
+are unchanged; API payloads and database fields are unchanged.
+
+Rejected decisions now record and log sanitized field paths and validation
+types. Arbitrary field names become `<field>`; raw responses, document text,
+credentials and validation input values are not logged. This lets a new live
+failure be diagnosed without asking for model or document contents.
+
+Five new regressions cover normalized search-to-plan completion, ambiguous and
+extra fields, permissions/reference checks, private-data-free diagnostics, and
+invalid explicit plans. The real background API test now saves three daily tasks
+from normalized provider envelopes. The full backend suite reports 225 checks:
+223 passed and two optional OCR checks skipped. These use controlled model
+responses; no hosted model credentials are available here. Pull `main`, restart
+FastAPI and start a new run to retest the actual model. Old failed runs are not
+replayed. Select **Study plan** for a revision plan; **Research a topic** produces
+a source-separated research brief.

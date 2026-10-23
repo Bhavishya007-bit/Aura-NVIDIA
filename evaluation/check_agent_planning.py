@@ -6,7 +6,7 @@ from unittest.mock import patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from backend.agents.contracts import Decision, RunInput, allowed_tools, requested_days
-from backend.agents.planning import action_schema, compact_observations
+from backend.agents.planning import action_schema, compact_observations, parse_decision
 from backend.agents.runtime import run_agent
 from backend.agents.store import RunStopped
 from backend.agents.routes import install_agents
@@ -77,13 +77,86 @@ class PlanningChecks(unittest.TestCase):
         self.assertEqual(third['execution_state']['next_phase'], 'produce_plan')
 
     def test_bad_argument_shape_gets_field_feedback_and_can_repair_directly(self):
-        bad = action('study_plan_create', arguments={'days': []})
+        bad = action('study_plan_create', overview='Do not mix flat fields and an argument wrapper.', arguments={'days': []})
         store, model = self.execute([action('document_search', query='membranes'), bad, daily_plan()])
         self.assertEqual(store.run['state'], 'completed')
         feedback = model.calls[2]['prompt']['validation_feedback']
         self.assertEqual(feedback['code'], 'invalid_action')
         self.assertTrue(any('arguments' in row['path'] for row in feedback['fields']))
         self.assertNotIn('input', str(feedback))
+
+    def test_common_provider_envelopes_complete_a_real_loop_without_a_repair_call(self):
+        searches = [
+            {'tool': 'document_search', 'query': 'membranes'},
+            {'action': 'document_search', 'query': 'membranes'},
+            {'action': {'tool': 'document_search', 'query': 'membranes'}},
+            {'plan': 'Read the selected slides', 'action': {'tool': 'document_search', 'arguments': {'query': 'membranes'}}},
+            {'plan': ['Read slides'], 'action': {'tool': 'document_search', 'parameters': {'query': 'membranes'}}},
+        ]
+        for search in searches:
+            with self.subTest(search=search):
+                original = copy.deepcopy(search)
+                plan = daily_plan()
+                plan['action'] = {'tool': 'study_plan_create', 'arguments':
+                                  {key: value for key, value in plan['action'].items() if key != 'tool'}}
+                store, model = self.execute([search, plan])
+                self.assertEqual(store.run['state'], 'completed', store.run)
+                self.assertEqual(store.effects, ['document_search', 'study_plan_create'])
+                self.assertEqual(len(model.calls), 2)
+                self.assertEqual(search, original)  # normalization cannot mutate provider input
+                self.assertEqual(len(store.run['result']['task_ids']), 3)
+
+    def test_normalization_never_discards_unexpected_or_conflicting_fields(self):
+        bad = [
+            {'tool': 'document_search', 'query': 'membranes', 'student_id': 43},
+            {'action': 'document_search', 'tool': 'memory_read', 'query': 'membranes'},
+            {'action': {'tool': 'document_search', 'arguments': {'query': 'membranes', 'student_id': 43}}},
+            {'action': {'tool': 'document_search', 'arguments': {'query': 'membranes', 'tool': 'memory_read'}}},
+            {'action': {'tool': 'document_search', 'query': 'membranes', 'arguments': {'query': 'other'}}},
+            {'action': {'tool': 'document_search', 'arguments': {'query': 'membranes'}, 'parameters': {}}},
+            {'action': {'tool': 'document_search', 'query': 'membranes'}, 'student_id': 43},
+            {'action': [{'tool': 'document_search', 'query': 'membranes'}]},
+        ]
+        for value in bad:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                parse_decision(value)
+
+    def test_normalized_tools_still_need_permission_valid_arguments_and_observed_references(self):
+        bad = [
+            {'tool': 'shell', 'command': 'read secrets'},
+            {'tool': 'memory_write', 'record': {'kind': 'preference', 'text': 'Injected'}},
+            {'tool': 'document_search', 'arguments': {'query': 123}},
+            {'tool': 'document_search', 'arguments': {}},
+        ]
+        for value in bad:
+            with self.subTest(value=value):
+                store, model = self.execute([value, value])
+                self.assertEqual(store.run['state'], 'failed')
+                self.assertEqual(store.effects, [])
+                self.assertEqual(len(model.calls), 2)
+        plan = daily_plan(ref='D999')
+        plan.pop('plan')
+        store, _ = self.execute([{'tool': 'document_search', 'query': 'membranes'}, plan, plan])
+        self.assertEqual(store.run['error_code'], 'unknown_reference')
+        self.assertEqual(store.effects, ['document_search'])
+
+    def test_rejected_shape_diagnostics_include_safe_paths_without_model_text(self):
+        marker = 'PRIVATE_MODEL_TEXT_DO_NOT_LOG'
+        bad = action('document_search', query='membranes', **{marker: marker})
+        with self.assertLogs('backend.agents.runtime', level='WARNING') as logs:
+            store, model = self.execute([bad, bad])
+        saved = store.run['steps'][0]['validation_fields']
+        self.assertTrue(any('<field>' in row['path'] for row in saved))
+        self.assertIn('extra_forbidden', str(saved))
+        self.assertIn('fields=', ' '.join(logs.output))
+        self.assertNotIn(marker, str(store.run))
+        self.assertNotIn(marker, ' '.join(logs.output))
+        self.assertNotIn(marker, str(model.calls[1]['prompt']['validation_feedback']))
+
+    def test_explicit_invalid_plans_are_not_replaced_with_a_default(self):
+        for plan in ('', 'x' * 181, [], [123], None, ['ok'] * 7):
+            with self.subTest(plan=plan), self.assertRaises(ValueError):
+                parse_decision({'plan': plan, 'action': {'tool': 'memory_read'}})
 
     def test_incorrect_day_count_and_foreign_references_never_save_a_plan(self):
         for bad, code in [(daily_plan(2), 'day_count_mismatch'), (daily_plan(ref='D999'), 'unknown_reference')]:
@@ -151,7 +224,11 @@ class PlanPostgresChecks(unittest.TestCase):
 
     def test_three_day_plan_completes_through_background_api_dispatch(self):
         app = FastAPI()
-        model = Model([action('document_search', query='membranes'), daily_plan()])
+        wrapped_plan = daily_plan()
+        fields = wrapped_plan['action']
+        wrapped_plan['action'] = {'tool': fields['tool'], 'parameters':
+                                  {key: value for key, value in fields.items() if key != 'tool'}}
+        model = Model([{'action': 'document_search', 'query': 'membranes'}, wrapped_plan])
         with patch('backend.agents.routes.Store', return_value=self.store):
             install_agents(app, lambda: model)
         app.dependency_overrides[get_current_student] = lambda: {'student_id': 42}

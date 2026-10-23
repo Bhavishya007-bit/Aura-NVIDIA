@@ -8,6 +8,38 @@ from backend.agents.web import MAX_WEB_SEARCHES
 MAX_SEARCHES = 2
 
 
+def parse_decision(raw):
+    """Normalize unambiguous JSON envelopes, then apply the unchanged strict schema.
+
+    JSON-object mode does not enforce the schema. Some models return a flat tool
+    call or nest its arguments even when asked for Aura's decision envelope.
+    Never discard unknown fields, guess arguments, or choose a tool here.
+    """
+    if not isinstance(raw, dict):
+        return Decision.model_validate(raw)
+    value = dict(raw)
+    if 'action' not in value and isinstance(value.get('tool'), str):
+        value = {'action': {key: item for key, item in value.items() if key != 'plan'},
+                 **({'plan': value['plan']} if 'plan' in value else {})}
+    elif isinstance(value.get('action'), str) and 'tool' not in value:
+        value = {'action': {'tool': value['action'],
+                           **{key: item for key, item in value.items() if key not in {'action', 'plan'}}},
+                 **({'plan': value['plan']} if 'plan' in value else {})}
+    action = value.get('action')
+    if isinstance(action, dict):
+        for wrapper in ('arguments', 'parameters'):
+            if (set(action) == {'tool', wrapper} and isinstance(action[wrapper], dict)
+                    and 'tool' not in action[wrapper]):
+                value['action'] = {'tool': action['tool'], **action[wrapper]}
+                break
+    # This is a display-only intention, never an inferred tool action/argument.
+    if 'plan' not in value:
+        value['plan'] = ['Use the selected study tool.']
+    elif isinstance(value['plan'], str):
+        value['plan'] = [value['plan']]
+    return Decision.model_validate(value)
+
+
 class ActionRejected(ValueError):
     def __init__(self, code, **details):
         self.code, self.details = code, details
