@@ -46,8 +46,15 @@ FAILURE_MESSAGES = {
 
 
 class SandboxUnavailable(Exception):
-    def __init__(self, code):
+    def __init__(self, code, *, stage=None, exit_code=None, errno=None, winerror=None):
         self.code = code if code in FAILURE_MESSAGES else 'runtime_unavailable'
+        # Operator-only metadata: never raw exceptions, environment values or stderr.
+        self.diagnostics = {}
+        if stage in {'image_inspect', 'image_metadata', 'container_start'}:
+            self.diagnostics['stage'] = stage
+        for key, value in [('exit_code', exit_code), ('errno', errno), ('winerror', winerror)]:
+            if type(value) is int:
+                self.diagnostics[key] = value
         super().__init__(self.code)
 
 
@@ -194,9 +201,15 @@ def _nebius(request, deadline, check_active, on_start):
 
 
 def _docker_env():
-    # Docker's client may need its normal Desktop context; none of this is passed to the guest.
+    # These configure the trusted host CLI, not the Python guest. Dropping Docker
+    # context/config/TLS or Windows temp variables can break a working Desktop setup.
+    allowed = {'PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'HOME', 'USERPROFILE',
+               'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'TMPDIR', 'HOMEDRIVE', 'HOMEPATH',
+               'PROGRAMDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'COMMONPROGRAMFILES',
+               'DOCKER_CONTEXT', 'DOCKER_HOST', 'DOCKER_CONFIG', 'DOCKER_API_VERSION',
+               'DOCKER_CERT_PATH', 'DOCKER_TLS', 'DOCKER_TLS_VERIFY', 'SSH_AUTH_SOCK'}
     return {key: value for key, value in os.environ.items()
-            if key in {'PATH', 'SYSTEMROOT', 'WINDIR', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA'}}
+            if key.upper() in allowed}
 
 
 def _docker_control(args, timeout=5):
@@ -210,7 +223,7 @@ def _docker_failure(stderr, default):
     if any(text in message for text in ('cannot connect', 'error during connect', 'is the docker daemon running',
                                        'dockerdesktoplinuxengine', 'the system cannot find the file specified')):
         return 'docker_daemon_unavailable'
-    if any(text in message for text in ('no such image', 'unable to find image')):
+    if any(text in message for text in ('no such image', 'no such object', 'unable to find image')):
         return 'docker_image_missing'
     return default
 
@@ -222,7 +235,8 @@ def inspect_docker_image():
     try:
         inspected = _docker_control(['image', 'inspect', os.getenv('AURA_DOCKER_IMAGE', 'aura-code:1')])
         if inspected.returncode:
-            raise SandboxUnavailable(_docker_failure(inspected.stderr, 'docker_launch_failed'))
+            raise SandboxUnavailable(_docker_failure(inspected.stderr, 'docker_launch_failed'),
+                                     stage='image_inspect', exit_code=inspected.returncode)
         images = json.loads(inspected.stdout)
         if not isinstance(images, list) or len(images) != 1:
             raise SandboxUnavailable('docker_image_missing')
@@ -236,11 +250,15 @@ def inspect_docker_image():
             raise SandboxUnavailable('docker_image_rejected')
         return image['Id']
     except FileNotFoundError as error:
-        raise SandboxUnavailable('docker_cli_unavailable') from error
+        raise SandboxUnavailable('docker_cli_unavailable', stage='image_inspect',
+                                 errno=error.errno, winerror=getattr(error, 'winerror', None)) from error
     except subprocess.TimeoutExpired as error:
         raise SandboxUnavailable('docker_daemon_unavailable') from error
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
-        raise SandboxUnavailable('docker_launch_failed') from error
+    except OSError as error:
+        raise SandboxUnavailable('docker_launch_failed', stage='image_inspect',
+                                 errno=error.errno, winerror=getattr(error, 'winerror', None)) from error
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        raise SandboxUnavailable('docker_launch_failed', stage='image_metadata') from error
 
 
 def _docker(request, deadline, check_active, on_start, name):
@@ -272,7 +290,8 @@ def _docker(request, deadline, check_active, on_start, name):
                 err.seek(0)
                 default = ('docker_python_unavailable' if proc.returncode in (126, 127) else
                            'docker_launch_failed' if proc.returncode == 125 else 'docker_guest_failed')
-                raise SandboxUnavailable(_docker_failure(err.read(8192), default))
+                raise SandboxUnavailable(_docker_failure(err.read(8192), default),
+                                         stage='container_start', exit_code=proc.returncode)
             out.seek(0); raw = out.read(MAX_RESPONSE+1)
             if len(raw) > MAX_RESPONSE:
                 raise SandboxUnavailable('invalid_result')

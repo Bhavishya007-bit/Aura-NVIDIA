@@ -218,6 +218,50 @@ class SandboxTransport(unittest.TestCase):
         self.assertEqual(caught.exception.code, 'docker_daemon_unavailable')
         self.assertNotIn('private', str(caught.exception))
 
+    def test_host_docker_environment_preserves_context_and_windows_setup_without_app_keys(self):
+        configured = {'DOCKER_CONTEXT': 'desktop-linux', 'DOCKER_CONFIG': '/operator/docker-config',
+            'DOCKER_HOST': 'npipe:////./pipe/dockerDesktopLinuxEngine', 'DOCKER_CERT_PATH': '/operator/certs',
+            'DOCKER_TLS_VERIFY': '1', 'DOCKER_API_VERSION': '1.56', 'TEMP': '/operator/temp',
+            'TMP': '/operator/tmp', 'Path': '/operator/bin', 'SystemRoot': '/operator/windows',
+            'NEBIUS_API_KEY': 'must-not-leak', 'DB_PASSWORD': 'must-not-leak', 'AUTH_JWT_SECRET': 'must-not-leak'}
+        with patch.dict(os.environ, configured, clear=True):
+            env = sandbox._docker_env()
+        for key in configured:
+            if key in {'NEBIUS_API_KEY', 'DB_PASSWORD', 'AUTH_JWT_SECRET'}: self.assertNotIn(key, env)
+            else: self.assertEqual(env[key], configured[key])
+
+    def test_actual_cli_subprocess_receives_context_and_temp_settings(self):
+        # Fixed trusted fixture replaces only the Docker executable in this test.
+        # No model-produced program is executed on the host.
+        original_run = subprocess.run
+        source = "import os,json; assert os.environ['DOCKER_CONTEXT']=='desktop-linux'; assert os.environ['TEMP']=='operator-temp'; assert 'NEBIUS_API_KEY' not in os.environ; print(json.dumps([{'Os':'linux','Id':'sha256:'+'a'*64,'Config':{'Env':[]}}]))"
+        def cli(args, **kwargs):
+            self.assertEqual(args[1:3], ['image', 'inspect'])
+            return original_run([sys.executable, '-I', '-c', source], **kwargs)
+        with patch.dict(os.environ, {'DOCKER_CONTEXT': 'desktop-linux', 'TEMP': 'operator-temp', 'NEBIUS_API_KEY': 'must-not-leak'}), patch('backend.agents.sandbox.subprocess.run', side_effect=cli):
+            self.assertEqual(sandbox.inspect_docker_image(), 'sha256:'+'a'*64)
+
+    def test_context_settings_are_not_forwarded_into_the_container(self):
+        image_id = 'sha256:'+'a'*64
+        def spawn(args, **kwargs):
+            self.assertEqual(kwargs['env']['DOCKER_CONTEXT'], 'desktop-linux')
+            self.assertFalse(any('DOCKER_' in arg for arg in args))
+            kwargs['stdout'].write(guest_result().encode())
+            return Mock(returncode=0, poll=lambda: 0)
+        with patch.dict(os.environ, {'DOCKER_CONTEXT': 'desktop-linux', 'DOCKER_HOST': 'operator-endpoint'}), patch.object(sandbox, 'inspect_docker_image', return_value=image_id), patch.object(sandbox, 'cleanup'), patch('backend.agents.sandbox.subprocess.Popen', side_effect=spawn):
+            result = sandbox._docker({}, time.monotonic()+10, lambda: None, lambda h: None, 'aura-code-'+'a'*32+'-1')
+        self.assertEqual(json.loads(result)['exit_code'], 0)
+
+    def test_inspect_os_errors_retain_safe_windows_error_numbers(self):
+        error = PermissionError(13, 'private credentials and path'); error.winerror = 5
+        with patch.object(sandbox, '_docker_control', side_effect=error), self.assertRaises(sandbox.SandboxUnavailable) as caught:
+            sandbox.inspect_docker_image()
+        self.assertEqual(caught.exception.diagnostics, {'stage': 'image_inspect', 'errno': 13, 'winerror': 5})
+        self.assertNotIn('private', str(caught.exception)+str(caught.exception.diagnostics))
+        with patch.object(sandbox, '_docker_control', return_value=Mock(returncode=1, stdout=b'', stderr=b'private details')), self.assertRaises(sandbox.SandboxUnavailable) as caught:
+            sandbox.inspect_docker_image()
+        self.assertEqual(caught.exception.diagnostics, {'stage': 'image_inspect', 'exit_code': 1})
+
 
 class RuntimeDiagnostic(unittest.TestCase):
     def test_missing_docker_image_survives_runtime_log_and_saved_run(self):

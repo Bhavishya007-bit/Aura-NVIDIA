@@ -116,8 +116,8 @@ and no-material execution. Fixed, authored fixture programs test the guest wrapp
 no model-produced code is executed on the test host. Transport tests simulate the
 provider/Docker engine. A live configured sandbox remains an operator smoke test.
 
-Last implementation check: 30 focused code-agent checks and 43 frontend checks
-passed, alongside the full backend suite (279 passed, two optional OCR skips) and production build.
+Last implementation check: 34 focused code-agent checks and 43 frontend checks
+passed, alongside the full backend suite (283 passed, two optional OCR skips) and production build.
 Live Docker/Nebius execution was not available in the implementation environment.
 
 
@@ -154,3 +154,22 @@ Execution setup failures now retain a specific safe reason in the server log and
 Run details. The result panel maps it to plain-language guidance. Raw Docker
 stderr, image environments and provider responses remain excluded. An older run
 may still contain only the generic reason; use the check above, then retry.
+
+
+### Docker works in PowerShell, but Aura's check fails
+
+The host Docker client must retain its context/configuration/TLS settings and
+normal Windows temp/system directories. Aura now preserves these specific host
+settings (case-insensitive variable-name matching) when invoking Docker. It still
+excludes application keys/passwords, and does not forward host Docker settings
+into the Python container. The guest environment, no-network policy, resource
+limits and image pinning are unchanged.
+
+Pull the update, then run `python scripts/check_code_runtime.py --smoke` from the
+same activated terminal. The check reports whether the configured image is the
+expected `aura-code:1` or a custom image without dumping environment values. On
+failure it prints only the stage and numeric exit/OS error codes, including a
+Windows error number where available. This separates process-launch failure
+from image-metadata parsing without exposing raw stderr or credential-bearing
+connection strings. A successful direct Docker command alone does not establish
+which host-process setting caused an earlier failure; confirm with the check.
