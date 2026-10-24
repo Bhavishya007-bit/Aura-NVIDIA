@@ -6,7 +6,10 @@ generation, including its agent runtime. Configure `NEBIUS_API_KEY` and the exac
 `NEBIUS_MODEL` in `backend/.env`. Embeddings and extraction run locally; Ollama
 is used separately for configured visual interpretation.
 
-**Current work:** [Phase 3 agents and memory](docs/PHASE3_AGENTS_MEMORY.md).
+**Current work:** [Phase 4 product experience and answer quality](docs/PHASE4.md).
+For the optional local Nemotron Ultra quality profile, see
+[long-answer configuration](docs/LONG_ANSWERS.md). It preserves your existing keys
+and database settings; live model quality still needs validation.
 Open **Study tools → Study Plan** for plans and research briefs. The **Today**
 view keeps your study checklist; the account menu contains **What Aura remembers**.
 Optional Tavily research adds linked web findings alongside uploaded material; configure

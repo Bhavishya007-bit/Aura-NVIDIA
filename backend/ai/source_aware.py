@@ -1,6 +1,7 @@
 """Source-aware document tutoring over the authenticated RAG retriever adapter."""
 import json
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from backend.ai.answer_quality import evidence_text
 from backend.ai.llm import LLMConnectionError, LLMResponseError
 from backend.ai.long_summary import expand_summary
 from backend.ai.summary_answer import SummaryDraft, SummaryDraftError, summary_contract, recover_summary
+from backend.ai.summary_background import background_lesson
 from backend.ai.response_request import response_request, resolve_format_followup, length_check, length_distance, word_count
 
 log = logging.getLogger(__name__)
@@ -279,7 +281,7 @@ class SourceAwareTutor:
         self.rag.retrieval_question = search_question
         overview = source_id is not None and self.rag._is_material_overview(question)
         explicit_grounding = bool(re.search(
-            r"\b(?:use only|only use|using only|strictly from|solely from)\b|\bonly (?:my|the|this|these|your) (?:sources?|material|slides?|presentation|documents?|deck)\b",
+            r"\b(?:use only|only use|using only|strictly from|solely from|based only on|based solely on|based exclusively on|exclusively from)\b|\bonly (?:my|the|this|these|your) (?:sources?|material|slides?|presentation|documents?|deck)\b|\b(?:no|without(?: any)?) (?:outside|external|background) (?:knowledge|information|explanations?|content)\b",
             question, re.I))
         mode = "grounded" if explicit_grounding else self.mode
         depth = choose_depth(original_question, self.requested_depth)
@@ -352,8 +354,17 @@ class SourceAwareTutor:
                 sections.append(section)
                 if overview and decision.status == 'not_covered':
                     decision = self._unknown('A source-based overview was produced from readable samples; whole-file coverage has not been established.')
-        # An overview is about the uploaded file, so general knowledge cannot fill
-        # missing document content. Unknown coverage is never labeled not covered.
+        # A source-only overview remains source-only. The opt-in quality profile
+        # can add a separately labelled lesson, never fabricated slide contents.
+        if (overview and mode == 'intelligence' and self.response_request['target_words']
+            and self.response_request['target_words'] >= 1200
+            and os.getenv('AURA_SUMMARY_BACKGROUND', '').lower() == 'true'
+            and sections and source_validation.get('response_mode') != 'extractive'
+            and not length_check('\n'.join(s.text for s in sections), self.response_request)['valid']):
+            extra = background_lesson(client, question, '\n'.join(s.text for s in sections), self.response_request)
+            if extra:
+                sections.append(extra)
+        # Unknown coverage is never labelled not covered.
         if mode == "intelligence" and not overview and decision.status != "fully_covered":
             try:
                 extra = client.generate(json.dumps({"missing_parts": decision.missing_parts,

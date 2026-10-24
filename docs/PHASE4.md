@@ -57,6 +57,31 @@ Code instructions now ask for traces collected in the actual loop and require th
 
 Run the original comparison goal again and apply the fixture's review checklist to the **new live answer**. The authored reference and deterministic tests do not measure the live reviewer's error rate or replace independent human assessment.
 
+## Calmer workspace and quality profile
+
+Overview now starts with one Tutor action, a secondary study-plan link, two
+practice choices and at most three saved artifacts. Mastery/diagnostic detail
+lives in Progress, with reminders under a closed disclosure; Today retains its
+existing reminders view. Primary navigation has Overview, Tutor, Assessment and
+Study Plan. Notes, Summary, Flashcards and Progress remain under More study tools
+and retain their saved tab IDs and URL parameters. File management is collapsed;
+Change opens it and focuses the search. Empty/preparing-material states disable
+study actions. New components/styles are `StudyOverview.tsx`/`.css`; the shell
+changes are in `StudyWorkspace.tsx`/`.css`. No API payloads or dependencies changed.
+
+The optional local Ultra profile and separately labelled background lesson are
+documented at the top of `LONG_ANSWERS.md`. Apply with
+`python scripts/configure_model_quality.py --apply --smoke`, then restart the
+backend. This does not claim that Ultra has already been tested on the user's
+account. Live answer quality and calibration remain open.
+
+Controlled DOM tests cover disclosure, exact saved-artifact selection, progress
+access, source-preserving navigation and disabled preparing states. TypeScript
+and production build are checked. Browser visual QA remains outstanding: this
+environment's Chromium download returned an invalid archive. The CSS includes
+mobile layouts, focus indicators, contrast-aware colors and reduced motion;
+those rules are not a substitute for inspecting the actual rendered page.
+
 ## What students see
 
 - Chat, Tutor, notes, summaries, flashcard explanations and agent explanations share a safe Markdown renderer: headings, bold terms, lists, code, tables and quoted text. Source/background labels remain distinct, and existing citation buttons still open the source viewer. Model-written HTML and links are displayed as text, never executed.

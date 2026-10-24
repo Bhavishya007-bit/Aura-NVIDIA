@@ -1,5 +1,61 @@
 # Length and format follow-ups
 
+## Quality profile and separately labelled teaching depth
+
+The next attachment contains a 1,112-word answer after the earlier 1,110-word
+answer. It contains no backend diagnostics, so it does not identify which
+provider call or verification step prevented completion. Both answers repeat
+several definitions; counting words alone is not a teaching-quality check.
+
+The quality profile uses the exact model ID documented by Nebius:
+`nvidia/Nemotron-3-Ultra-550b-a55b`, through the `us-central1` endpoint. It selects
+Ultra for the base, coverage, answer and deep roles, sets normal writing budgets
+to 16,384 tokens, allows a 32,768-token operator ceiling, and uses a 180-second
+provider read timeout. Writing and verification use the Token Factory API's
+`reasoning_effort: none` control so their output allowance is available for the
+requested text/JSON; this does not make source verification optional. Generic
+deep reasoning calls keep their existing provider-default reasoning behavior.
+The optional smoke test checks access, JSON format and the configured reasoning
+control with one small synthetic request. This environment has no account key,
+so model access and live improvements must be checked locally. No silent model
+downgrade occurs if Ultra is unavailable.
+
+```powershell
+python scripts/configure_model_quality.py --apply --smoke
+```
+
+With both flags, the smoke test runs before changing configuration; a failed
+check keeps the previous working settings. The command atomically updates only
+profile settings in `backend/.env`. It preserves
+keys, database configuration, comments and unrelated settings; it never prints
+credentials or provider response bodies. Existing shell environment variables
+still take precedence. Restart FastAPI after applying it. The command makes no
+provider request without `--smoke`; that option spends one small paid request
+without uploading student material. Run `git pull origin main` first.
+
+The profile enables `AURA_SUMMARY_BACKGROUND=true`. When a checked long overview
+still falls short, Aura may add a separate **Beyond your material — model
+knowledge, not web verified** lesson. It explains related mechanisms, assumptions
+and clearly hypothetical examples without claiming they appear on unseen slides.
+It receives the remaining word target and at most one length revision. Only the
+sourced section carries uploaded-material citations; background stays
+`verified=false`. This is a combined summary and additional lesson, not a claim
+that 2,000 words came from the file. A source-only request ("using only my
+material") or grounded mode always disables it. It also stays off for excerpt-only
+fallbacks and answers with no checked summary. The default policy is off until
+explicitly enabled in configuration, including by the profile command.
+
+The profile increases section recovery to at most six shared replacement drafts
+and a 300-second elapsed-time allowance. Operator bounds are 0–8 repairs and
+30–600 seconds; each section still gets at most one repair, and active requests
+retain their own timeouts. It does not remove agent step limits, cancellation,
+account isolation or source checks. More time and model capacity are options,
+not evidence that the final explanation is correct or sufficiently detailed.
+Live cost, latency and teaching quality must be measured separately.
+
+Provider references: [Nebius Ultra model guide](https://github.com/nebius/token-factory-cookbook/blob/main/models/nemotron/nemotron3-ultra-550b-a55b.md),
+[Token Factory chat API](https://docs.tokenfactory.nebius.com/api-reference/inference/create-chat-completion).
+
 ## Current recovery: topic-led complete sections
 
 The latest reported answer reached 1,110 words but repeatedly redefined hash

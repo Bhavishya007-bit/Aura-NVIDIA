@@ -1,13 +1,14 @@
 """Bounded, topic-led rewriting of a checked overview that falls short."""
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
 from backend.ai.response_request import response_request, length_check, length_distance
 from backend.ai.llm import LLMConnectionError
 from backend.ai.summary_answer import SummaryDraft, summary_contract, checked_points, source_section
-from backend.ai.summary_outline import summary_plan, topic_plan
+from backend.ai.summary_outline import MAX_SECTIONS, summary_plan, topic_plan
 
 log = logging.getLogger(__name__)
 MAX_REPAIRS = 2
@@ -15,7 +16,7 @@ EXPANSION_SECONDS = 180
 
 
 def expand_summary(rag, client, sources, question, request, base_payload, schema_errors):
-    """One outline, one complete draft per topic, and two shared replacement drafts.
+    """One outline, one complete draft per topic, and bounded replacement drafts.
 
     The caller retains the checked overview as a fallback. Do not prepend it to a
     rewritten lesson: it already mentions most topics and causes repeated prose.
@@ -25,7 +26,9 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
         log.info('summary_expansion=skipped reason=section_plan_unavailable')
         return None
     started = time.monotonic()
-    if time.monotonic() - started >= EXPANSION_SECONDS:
+    seconds = max(30, min(600, int(os.getenv('AURA_SUMMARY_EXPANSION_SECONDS', str(EXPANSION_SECONDS)))))
+    repairs = max(0, min(MAX_SECTIONS, int(os.getenv('AURA_SUMMARY_REPAIRS', str(MAX_REPAIRS)))))
+    if time.monotonic() - started >= seconds:
         return None
     try:
         plan = topic_plan(client, sources, question, fallback)
@@ -67,7 +70,7 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
         return length_check(render_points(state['points'], part_request(state)), part_request(state))
 
     def stopped():
-        return (time.monotonic() - started >= EXPANSION_SECONDS
+        return (time.monotonic() - started >= seconds
                 or verification_unavailable or connection_unavailable)
 
     def write(state):
@@ -147,7 +150,7 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
         if stopped():
             break
         write(state)
-    for _ in range(MAX_REPAIRS):
+    for _ in range(repairs):
         if stopped():
             break
         if overall_check()['valid'] and all(s['points'] for s in states):

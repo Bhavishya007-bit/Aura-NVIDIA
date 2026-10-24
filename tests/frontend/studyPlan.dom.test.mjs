@@ -30,7 +30,7 @@ async function input(element, value) {
 }
 async function mount(component, props = {}) { await act(async () => { root.render(h(component, props)); await tick(); await tick() }) }
 const props = (overrides = {}) => ({ courseId: '6', sourceId: '7', materialReady: true, storageKey: 'plan:test:learner:6', onOpenTool: () => {}, ...overrides })
-const visibleText = () => { const copy = document.body.cloneNode(true); copy.querySelectorAll('details:not([open])').forEach(d => { const s = d.querySelector('summary'); d.replaceChildren(s) }); return copy.textContent }
+const visibleText = () => { const copy = document.body.cloneNode(true); copy.querySelectorAll('[hidden]').forEach(d => d.remove()); copy.querySelectorAll('details:not([open])').forEach(d => { const s = d.querySelector('summary'); d.replaceChildren(s) }); return copy.textContent }
 
 beforeEach(() => {
   dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'http://localhost:5173/?view=study&tab=Agents&source=7', pretendToBeVisual: true })
@@ -75,6 +75,7 @@ beforeEach(() => {
     else if (u.pathname === '/study/materials') value = { sources: materials }
     else if (u.pathname === '/study/tools' && generationUnavailable) return new Response(JSON.stringify({ detail: 'Ollama could not complete question generation or verification. Check that it is running and retry.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
     else if (u.pathname === '/study/artifacts') value = { artifacts: savedArtifacts.filter(item => String(item.payload.source_id) === u.searchParams.get('source_id')) }
+    else if (u.pathname === '/study/learning') value = { model: 'fixture', topics: [], diagnostic_recommended: true, notice: 'Controlled learning profile.' }
     else if (u.pathname === '/study/progress') value = { assessment_count: 0, question_count: 0, topics: [], recent_results: [] }
     else if (u.pathname === '/preparation-jobs') value = { jobs: [] }
     else throw new Error(`Unexpected test request: ${method} ${u.pathname}`)
@@ -665,4 +666,68 @@ test('code explanation review has a friendly progress label and does not promise
   await mount(AgentPanel,props({courseId:'7'}))
   assert.match(visibleText(),/AI review checked the explanation/)
   assert.match(visibleText(),/can still miss mistakes/)
+})
+
+
+const workspaceProps = () => ({ user: { id: '1', fullName: 'Sam Rivera' }, courses: [{ id: '6', title: 'Biology' }], courseId: '6', coursesLoading: false, coursesError: '', theme: 'dark', onCourseChange() {}, onThemeChange() {}, onChatHome() {}, onSignOut() {}, signingOut: false, sessionNotice: '' })
+async function openOverview() {
+  window.history.replaceState(null, '', '/?view=study&tab=Overview&source=7')
+  await mount(StudyWorkspace, workspaceProps())
+}
+test('Overview starts calmly without mastery panels, reminders or hidden-tool clutter', async () => {
+  await openOverview()
+  assert.equal(document.querySelector('h1').textContent, 'Your study space')
+  assert.equal(document.querySelector('.study-home-cards').children.length, 2)
+  assert.equal(document.querySelector('#study-home-tools').hidden, true)
+  assert.equal(document.querySelector('#sw-extra-tools').hidden, true)
+  assert.equal(document.querySelector('.sw-material-manage').open, false)
+  assert.equal(document.querySelector('.sw-learning'), null)
+  assert.equal(document.querySelector('.study-rhythm'), null)
+  assert(!requests.some(r => r.path === '/study/learning'))
+  assert(!requests.some(r => r.method === 'POST'))
+  assert(!visibleText().includes('Your understanding of this material'))
+  assert(!visibleText().includes('Summary'))
+})
+test('Overview primary action and secondary tools preserve the selected material', async () => {
+  await openOverview()
+  await click(button('Ask Aura'))
+  assert.equal(document.querySelector('h1').textContent, 'Ask Aura')
+  assert.equal(new URL(window.location.href).searchParams.get('source'), '7')
+  await click(button('Overview'))
+  await click(button('More tools +'))
+  assert.equal(document.querySelector('#study-home-tools').hidden, false)
+  await click(document.querySelector('#study-home-tools button:nth-child(2)'))
+  assert.equal(document.querySelector('h1').textContent, 'Summary')
+  assert.equal(new URL(window.location.href).searchParams.get('source'), '7')
+  assert.equal(document.querySelector('#sw-extra-tools').hidden, false)
+  assert(!requests.some(r => r.method === 'POST'))
+})
+test('Progress retains mastery and optional reminders after their removal from Overview', async () => {
+  await openOverview()
+  await click(button('More study tools'))
+  await click(document.querySelector('#sw-extra-tools button:last-child'))
+  assert.equal(document.querySelector('h1').textContent, 'Progress')
+  assert.match(visibleText(), /Your understanding of this material/)
+  assert(button('Start diagnostic'))
+  assert.equal(document.querySelector('.sw-disclosure').open, false)
+  assert(!visibleText().includes('Your study rhythm'))
+  assert(requests.some(r => r.path === '/study/learning' && r.query.includes('source_id=7')))
+})
+test('Overview opens the exact saved artifact without generating new output', async () => {
+  savedArtifacts = [{ id: 'notes-a', kind: 'notes', created_at: '2026-10-24T08:00:00Z', result: null,
+    payload: { source_id: 7, course_id: 6, source_title: 'Biological membranes.ppt', focus: 'Membrane structure', items: [{ id: 'n1', text: 'Membranes contain lipids.', citation_ids: [1] }], citations: [] } }]
+  await openOverview()
+  assert.match(document.querySelector('.study-home-saved').textContent, /Membrane structure/)
+  await click(document.querySelector('.study-home-saved>div>button'))
+  assert.equal(document.querySelector('h1').textContent, 'Notes')
+  assert.match(document.querySelector('.sw-reading').textContent, /Membranes contain lipids/)
+  assert.equal(document.querySelector('[aria-label="Saved version"]').value, 'notes-a')
+  assert(!requests.some(r => r.method === 'POST'))
+})
+test('Overview disables study actions until the selected upload is ready', async () => {
+  materials[0].status = 'processing'
+  await openOverview()
+  assert(button('Ask Aura').disabled)
+  assert(button('Make a study plan').disabled)
+  assert.match(document.querySelector('.study-home-hint').textContent, /being prepared/)
 })
