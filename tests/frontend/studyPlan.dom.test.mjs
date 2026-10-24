@@ -10,7 +10,7 @@ import { build, stop } from '../../node_modules/esbuild/lib/main.js'
 const require = createRequire(import.meta.url)
 const { JSDOM } = require(require.resolve('jsdom', { paths: [process.env.AURA_UI_TEST_MODULES || process.cwd()] }))
 const scratch = await mkdtemp(`${tmpdir()}/aura-plan-dom-`)
-const result = await build({ stdin: { contents: `export { createElement, act } from 'react'; export { createRoot } from 'react-dom/client'; export { default as AgentPanel } from './src/components/AgentPanel'; export { default as AccountMenu } from './src/components/AccountMenu'; export { default as StudyWorkspace } from './src/components/StudyWorkspace'; export { default as App } from './src/App'; export { default as TeachingText } from './src/components/TeachingText'; export { default as TutorReply } from './src/components/TutorReply'; export { default as StudyRhythm } from './src/components/StudyRhythm'; export { default as EvaluationSummary } from './src/components/EvaluationSummary';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', loader: { '.css': 'empty' }, define: { 'import.meta.env.VITE_API_BASE_URL': '"http://127.0.0.1:8000"', 'process.env.NODE_ENV': '"test"' }, write: false })
+const result = await build({ stdin: { contents: `export { createElement, act } from 'react'; export { createRoot } from 'react-dom/client'; export { default as AgentPanel } from './src/components/AgentPanel'; export { default as AccountMenu } from './src/components/AccountMenu'; export { default as StudyWorkspace } from './src/components/StudyWorkspace'; export { default as App } from './src/App'; export { default as TeachingText } from './src/components/TeachingText'; export { default as TutorReply } from './src/components/TutorReply'; export { default as StudyRhythm } from './src/components/StudyRhythm'; export { default as EvaluationSummary } from './src/components/EvaluationSummary'; export { default as ChatHome } from './src/components/ChatHome';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', loader: { '.css': 'empty' }, define: { 'import.meta.env.VITE_API_BASE_URL': '"http://127.0.0.1:8000"', 'process.env.NODE_ENV': '"test"' }, write: false })
 await writeFile(`${scratch}/components.mjs`, result.outputFiles[0].text)
 // React inspects input-event support at import time. Give it a real DOM before loading.
 const bootstrap = new JSDOM('<!doctype html><div></div>')
@@ -18,8 +18,8 @@ globalThis.window = bootstrap.window; globalThis.document = bootstrap.window.doc
 // Avoid Node MessagePorts keeping React's browser scheduler alive after tests.
 const channels = []
 globalThis.MessageChannel = class extends NodeMessageChannel { constructor() { super(); channels.push(this) } }
-const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App, TeachingText, TutorReply, StudyRhythm, EvaluationSummary } = await import(pathToFileURL(`${scratch}/components.mjs`))
-let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable, assessmentAvailable, codeAvailable, savedArtifacts, rhythm, rhythmUnavailable
+const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App, TeachingText, TutorReply, StudyRhythm, EvaluationSummary, ChatHome } = await import(pathToFileURL(`${scratch}/components.mjs`))
+let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable, assessmentAvailable, codeAvailable, savedArtifacts, rhythm, rhythmUnavailable, preparationJobs, failedImageFiles, chatReply, holdImagePreparation, legacyImageReply
 const goal = 'Create a 3-day plan'
 const baseRun = (overrides = {}) => ({ id: 'run-a', source_id: 7, state: 'completed', request: { skill: 'study_plan', goal }, tokens_used: 1200, created_at: '2026-10-23T08:00:00Z', started_at: '2026-10-23T08:00:01Z', updated_at: '2026-10-23T08:00:21Z', steps: [{ tool: 'document_search', state: 'completed', plan: ['RAW INTERNAL NARRATION'], observation: { passages: [{ reference: 'D9', slide: 18 }] } }], result: { text: 'Review the membrane.\n\nDay 1: Membrane proteins\nRead and recall.\nReferences: D9', references: ['D9'], verified: false, structured_plan: { overview: 'Review the membrane.', days: [{ day: 1, title: 'Membrane proteins', details: 'Read and recall.', references: ['D9'] }] }, task_ids: ['task-a'] }, ...overrides })
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -31,6 +31,13 @@ async function input(element, value) {
 async function mount(component, props = {}) { await act(async () => { root.render(h(component, props)); await tick(); await tick() }) }
 const props = (overrides = {}) => ({ courseId: '6', sourceId: '7', materialReady: true, storageKey: 'plan:test:learner:6', onOpenTool: () => {}, ...overrides })
 const visibleText = () => { const copy = document.body.cloneNode(true); copy.querySelectorAll('[hidden]').forEach(d => d.remove()); copy.querySelectorAll('details:not([open])').forEach(d => { const s = d.querySelector('summary'); d.replaceChildren(s) }); return copy.textContent }
+const homeProps=()=>({courseId:'6',courses:[],coursesLoading:false,coursesError:'',studentName:'Sam Rivera',workspaceKey:'1',onCourseChange(){},onOpenWorkspace(){}})
+async function attachScreenshots(names) {
+  await click(document.querySelector('[aria-label="Add study material"]'))
+  const picker=document.querySelector('#aura-file')
+  Object.defineProperty(picker,'files',{configurable:true,value:names.map(name=>new File(['authored image bytes'],name,{type:'image/png'}))})
+  await act(async()=>{picker.dispatchEvent(new Event('change',{bubbles:true}));await tick();await tick();await tick()})
+}
 
 beforeEach(() => {
   dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'http://localhost:5173/?view=study&tab=Agents&source=7', pretendToBeVisual: true })
@@ -44,9 +51,10 @@ beforeEach(() => {
   root = createRoot(document.getElementById('root'))
   requests = []; jobs = []; tasks = []; memories = []; enabled = true; failLoads = false; generationUnavailable = false; webAvailable = true; assessmentAvailable = true; codeAvailable = true; savedArtifacts = []
   rhythm = { settings: { enabled: false, timezone: 'UTC', daily_hour: 9 }, reviews: [], digests: [], notice: 'In-app only.' }; rhythmUnavailable = false
+  preparationJobs=[];failedImageFiles=new Set();holdImagePreparation=false;legacyImageReply=false;chatReply={answer:'A joint explanation.',sources:[],citation_validation:{valid:false,stage:'visual_interpretation'}}
   materials = [{ source_id: 7, source_name: 'Biological membranes.ppt', source_type: 'pptx', status: 'success' }]
   globalThis.fetch = async (url, options = {}) => {
-    const u = new URL(url), method = options.method || 'GET', body = options.body ? JSON.parse(options.body) : undefined
+    const u = new URL(url), method = options.method || 'GET', body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body
     requests.push({ path: u.pathname, query: u.search, method, body })
     if (failLoads && method === 'GET' && u.pathname.startsWith('/agents/')) throw new Error('Internal database_status_code')
     let value
@@ -77,13 +85,106 @@ beforeEach(() => {
     else if (u.pathname === '/study/artifacts') value = { artifacts: savedArtifacts.filter(item => String(item.payload.source_id) === u.searchParams.get('source_id')) }
     else if (u.pathname === '/study/learning') value = { model: 'fixture', topics: [], diagnostic_recommended: true, notice: 'Controlled learning profile.' }
     else if (u.pathname === '/study/progress') value = { assessment_count: 0, question_count: 0, topics: [], recent_results: [] }
-    else if (u.pathname === '/preparation-jobs') value = { jobs: [] }
+    else if (u.pathname === '/preparation-jobs') value = { jobs: [...preparationJobs].reverse() }
+    else if (u.pathname === '/courses/6/preparation-jobs' && method === 'POST') {
+      const file=body.get('file')
+      if(failedImageFiles.has(file.name)) return new Response(JSON.stringify({detail:'Synthetic upload failure'}),{status:503,headers:{'Content-Type':'application/json'}})
+      const source=7+preparationJobs.length
+      value={id:`prepare-${source}`,course_id:6,source_id:source,filename:file.name,state:'ready',stage:'ready',percentage:100,
+        result:{source_id:source,course_id:6,source_name:file.name,source_type:'image',status:'success',content_units:1,warnings:[]},error:null}
+      if(holdImagePreparation) value={...value,source_id:null,state:'queued',stage:'queued',percentage:null,result:null}
+      preparationJobs.push(value)
+    }
+    else if (u.pathname === '/chat' && method === 'POST') value={...chatReply,sources:body.source_ids?.length>1 ? (legacyImageReply?body.source_ids.slice(0,1):body.source_ids).map(id=>({source_id:id,chunk_id:`original-image-${id}`,source_name:`authored-${id}.png`,page:1,content:'Visible authored evidence.'})) : chatReply.sources}
     else throw new Error(`Unexpected test request: ${method} ${u.pathname}`)
     return new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } })
   }
 })
 afterEach(async () => { await act(async () => root.unmount()); dom.window.close() })
 after(async () => { bootstrap.window.close(); channels.forEach(c => { c.port1.close(); c.port2.close() }); stop(); await rm(scratch, { recursive: true, force: true }) })
+
+test('sequential screenshot uploads retain the first image and pasted question in one request', async()=>{
+  await mount(ChatHome,homeProps())
+  await input(document.querySelector('#aura-question'),'Which department satisfies this SQL condition?')
+  await attachScreenshots(['first-table.png'])
+  await attachScreenshots(['second-table.png'])
+  assert.equal(document.querySelectorAll('.aura-home__image-attachments .aura-home__attachment').length,2)
+  assert.equal(document.querySelector('#aura-question').value,'Which department satisfies this SQL condition?')
+  assert.deepEqual([...document.querySelectorAll('.aura-home__image-attachments strong')].map(e=>e.textContent),['Image 1: first-table.png','Image 2: second-table.png'])
+  await click(document.querySelector('[aria-label="Send question"]'))
+  const sent=requests.find(r=>r.path==='/chat'&&r.method==='POST').body
+  assert.deepEqual(sent.source_ids,[7,8]);assert.equal(sent.source_id,7)
+  assert.equal(sent.question,'Which department satisfies this SQL condition?')
+  assert.equal(document.querySelectorAll('.aura-home__sent-images li').length,2)
+})
+test('batch screenshot completion preserves selection order and survives reopening Chat',async()=>{
+  await mount(ChatHome,homeProps());await input(document.querySelector('#aura-question'),'Compare these tables')
+  await attachScreenshots(['table-a.png','table-b.png'])
+  const before=requests.filter(r=>r.path.endsWith('/preparation-jobs')&&r.method==='POST').length
+  await act(async()=>{root.render(null);await tick()})
+  await mount(ChatHome,homeProps())
+  assert.equal(document.querySelector('#aura-question').value,'Compare these tables')
+  assert.equal(document.querySelectorAll('.aura-home__image-attachments .aura-home__attachment').length,2)
+  assert.equal(requests.filter(r=>r.path.endsWith('/preparation-jobs')&&r.method==='POST').length,before)
+  await click(document.querySelector('[aria-label="Send question"]'))
+  assert.deepEqual(requests.find(r=>r.path==='/chat').body.source_ids,[7,8])
+})
+test('failed second screenshot does not erase the first and can be removed individually',async()=>{
+  await mount(ChatHome,homeProps());await input(document.querySelector('#aura-question'),'Read both tables')
+  await attachScreenshots(['table.png']);failedImageFiles.add('failed.png')
+  await attachScreenshots(['failed.png'])
+  assert.equal(document.querySelectorAll('.aura-home__image-attachments .aura-home__attachment').length,2)
+  assert(document.querySelector('[aria-label="Send question"]').disabled)
+  await click(document.querySelector('[aria-label="Remove failed.png"]'))
+  assert.equal(document.querySelectorAll('.aura-home__image-attachments .aura-home__attachment').length,1)
+  await click(document.querySelector('[aria-label="Send question"]'))
+  const sent=requests.find(r=>r.path==='/chat').body
+  assert.equal(sent.source_id,7);assert.equal(sent.source_ids,undefined)
+})
+test('retrying a failed first upload keeps screenshot order without duplicate attachments',async()=>{
+  failedImageFiles.add('first.png');await mount(ChatHome,homeProps())
+  await input(document.querySelector('#aura-question'),'Compare both images')
+  await attachScreenshots(['first.png','second.png'])
+  failedImageFiles.delete('first.png');await click(button('Retry failed uploads only'))
+  await act(async()=>{await tick();await tick()})
+  assert.equal(document.querySelectorAll('.aura-home__image-attachments .aura-home__attachment').length,2)
+  await click(document.querySelector('[aria-label="Send question"]'))
+  assert.deepEqual(requests.find(r=>r.path==='/chat').body.source_ids,[8,7])
+})
+test('pasted screenshots append alongside typed text and removable legacy image attachments',async()=>{
+  localStorage.setItem('aura.chat.v1:1:6',JSON.stringify({uploaded:{courseId:'6',sourceId:'50',filename:'legacy.png',fileType:'image',processingStatus:'success',contentUnitCount:1},uploadStage:'ready'}))
+  await mount(ChatHome,homeProps());await input(document.querySelector('#aura-question'),'My MCQ text stays here')
+  const paste=new Event('paste',{bubbles:true})
+  Object.defineProperty(paste,'clipboardData',{value:{files:[new File(['authored image'],'pasted.png',{type:'image/png'})]}})
+  await act(async()=>{document.querySelector('#aura-question').dispatchEvent(paste);await tick();await tick();await tick()})
+  assert.equal(document.querySelectorAll('.aura-home__image-attachments .aura-home__attachment').length,2)
+  assert.equal(document.querySelector('#aura-question').value,'My MCQ text stays here')
+  await click(document.querySelector('[aria-label="Remove legacy.png"]'))
+  await click(document.querySelector('[aria-label="Remove pasted.png"]'))
+  assert.equal(document.querySelectorAll('.aura-home__attachment').length,0)
+})
+test('pending screenshot preparation resumes after refresh and all images are required before send',async()=>{
+  holdImagePreparation=true
+  await mount(ChatHome,homeProps());await input(document.querySelector('#aura-question'),'Use both screenshots')
+  await attachScreenshots(['pending-a.png','pending-b.png'])
+  assert(document.querySelector('[aria-label="Send question"]').disabled)
+  const stored=JSON.parse(localStorage.getItem('aura.chat.v1:1:6'))
+  assert.equal(stored.imageAttachments.filter(item=>item.jobId).length,2)
+  preparationJobs=preparationJobs.map((job,index)=>({...job,state:'ready',source_id:index+7,result:{source_id:index+7,course_id:6,source_name:job.filename,source_type:'image',status:'success',content_units:1,warnings:[]}}))
+  await act(async()=>{root.render(null);await tick()});await mount(ChatHome,homeProps())
+  assert(!document.querySelector('[aria-label="Send question"]').disabled)
+  await click(document.querySelector('[aria-label="Send question"]'))
+  assert.deepEqual(requests.find(r=>r.path==='/chat').body.source_ids,[7,8])
+})
+test('an older backend answering only one screenshot is surfaced as an error',async()=>{
+  legacyImageReply=true
+  await mount(ChatHome,homeProps());await input(document.querySelector('#aura-question'),'Question with two screenshots')
+  await attachScreenshots(['one.png','two.png']);await click(document.querySelector('[aria-label="Send question"]'))
+  assert.match(visibleText(),/could not confirm that all attached screenshots were used/)
+  assert(!document.querySelector('.aura-home__message--tutor'))
+  assert.equal(document.querySelectorAll('.aura-home__image-attachments .aura-home__attachment').length,2)
+  assert(button('Retry question'))
+})
 
 test('empty screen is goal-first and cannot start without selected ready material', async () => {
   await mount(AgentPanel, props({ sourceId: '', materialReady: false }))

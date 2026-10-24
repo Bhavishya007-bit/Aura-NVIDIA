@@ -272,6 +272,12 @@
 .aura-home__attachment .aura-home__file-icon { font-size: 15px; color: var(--ah-accent); }
 .aura-home__attachment--ready .aura-home__file-state { color: #426144; }
 .aura-home__attachment button { flex-shrink: 0; padding: 0 3px; font-size: 18px; line-height: 1; color: #545951; }
+.aura-home__image-attachments{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;max-width:100%}
+.aura-home__image-attachments .aura-home__attachment{margin:0;flex-wrap:wrap;min-width:0}
+.aura-home__image-attachments .aura-home__attachment small{flex-basis:100%;max-width:320px;white-space:normal;overflow-wrap:anywhere;color:var(--ah-text);font-size:12px}
+.aura-home__image-attachments button:disabled{opacity:.5;cursor:not-allowed}
+.aura-home__sent-images{display:flex;flex-wrap:wrap;gap:7px;list-style:none;padding:0;margin:10px 0 0}
+.aura-home__sent-images li{max-width:100%;font-size:12px;padding:4px 9px;border:1px solid var(--ah-border);border-radius:8px;overflow-wrap:anywhere;color:var(--ah-text)}
 .aura-home__composer textarea { overflow-y: auto; }
 @media (max-width: 600px) {
   .aura-home--conversation .aura-home__header { padding: 12px 16px; }

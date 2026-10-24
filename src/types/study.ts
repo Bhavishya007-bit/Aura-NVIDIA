@@ -78,6 +78,7 @@ export interface ChatMessage {
 export interface TutorRequest {
   courseId: string
   materialId?: string
+  materialIds?: string[]
   question: string
   answerMode?: 'grounded' | 'intelligence'
   depth?: 'beginner' | 'standard' | 'advanced'

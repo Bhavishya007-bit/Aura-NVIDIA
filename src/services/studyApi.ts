@@ -156,7 +156,10 @@ export async function askTutor(
   request: TutorRequest & { history?: Array<{ role: 'user' | 'assistant'; content: string }> },
 ): Promise<TutorResponse> {
   const courseId = requireBackendId(request.courseId, 'Course')
-  const sourceId = request.materialId ? requireBackendId(request.materialId, 'Source') : null
+  const sourceIds = request.materialIds?.map(id => requireBackendId(id, 'Source')) ?? []
+  const sourceId = request.materialId ? requireBackendId(request.materialId, 'Source') : sourceIds[0] ?? null
+  if (sourceIds.length > 5 || new Set(sourceIds).size !== sourceIds.length) throw new Error('Attach up to 5 distinct screenshots.')
+  if (sourceIds.length && sourceId !== null && !sourceIds.includes(sourceId)) throw new Error('The selected material must be attached to this question.')
   type BackendSource = {
     chunk_id: string | number
     source_id: string | number
@@ -192,6 +195,7 @@ export async function askTutor(
         top_k: 3,
         course_id: courseId,
         source_id: sourceId,
+        ...(sourceIds.length > 1 ? { source_ids: sourceIds } : {}),
         history: request.history?.slice(-8) ?? [],
         answer_mode: request.answerMode,
         depth: request.depth,
@@ -213,6 +217,10 @@ export async function askTutor(
       return record as unknown as BackendChatResponse
     },
   )
+  if (sourceIds.length > 1 && (response.sources?.length !== sourceIds.length ||
+      response.sources.some((source, index) => String(source?.source_id) !== String(sourceIds[index])))) {
+    throw new ApiResponseError('Aura could not confirm that all attached screenshots were used. Restart the updated backend and retry the question.')
+  }
   const citations: Citation[] = (response.sources ?? []).map(
     (source, index) => {
       const sourceRecord = requireRecord(source, 'chat source')

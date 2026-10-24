@@ -8,7 +8,7 @@ from contextlib import contextmanager
 
 from fastapi import FastAPI, Depends, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from backend.auth_db import get_auth_connection
@@ -21,6 +21,7 @@ from backend.study_tools import router as study_router
 from backend.source_viewer import router as source_viewer_router
 from backend.figure_tools import router as figure_router
 from backend.figure_tools import image_tutor_answer
+from backend.multi_image_tutor import images_tutor_answer
 from backend.learning import install_learning, learner_profile, tutor_style
 from backend.ai.source_aware import SourceAwareTutor
 from backend.agents.routes import install_agents
@@ -116,7 +117,16 @@ class PrivateChatRequest(BaseModel):
     depth: Literal["beginner", "standard", "advanced"] | None = None
     course_id: int | None = None
     source_id: int | None = None
+    source_ids: list[StrictInt] = Field(default_factory=list, max_length=5)
     history: list[ChatMessage] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode='after')
+    def attached_sources(self):
+        if any(n < 1 for n in self.source_ids) or len(set(self.source_ids)) != len(self.source_ids):
+            raise ValueError('Attachments must be distinct positive source IDs.')
+        if self.source_ids and self.source_id is not None and self.source_id not in self.source_ids:
+            raise ValueError('The selected source must be in the attachments.')
+        return self
 
 
 def create_private_app(legacy):
@@ -276,19 +286,35 @@ def create_private_app(legacy):
         if body.course_id is None:
             raise HTTPException(422, "Choose a study workspace first.")
         image_selected = False
+        selected_ids = body.source_ids or ([body.source_id] if body.source_id is not None else [])
+        if body.source_id is None and len(selected_ids) == 1:
+            body.source_id = selected_ids[0]
+        selected_types = []
         with database() as connection:
             with connection.cursor() as cursor:
                 require_course(cursor, body.course_id, student["student_id"])
-                if body.source_id is not None:
+                for selected_id in selected_ids:
                     require_source(
-                        cursor, body.source_id, student["student_id"], body.course_id
+                        cursor, selected_id, student["student_id"], body.course_id
                     )
-                    cursor.execute('SELECT source_type FROM sources WHERE source_id=%s', (body.source_id,))
+                    cursor.execute('''SELECT s.source_type FROM sources s JOIN courses c ON c.course_id=s.course_id
+                        WHERE s.source_id=%s AND s.course_id=%s
+                        AND s.owner_student_id=%s AND c.owner_student_id=%s''',
+                        (selected_id, body.course_id, student['student_id'], student['student_id']))
                     selected_type = cursor.fetchone()
-                    image_selected = bool(selected_type and selected_type[0] == 'image')
+                    if selected_type is None:
+                        raise HTTPException(404, 'Material not found.')
+                    selected_types.append(selected_type[0] if selected_type else None)
+                image_selected = len(selected_ids) == 1 and selected_types == ['image']
+
+        if len(selected_ids) > 1:
+            if any(kind != 'image' for kind in selected_types):
+                raise HTTPException(422, 'Attach screenshots together, or select one document for this question.')
+            return images_tutor_answer(selected_ids, body.question, student['student_id'],
+                                       history=[m.model_dump() for m in body.history])
 
         if image_selected:
-            visual = image_tutor_answer(body.source_id, body.question, student['student_id'])
+            visual = image_tutor_answer(selected_ids[0], body.question, student['student_id'])
             if visual is not None:
                 return visual
 

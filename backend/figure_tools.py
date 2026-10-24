@@ -18,18 +18,23 @@ class FigureRequest(BaseModel):
     question: str = Field(default='Explain the figure or diagram on this page. Describe its visible labels and relationships.', min_length=3, max_length=2000)
 
 
-def vision_json(image: bytes, prompt: str, tokens=1300) -> dict:
+def vision_json(image: bytes | list[bytes], prompt: str, tokens=1300) -> dict:
     model = os.getenv('OLLAMA_VISION_MODEL', '').strip()
     if not model:
         raise HTTPException(503, 'Set OLLAMA_VISION_MODEL in backend/.env to an installed vision-capable Ollama model, then restart the backend. Your text model stays unchanged.')
+    images = image if isinstance(image, list) else [image]
+    if not 1 <= len(images) <= 5 or any(not isinstance(value, bytes) or not value for value in images):
+        raise HTTPException(422, 'Choose between 1 and 5 readable images.')
+    if len(images) > 1 and sum(map(len, images)) > 24 * 1024 * 1024:
+        raise HTTPException(413, 'These screenshots are too large to inspect together. Use smaller screenshots.')
     try:
         # Vision uses its own local Ollama endpoint. LLM().base_url is now a
         # Nebius text endpoint and cannot accept Ollama's image request format.
         base = os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
         endpoint = base if base.endswith('/api/chat') else base + '/api/chat'
         response = requests.post(endpoint, json={'model':model,'messages':[{
-            'role':'user','content':prompt,'images':[base64.b64encode(image).decode('ascii')]}],
-            'format':'json','stream':False,'options':{'temperature':0,'num_predict':tokens,'num_ctx':8192}}, timeout=(5,300))
+            'role':'user','content':prompt,'images':[base64.b64encode(value).decode('ascii') for value in images]}],
+            'format':'json','stream':False,'options':{'temperature':0,'num_predict':tokens,'num_ctx':max(8192,4096*(len(images)+1))}}, timeout=(5,300))
         response.raise_for_status()
         result = response.json()
         if result.get('done_reason') == 'length': raise ValueError('truncated')
