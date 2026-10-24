@@ -30,6 +30,11 @@ A hypothetical example must be logically valid, obey the language/type rules,
 and show its steps. Do not reinforce a false universal statement from the
 summary: distinguish the material's simplified description from a more precise
 general explanation. Use qualified average-case claims when assumptions matter.
+When correcting a simplified or mistaken statement in checked_overview, say
+explicitly which statement needs qualification and explain the correction.
+Never leave two contradictory explanations without identifying the difference.
+A hypothetical composition ratio illustrates that ratio only; do not infer
+an exact diffusion rate, time, distance or biological outcome from it.
 Use short paragraphs, normally 60-120 words, with Markdown headings only when
 useful. Do not repeat the sourced definition of each concept as an introduction.
 Honor the user's language and style and the response_request word target for THIS

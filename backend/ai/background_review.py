@@ -46,6 +46,14 @@ not need named runtime internals, exact thresholds, benchmark figures or version
 claims without supporting sources. General background cannot assert what an
 unseen slide says. It may explain a correction to a simplified source statement
 but must not present it as uploaded-material evidence.
+Check the two sections together for conflicting mechanisms, directions, units
+or numerical conclusions. A genuine correction to a mistaken source statement
+must explicitly identify that statement and give the qualified replacement;
+do not silently approve two contradictory accounts of the same mechanism.
+A hypothetical composition ratio cannot establish a measured diffusion rate,
+time, distance or physiological outcome. Reusing a number from checked_overview
+does not establish a new relationship for that number. Reject unsupported exact
+figures and absolute predictions; require removal or clear qualification.
 Set all booleans true and issues=[] only if all checks pass. Otherwise list up
 to six concrete corrections, preserving the original task and source boundaries.'''
 

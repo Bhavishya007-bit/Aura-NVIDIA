@@ -2,7 +2,7 @@
 import re
 
 from pydantic import Field
-from backend.ai.answer_contract import StrictModel, AnswerSection, citation_ids, CITATIONS
+from backend.ai.answer_contract import StrictModel, AnswerSection, citation_ids, CITATIONS, has_noncanonical_citations
 from backend.ai.answer_quality import wrong_script
 from backend.ai.response_request import length_check
 
@@ -30,6 +30,8 @@ class SummaryDraft(StrictModel):
             raise SummaryDraftError('sentence_budget_exceeded')
         points = []
         for index, item in enumerate(self.sentences):
+            if has_noncanonical_citations(item.text):
+                raise SummaryDraftError('noncanonical_citation_marker', sentence_index=index)
             if any(not 1 <= n <= source_count for n in item.citation_ids):
                 raise SummaryDraftError('citation_out_of_range', sentence_index=index)
             inline = citation_ids(item.text)
@@ -114,7 +116,7 @@ def literal_excerpt(content, question):
                 break
             block += following
         block = block.strip()
-        if (5 <= len(block.split()) <= 100 and not citation_ids(block)
+        if (5 <= len(block.split()) <= 100 and not citation_ids(block) and not has_noncanonical_citations(block)
             and not wrong_script(block, question)):
             assert block in content
             return block
@@ -128,7 +130,7 @@ def checked_points(sources, check, question, request=None):
         claim = item.get('claim')
         numbers = item.get('citations') or [item.get('citation')]
         if (item.get('supported') is not True or not isinstance(claim, str)
-            or not claim.strip() or len(claim) > 1000 or citation_ids(claim)
+            or not claim.strip() or len(claim) > 1000 or citation_ids(claim) or has_noncanonical_citations(claim)
             or wrong_script(claim, question) or not numbers
             or any(type(n) is not int or not 1 <= n <= len(sources) for n in numbers)
             or not standalone_point(claim)):

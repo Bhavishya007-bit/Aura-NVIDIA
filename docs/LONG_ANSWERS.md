@@ -1,5 +1,60 @@
 # Length and format follow-ups
 
+## Live 2,124-word result: length passes, integrity work remains
+
+The matching answer and backend trace confirm the actual application count:
+1,603 sourced words plus 521 separately labelled background words = 2,124, within
+the 1,800–2,200 range. The configured Ultra model ran with `reasoning_effort=none`.
+Background was enabled, its first draft was rejected, and a revised draft passed
+model review. This run was not stopped by output truncation or a credit limit.
+
+The trace also reveals remaining issues. Coverage returned too many parts;
+the topic outline failed partition validation and used the page-order fallback;
+the last of six source sections failed relevance checking twice and was omitted.
+The final background brought the word count into range but did not restore those
+missing source topics. Reaching a word target must not imply a complete summary.
+
+Coverage-list overflow can now receive one format repair, asking the model to
+group requested topics within the existing 12-part limits. The server never
+truncates missing/covered parts or accepts a negative verdict by rerolling it.
+An invalid outline partition can receive one repair with explicit allowed location
+IDs, schema bounds and the required section count. The accepted partition still
+must include every location exactly once. Repeated invalid output uses the safe
+fallback. Connection, schema and provider failures do not create retry loops.
+
+Section expansion now reports checked/missing section counts in its existing
+validation diagnostics. When a selected expansion has an empty section, the
+student gets a plain-language notice that source parts were omitted, regardless
+of the combined word count. This does not publish rejected claims or bypass the
+relevance judge; full source completeness remains a separate concern.
+
+Grouped inline reference markers such as `[1,2]` were not recognized by the
+single-ID citation parser and survived inside a source point. They are now
+rejected before publication, including in recovery and background. The server
+does not guess what ambiguous numbers refer to or silently rewrite source data.
+Models must put source IDs only in citation metadata; the renderer emits the
+canonical `[1][2]` form. Grouped numeric arrays inside inline/fenced code remain
+data. Ambiguous numeric groups in prose require an explicit formatting repair.
+
+The response also contains conflicting transport-direction explanations and
+unsupported quantitative extrapolation from a hypothetical composition ratio.
+Background review now explicitly compares both sections: an outside correction
+must identify the source statement it corrects instead of silently contradicting
+it, and a ratio alone cannot establish a measured diffusion rate or distance.
+Manual checks used primary research on
+[P4-ATPase phosphatidylserine transport](https://pubmed.ncbi.nlm.nih.gov/31371510/)
+and [mitochondrial presequence structure](https://pubmed.ncbi.nlm.nih.gov/10721992/).
+This inspection concerns the generated response, not an independent verification
+of every uploaded slide. Model review remains fallible and uncalibrated; stronger
+instructions and a positive verdict are not proof of scientific accuracy.
+
+`evaluation.check_summary_live_followup` covers controlled reference rejection,
+code-literal preservation, bounded structural repairs, truthful partial-summary
+notices even at 2,124 words, and the review context/requirements. These are
+protocol regressions, not a live error-detection benchmark. No private uploaded
+answer or material is committed as a fixture. Existing model settings can stay;
+pull the update and restart FastAPI before the next live check.
+
 ## Short source-only result after the routing fix
 
 The 937-word follow-up is a checked-point result with no background section.

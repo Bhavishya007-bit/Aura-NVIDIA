@@ -41,6 +41,9 @@ Return JSON only:
 Each text is a self-contained point. Cite only IDs in the current passages and
 draft_contract. IDs in other context are not available sources. Use no inline
 citation markers, source lists, headings or clarifying questions in text fields.
+Do not place numeric reference groups such as [1,2] or [1-3] in text fields;
+all references belong only in citation_ids. Put a literal numeric array in
+inline code, for example `values = [1, 2]`, so it cannot look like a reference.
 The application formats the paragraphs and citations. Never return an empty
 sentences list to repair a rejected draft. Correct the specific failure while
 keeping supported content and developing the requested depth.

@@ -181,5 +181,7 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
     return source_section(text), {'valid': True, 'stage': 'summary_section_expansion',
         'response_mode': 'generated' if complete else 'checked_points', 'length_validation': check,
         'writing_calls': writing_calls, 'section_count': len(plan),
+        'sections_checked': sum(bool(state['points']) for state in states),
+        'sections_missing': sum(not state['points'] for state in states),
         'grounding_validation': {'valid': True, 'results': [
             {'claim': p['text'], 'citations': p['citation_ids'], 'supported': True} for p in points]}}

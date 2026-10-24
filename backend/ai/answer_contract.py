@@ -8,6 +8,30 @@ Coverage = Literal["fully_covered", "partially_covered", "not_covered", "unknown
 Depth = Literal["beginner", "standard", "advanced"]
 Mode = Literal["grounded", "intelligence"]
 CITATIONS = re.compile(r"\[(\d+)\]|【(\d+)】")
+NONCANONICAL_CITATIONS = re.compile(r'(?:\[\s*\d+(?:\s*[,;–-]\s*\d+)+\s*\]|【\s*\d+(?:\s*[,;–-]\s*\d+)+\s*】)')
+
+
+def has_noncanonical_citations(text: str) -> bool:
+    """Reject ambiguous numeric reference groups in prose without guessing IDs.
+
+    Numeric arrays in inline/fenced code remain data. Document references must
+    use [1][2], with IDs checked against their explicit citation metadata.
+    """
+    fence = None
+    for line in text.splitlines():
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
+        if marker:
+            token, suffix = marker.groups()
+            if fence is None:
+                fence = token[0], len(token)
+            elif token[0] == fence[0] and len(token) >= fence[1] and not suffix.strip():
+                fence = None
+            continue
+        if fence is None:
+            prose = re.sub(r'(`+).*?\1', '', line)
+            if NONCANONICAL_CITATIONS.search(prose):
+                return True
+    return False
 
 
 def citation_ids(text: str) -> list[int]:
@@ -63,6 +87,8 @@ class AnswerSection(StrictModel):
 
     @model_validator(mode="after")
     def honest_provenance(self):
+        if has_noncanonical_citations(self.text):
+            raise ValueError('Numeric citation groups in prose require canonical references.')
         actual = citation_ids(self.text)
         if self.kind == "beyond":
             if actual or self.citation_ids or self.verified or self.provenance != "model_knowledge":

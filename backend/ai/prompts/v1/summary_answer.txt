@@ -27,6 +27,9 @@ Return JSON only with this exact shape:
 {"sentences":[{"text":"One short supported sentence","citation_ids":[1]}]}
 Each text must state ONE self-contained point with its supporting passage IDs.
 Use no inline citation markers, source lists, headings or clarifying questions.
+Numeric reference groups such as [1,2] or [1-3] are also inline citations;
+put all reference IDs in citation_ids instead. Write a literal numeric array
+as inline code, for example `values = [1, 2]`, so it remains identifiable as data.
 The server formats paragraph groups, bullets or a table, and the citations.
 Avoid sentence fragments and
 pronouns that depend on a point outside the same sentence. If repairing a

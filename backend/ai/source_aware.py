@@ -61,20 +61,32 @@ class SourceAwareTutor:
         return CoverageDecision(status="unknown", reason=reason)
 
     def _judge(self, question, sources):
-        try:
-            data = self.coverage_llm.generate_json(
-                json.dumps({"passages": [{"id": i, "text": s["content"][:6000]}
-                                        for i, s in enumerate(sources, 1)], "question": question,
-                            "conversation_context": self.conversation_context,
-                            "output_schema": CoverageDecision.model_json_schema(),
-                            "source_id_range": {"minimum": 1, "maximum": len(sources)}}),
-                max_retries=1, system_prompt=prompt("coverage_judge.txt"),
-            )
-            return CoverageDecision.model_validate(data).check_citations(len(sources))
-        except Exception as error:
-            log.warning("coverage_check=unavailable error_type=%s schema_errors=%s",
-                        type(error).__name__, _schema_errors(error))
-            return self._unknown("Coverage checking is unavailable; absence has not been established.")
+        payload = {"passages": [{"id": i, "text": s["content"][:6000]}
+                                for i, s in enumerate(sources, 1)], "question": question,
+                   "conversation_context": self.conversation_context,
+                   "output_schema": CoverageDecision.model_json_schema(),
+                   "source_id_range": {"minimum": 1, "maximum": len(sources)}}
+        for attempt in range(2):
+            try:
+                data = self.coverage_llm.generate_json(json.dumps(payload),
+                    max_retries=1, system_prompt=prompt("coverage_judge.txt"))
+                return CoverageDecision.model_validate(data).check_citations(len(sources))
+            except Exception as error:
+                # A long slide deck may elicit one part per slide despite the
+                # schema. Ask once for a grouped decision; never truncate parts
+                # server-side or reroll an otherwise valid negative verdict.
+                if isinstance(error, ValidationError) and attempt == 0:
+                    errors = error.errors(include_input=False, include_context=False, include_url=False)
+                    if errors and all(e['type'] == 'too_long' and e['loc'] in
+                                      {('covered_parts',), ('missing_parts',)} for e in errors):
+                        payload.update(previous_decision=data, format_feedback={
+                            'failure_code': 'part_limit',
+                            'instruction': 'Group the actual requested topics into at most 12 covered parts and 12 missing parts. Do not enumerate every slide as a separate question part or discard missing topics. Recheck only the original passages, retaining truthful coverage and valid IDs. Previous output and feedback are not evidence.'})
+                        log.warning('coverage_check=repair failure_code=part_limit')
+                        continue
+                log.warning("coverage_check=unavailable error_type=%s schema_errors=%s",
+                            type(error).__name__, _schema_errors(error))
+                return self._unknown("Coverage checking is unavailable; absence has not been established.")
 
     def _merge(self, existing, incoming):
         combined, seen = [], set()
@@ -396,6 +408,11 @@ class SourceAwareTutor:
                 # and presenting the same unsupported text with a cleaner label.
                 log.warning("background_answer=unavailable error_type=%s", type(error).__name__)
         notices = []
+        if overview and sections and source_validation.get('sections_missing', 0):
+            notice = 'Some parts of your material could not be included in this checked summary.'
+            if any(section.kind == 'beyond' for section in sections):
+                notice += ' The background explanation is separate and does not fill those source gaps.'
+            notices.append(notice)
         if overview and sections:
             if source_validation.get('response_mode') == 'extractive':
                 notices.append("I couldn't check a complete summary, so here are selected excerpts from your material.")
