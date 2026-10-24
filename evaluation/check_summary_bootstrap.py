@@ -69,7 +69,7 @@ class SummaryBootstrap(unittest.TestCase):
                 self.assertEqual(result['citation_validation']['source_validation']['stage'], 'summary_section_expansion')
                 self.assertEqual(len([row for row in llm.calls if row[0]=='whole']), 2)
                 parts = [row[1] for row in llm.calls if row[0]=='part']
-                self.assertEqual(len(parts), 4)
+                self.assertEqual(len(parts), 6)
                 self.assertEqual(parts[0]['already_explained'], [])
                 self.assertCountEqual([source['text'] for part in parts for source in part['passages']],
                                       [row.chunk.content for row in llm.rows])
@@ -79,7 +79,7 @@ class SummaryBootstrap(unittest.TestCase):
 
     def test_empty_section_recovery_is_bounded_and_keeps_honest_source_excerpts(self):
         result, llm = self.run_tutor('empty', 'empty')
-        self.assertEqual(len([row for row in llm.calls if row[0]=='part']), 6)
+        self.assertEqual(len([row for row in llm.calls if row[0]=='part']), 8)
         self.assertEqual(result['citation_validation']['response_mode'], 'extractive')
         self.assertFalse(result['length_validation']['valid'])
         self.assertIn('requested target was approximately 2000', result['answer'])

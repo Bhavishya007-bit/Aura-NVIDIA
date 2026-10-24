@@ -6,10 +6,9 @@ from unittest.mock import Mock
 
 from backend.ai.citation_grounding import CitationGrounding
 from backend.ai.rag import RAG
-from backend.ai.response_request import word_count, response_request
-from backend.ai.source_aware import SourceAwareTutor, _schema_errors
+from backend.ai.response_request import word_count
+from backend.ai.source_aware import SourceAwareTutor
 from backend.ai.summary_answer import SummaryDraft
-from backend.ai.long_summary import expand_summary
 from evaluation.check_long_answers import long_fixture, LengthLLM, DocumentRetriever, HISTORY
 from evaluation.check_sectioned_summaries import scoped_fixture_points
 
@@ -47,7 +46,7 @@ class SupplementLLM(LengthLLM):
 
 
 class SupplementChecks(unittest.TestCase):
-    def test_verified_1110_word_draft_is_retained_and_completed_by_additions(self):
+    def test_verified_1110_word_draft_is_replaced_by_a_complete_checked_lesson(self):
         llm = SupplementLLM()
         self.assertEqual(sum(word_count(p['text']) for p in llm.seed['sentences']), 1110)
         result = SourceAwareTutor(RAG(DocumentRetriever(llm.rows), llm)).answer(
@@ -57,9 +56,9 @@ class SupplementChecks(unittest.TestCase):
         for point in llm.seed['sentences']:
             self.assertIn(point['text'], result['answer'])
         supplements = [c[1] for c in llm.calls if c[0] == 'supplement']
-        self.assertEqual(len(supplements), 4)
-        self.assertEqual(supplements[0]['section_request']['target_words'], 115)
-        self.assertEqual(len(supplements[0]['already_explained']), 45)
+        self.assertEqual(len(supplements), 6)
+        self.assertEqual(supplements[0]['section_request']['target_words'], 334)
+        self.assertEqual(len(supplements[0]['already_explained']), 0)
         self.assertFalse(any(s['kind'] == 'beyond' for s in result['sections']))
 
     def test_section_intent_uses_local_question_and_assigned_passages(self):
@@ -67,7 +66,7 @@ class SupplementChecks(unittest.TestCase):
         result = SourceAwareTutor(RAG(DocumentRetriever(llm.rows), llm)).answer(
             'in 2000 words', course_id=3, source_id=7, history=HISTORY)
         intents = [c[1] for c in llm.calls if c[0] == 'intent' and c[1]['intent_context']]
-        self.assertEqual(len(intents), 4)
+        self.assertEqual(len(intents), 6)
         for intent in intents:
             self.assertNotIn('2000', intent['question'])
             self.assertEqual(intent['intent_context']['scope'], 'selected_material_section')
@@ -80,33 +79,27 @@ class SupplementChecks(unittest.TestCase):
             'in 2000 words', course_id=3, source_id=7, history=HISTORY)
         self.assertEqual(result['length_validation']['actual_words'], 1110)
         self.assertFalse(result['length_validation']['valid'])
-        self.assertLessEqual(len([c for c in llm.calls if c[0] == 'supplement']), 6)
+        self.assertLessEqual(len([c for c in llm.calls if c[0] == 'supplement']), 8)
 
-    def test_only_supported_seed_points_can_be_carried_forward(self):
+    def test_failed_rewrite_keeps_only_supported_overview_points(self):
         llm = SupplementLLM(repeat=True)
-        rag = RAG(DocumentRetriever(llm.rows), llm)
-        sources = rag._build_sources(llm.rows)
-        seed = {'grounding_validation': {'results': [
-            {'claim': 'The membrane contains pure gold', 'citations': [1], 'supported': False},
-            {'claim': llm.seed['sentences'][0]['text'], 'citations': [1], 'supported': True}]}}
-        result = expand_summary(rag, llm, sources, 'summarize in 2000 words',
-            response_request('in 2000 words'), {}, _schema_errors, seed_check=seed)
-        self.assertIsNotNone(result)
-        self.assertNotIn('gold', result[0].text)
-        self.assertIn(llm.seed['sentences'][0]['text'], result[0].text)
+        safe = llm.seed['sentences'][0]
+        llm.seed = {'sentences': [safe, {'text': 'The membrane contains pure gold', 'citation_ids': [1]}]}
+        result = SourceAwareTutor(RAG(DocumentRetriever(llm.rows), llm)).answer(
+            'in 2000 words', course_id=3, source_id=7, history=HISTORY)
+        self.assertNotIn('gold', result['answer'])
+        self.assertIn(safe['text'], result['answer'])
+        self.assertFalse(result['length_validation']['valid'])
 
-    def test_checked_seed_order_preserves_pronoun_antecedents(self):
+    def test_failed_rewrite_preserves_the_checked_overview_order(self):
         llm = SupplementLLM(repeat=True)
-        rag = RAG(DocumentRetriever(llm.rows), llm)
-        sources = rag._build_sources(llm.rows)
         claims = ['A membrane marks the cell boundary', 'It contains lipids']
-        sources[0]['content'] += '\n' + '. '.join(claims) + '.'
-        seed = {'grounding_validation': {'results': [
-            {'claim': text, 'citations': [1], 'supported': True} for text in claims]}}
-        section, _ = expand_summary(rag, llm, sources, 'summarize in 2000 words',
-            response_request('in 2000 words'), {}, _schema_errors, seed_check=seed)
-        self.assertIn(claims[1], section.text)
-        self.assertLess(section.text.index(claims[0]), section.text.index(claims[1]))
+        llm.rows[0].chunk.content += '\n' + '. '.join(claims) + '.'
+        llm.seed = {'sentences': [{'text': text, 'citation_ids': [1]} for text in claims]}
+        result = SourceAwareTutor(RAG(DocumentRetriever(llm.rows), llm)).answer(
+            'in 2000 words', course_id=3, source_id=7, history=HISTORY)
+        self.assertLess(result['answer'].index(claims[0]), result['answer'].index(claims[1]))
+        self.assertFalse(result['length_validation']['valid'])
 
     def test_local_intent_context_does_not_bypass_topic_rejection(self):
         llm = Mock()

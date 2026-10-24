@@ -154,6 +154,10 @@ The optional `python -m evaluation.code_quality --collect-live` audit collects e
 
 Version 1 contained a flawed `duplicates-good` reference: the supplied linear scan guarantees the first matching index. Version 2 corrects the example; viewing an old packet warns about the original reference score without rewriting collected outputs or human labels. Independent review remains required.
 
+## Current long-summary quality follow-up
+
+Recovery now plans distinct topics and writes complete replacement sections instead of appending paraphrases to a short overview. Each section retains independent relevance, source-support and citation checks, and the checked overview remains a fallback. A typical 2,000-word recovery can add one outline, six writers and two shared repairs after the existing drafts. See `docs/LONG_ANSWERS.md` for limits and the real-material acceptance check. Live summary quality and human calibration remain pending.
+
 ## Clean-database demo checklist
 
 Calibration can remain pending while independent answer-quality work continues. The long-summary path now attempts verified section recovery even when both whole-file drafts are unusable; it does not require a previously approved generated sentence. See `docs/LONG_ANSWERS.md` for limits, credit/latency impact and the actual-presentation sequence covering beta-barrel diagrams, conversational follow-ups and requested word count. This does not mark calibration or the clean-database demo complete.

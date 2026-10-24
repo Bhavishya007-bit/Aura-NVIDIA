@@ -40,7 +40,7 @@ class CitationScope(unittest.TestCase):
         self.assertTrue(result['length_validation']['valid'], result['length_validation'])
         self.assertEqual(result['length_validation']['actual_words'], 2000)
         sections = [row[1] for row in llm.calls if row[0]=='section']
-        self.assertEqual(len(sections), 4)
+        self.assertEqual(len(sections), 6)
         for section in sections:
             ids = [source['id'] for source in section['passages']]
             self.assertEqual(ids, list(range(1, len(ids)+1)))

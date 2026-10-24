@@ -141,8 +141,10 @@ class SummaryDraftChecks(unittest.TestCase):
         self.assertFalse(result['length_validation']['valid'])
         self.assertNotEqual(result['citation_validation']['response_mode'], 'extractive')
         self.assertIn('requested target was approximately 2000', result['answer'])
-        # Two whole-draft attempts, four scoped sections, and two shared repairs.
-        self.assertEqual(len([c for c in llm.calls if c[0] == 'draft']), 8)
+        # Two whole drafts, six complete sections, and two shared repairs;
+        # the separately bounded outline request is not a prose draft.
+        self.assertEqual(len([c for c in llm.calls if c[0] == 'draft']), 10)
+        self.assertEqual(len([c for c in llm.calls if c[0] == 'outline']), 1)
         feedback = [c[1]['feedback'] for c in llm.calls if c[0] == 'draft' and 'feedback' in c[1]][0]
         self.assertEqual(feedback['length_validation']['target_words'], 2000)
 

@@ -111,6 +111,23 @@ class DocumentRetriever(Retriever):
 
 
 class LengthLLM(SummaryLLM):
+    def generate_json(self, data, max_retries=2, system_prompt=None):
+        if (system_prompt or '').startswith('AURA_LESSON_OUTLINE:'):
+            payload = json.loads(data)
+            self.calls.append(('outline', payload))
+            groups = payload['locations']
+            count = payload['section_count']
+            size, extra = divmod(len(groups), count)
+            parts, start = [], 0
+            for index in range(count):
+                end = start + size + (index < extra)
+                parts.append({'title': f'Teaching topic {index+1}',
+                              'focus': 'Explain the assigned recorded experimental observations.',
+                              'location_ids': [g['id'] for g in groups[start:end]]})
+                start = end
+            return {'sections': parts}
+        return super().generate_json(data, max_retries, system_prompt)
+
     def with_output_budget(self, tokens, *, exact=False):
         self.calls.append(('budget', tokens))
         return copy.copy(self)

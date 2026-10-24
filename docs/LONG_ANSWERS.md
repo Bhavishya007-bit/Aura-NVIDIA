@@ -1,5 +1,63 @@
 # Length and format follow-ups
 
+## Current recovery: topic-led complete sections
+
+The latest reported answer reached 1,110 words but repeatedly redefined hash
+tables, collisions and collision resolution. Longer output did not establish
+better teaching. The append-only recovery kept a compact overview and added
+paraphrases around it; exact-text deduplication could not prevent that pattern.
+
+Recovery now makes **one bounded outline request**, grouping related locations
+under distinct teaching topics (including nonadjacent pages). The server checks
+that every supplied location is assigned exactly once, that all IDs exist, and
+that titles are unique. Native text, OCR and image interpretations from one
+location stay together. A malformed outline falls back to page-order sections;
+a connection failure stops recovery. An outline is organizational context,
+never source evidence, and its headings are not rendered as verified claims.
+
+Each writer produces a **complete section**, normally around 333 words across
+six sections for a 2,000-word request. Its repair rewrites that section instead
+of appending more prose. The original checked overview stays with the caller as
+a fallback and is not prepended to the new lesson. Completed sections are given
+as context, without source IDs; the existing relevance check now also rejects
+sections that merely paraphrase them rather than developing their assigned
+focus. Brief bridges and substantive elaboration are allowed. Per-point source
+support and local citation remapping still run independently. This model-based
+focus check needs live evaluation; a controlled test is not proof of reliable
+semantic deduplication.
+
+Topic paragraphs stay separate in ordinary prose. Requested bullet/table or
+paragraph-count layouts retain their existing behavior. The writing prompt asks
+for mechanisms, relationships and supported examples, and for preserving the
+source's qualifications instead of converting simplified statements into
+universal guarantees. It does not silently insert outside corrections under
+uploaded-material citations. Repeated same-page passages that differ only by
+known extraction headers are deduplicated; distinct evidence, image uncertainty
+and identical text on different pages are retained.
+
+After the two existing whole-file attempts, recovery can make one outline call,
+six section calls and two shared repairs for a typical 2,000-word request:
+**up to nine extra generation requests**, plus independent verification. Across
+all supported lengths, the limit is one outline, eight sections and two repairs.
+The 180-second elapsed-time checks still stop new work, without interrupting an
+in-flight provider request. This costs more calls than the previous four-section
+path, only when the initial drafts fall short. Unavailable verification or a
+lost connection stops new writing. Failed or worse repairs retain the checked
+predecessor; a shorter overall rewrite cannot replace a longer checked overview.
+No new API routes, database fields, dependencies or retry loops were added.
+
+The regressions in `evaluation.check_summary_topics` cover grouping nonadjacent
+repeated concepts, invalid partitions, redacted diagnostics, connection loss,
+complete replacement, repeated-topic rejection, failed rewrites and extraction
+header duplicates. Existing controlled recovery fixtures still reach roughly
+2,000 words with valid source bindings. These fixtures do not establish live
+Nemotron length, factual accuracy or teaching quality on the uploaded PDF.
+Human judge calibration remains pending. The real-material check below remains
+required before declaring the long-summary issue resolved.
+
+The diagnostics later in this document describe earlier releases; this section
+supersedes their append-only and four-section recovery behavior.
+
 The reported sequence was `summarize the ppt` followed by `in 2000 words`.
 The second message lost its subject, skipped the overview path and generated
 background that incorrectly described the uploaded file as only a brief outline.
@@ -56,9 +114,9 @@ Model-based support decisions still require calibrated live evaluation.
 
 The repeated short-excerpt path had a separate gate: section expansion required a positively checked sentence from an earlier generated draft. When both whole-file drafts were empty, malformed or truncated, the application could retrieve ample material yet stop at exact excerpts without attempting section-based synthesis.
 
-Long overview requests of at least 1,200 words now also allow the existing bounded section path after those recoverable generation failures or rejected whole-file prose. Every new point still passes the same relevance, citation and source-support checks. Only positively checked points seed the new explanation; raw excerpts, rejected claims and assistant history never become source evidence. A file with no short literal excerpt can also start from its retrieved passages. Foreign-section citations remain invalid.
+Long overview requests of at least 1,200 words now also allow the existing bounded section path after those recoverable generation failures or rejected whole-file prose. Every new point still passes the same relevance, citation and source-support checks. Only retrieved source passages supply facts for the rewritten explanation; raw excerpts, rejected claims and assistant history never become new source evidence. The prior checked answer remains a separate fallback. A file with no short literal excerpt can also start from its retrieved passages. Foreign-section citations remain invalid.
 
-The limits remain one initial writing call per section plus two shared repairs, at most eight sections, with the existing elapsed-time checks. A 2,000-word request normally creates four sections, so this recovery can add up to six writing requests plus source-verification requests after the two initial attempts. It uses existing provider credits and adds latency only when recovery is needed. Network failures do not trigger this bootstrap, and a connection lost during expansion stops further writing calls. An unavailable verifier also stops recovery. If no supported improvement is produced, the checked answer or exact excerpts remain, with an honest length shortfall.
+The current limits are one outline request, one initial writing call per section, and two shared repairs, at most eight sections, with the existing elapsed-time checks. A 2,000-word request normally creates six sections, so recovery can add up to nine generation requests plus source-verification requests after the two initial attempts. It uses existing provider credits and adds latency only when recovery is needed. Network failures do not trigger this bootstrap, and a connection lost during expansion stops further writing calls. An unavailable verifier also stops recovery. If no supported improvement is produced, the checked answer or exact excerpts remain, with an honest length shortfall.
 
 `python -m unittest evaluation.check_summary_bootstrap` reproduces the initial failure with controlled empty/truncated/rejected drafts and verifies a 2,000-word source-backed recovery across 39 synthetic locations. It also checks unavailable verification, connection loss, preserved checked drafts, and bounded failure with excerpts. These are orchestration regressions, not evidence that a live model will always reach the requested length or understand every diagram. No API route, database schema or application dependency changes.
 
@@ -281,7 +339,7 @@ reports 128 tests: 126 passed and two optional OCR checks skipped. Pull `main`, 
 reuse the existing prepared presentation. New logs use `summary_section` for
 section attempts alongside `summary_draft` and `source_answer_check`.
 
-## Follow-up: carry forward the checked 1,110-word draft
+## Historical follow-up: carry forward the checked 1,110-word draft
 
 The attached live run generated 1,427 words first, then a fully checked
 1,110-word revision. Expansion did run: three initial sections failed

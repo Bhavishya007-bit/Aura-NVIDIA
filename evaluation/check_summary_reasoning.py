@@ -100,13 +100,13 @@ class SummaryReasoningChecks(unittest.TestCase):
         with patch.dict(os.environ, {'AURA_MAX_ANSWER_TOKENS': '10000'}, clear=True), \
              patch('backend.ai.llm.requests.post', return_value=truncated) as post:
             section, validation = self.run_summary(tutor, sources, client)
-        # Two whole-file attempts, four scoped attempts and two shared repairs.
-        self.assertEqual(post.call_count, 8)
+        # Two whole-file attempts, one outline, six scoped attempts and two repairs.
+        self.assertEqual(post.call_count, 11)
         payloads = [call.kwargs['json'] for call in post.call_args_list]
         self.assertEqual([row['max_tokens'] for row in payloads[:2]], [8192, 10000])
         self.assertTrue(all(row['max_tokens']==4096 for row in payloads[2:]))
         self.assertTrue(all(row['max_tokens']<=10000 for row in payloads))
-        self.assertTrue(all('section_request' in json.loads(row['messages'][-1]['content']) for row in payloads[2:]))
+        self.assertTrue(all('section_request' in json.loads(row['messages'][-1]['content']) for row in payloads[3:]))
         self.assertEqual(validation['response_mode'], 'extractive')
         self.assertFalse(length_check(section.text, tutor.response_request)['valid'])
 

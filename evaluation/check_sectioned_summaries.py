@@ -134,9 +134,9 @@ class SectionExpansionChecks(unittest.TestCase):
         self.assertEqual(result['citation_validation']['source_validation']['stage'], 'summary_section_expansion')
         self.assertEqual(len([c for c in llm.calls if c[0] == 'whole']), 2)
         parts = [c[1] for c in llm.calls if c[0] == 'part']
-        self.assertEqual(len(parts), 4)
-        self.assertEqual([p['section_request']['target_words'] for p in parts], [300, 500, 500, 450])
-        self.assertEqual([p['section_request']['section_total_target_words'] for p in parts], [500] * 4)
+        self.assertEqual(len(parts), 6)
+        self.assertEqual([p['section_request']['target_words'] for p in parts], [334, 334, 333, 333, 333, 333])
+        self.assertEqual([p['section_request']['section_total_target_words'] for p in parts], [334, 334, 333, 333, 333, 333])
         supplied = [source['text'] for part in parts for source in part['passages']]
         self.assertCountEqual(supplied, [row.chunk.content for row in llm.rows])
         for part in parts:
@@ -148,7 +148,7 @@ class SectionExpansionChecks(unittest.TestCase):
         result, llm = self.run_tutor('repair')
         self.assertTrue(result['length_validation']['valid'], result['length_validation'])
         self.assertNotIn('gold', result['answer'])
-        self.assertEqual(llm.part_attempts, {1: 1, 2: 2, 3: 1, 4: 1})
+        self.assertEqual(llm.part_attempts, {1: 1, 2: 2, 3: 1, 4: 1, 5: 1, 6: 1})
         repair = [c[1] for c in llm.calls if c[0] == 'part' and 'feedback' in c[1]][0]
         self.assertTrue(repair['feedback']['failed_points'])
         self.assertIsNotNone(repair['previous_draft'])
@@ -162,7 +162,7 @@ class SectionExpansionChecks(unittest.TestCase):
     def test_all_empty_sections_stop_after_two_shared_repairs_and_keep_short_answer(self):
         result, llm = self.run_tutor('empty')
         self.assertFalse(result['length_validation']['valid'])
-        self.assertEqual(len([c for c in llm.calls if c[0] == 'part']), 6)
+        self.assertEqual(len([c for c in llm.calls if c[0] == 'part']), 8)
         self.assertTrue(all(n <= 2 for n in llm.part_attempts.values()))
         self.assertIn('requested target was approximately 2000', result['answer'])
         self.assertNotEqual(result['citation_validation']['response_mode'], 'extractive')
@@ -179,7 +179,7 @@ class SectionExpansionChecks(unittest.TestCase):
         llm = SectionLLM()
         rag = RAG(DocumentRetriever(llm.rows), llm)
         sources = rag._build_sources(llm.rows)
-        with patch('backend.ai.long_summary.time.monotonic', side_effect=[0, 181, 182]):
+        with patch('backend.ai.long_summary.time.monotonic', side_effect=[0, 181]):
             result = expand_summary(rag, llm, sources, 'summarize the ppt',
                 response_request('in 2000 words'), {}, _schema_errors)
         self.assertIsNone(result)

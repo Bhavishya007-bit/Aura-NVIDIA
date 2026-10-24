@@ -10,6 +10,7 @@ from backend.ai.answer_contract import (
     AnswerSection, CoverageDecision, SourceAwareFields, choose_depth, citation_ids,
 )
 from backend.ai.lexical import topic_excerpt
+from backend.ai.answer_quality import evidence_text
 from backend.ai.llm import LLMConnectionError, LLMResponseError
 from backend.ai.long_summary import expand_summary
 from backend.ai.summary_answer import SummaryDraft, SummaryDraftError, summary_contract, recover_summary
@@ -75,8 +76,9 @@ class SourceAwareTutor:
     def _merge(self, existing, incoming):
         combined, seen = [], set()
         for item in list(existing) + list(incoming):
-            text = " ".join(item.chunk.content.split())
-            key = (item.chunk.source_id, text.casefold())
+            text = " ".join(evidence_text(item.chunk.content).split())
+            key = (item.chunk.source_id, item.chunk.page, item.chunk.slide,
+                   item.chunk.timestamp_start, text.casefold())
             if not text or key in seen:
                 continue
             seen.add(key)
@@ -240,7 +242,7 @@ class SourceAwareTutor:
                 log.info('summary_expansion=start seed_mode=%s',
                          best_checked[1].get('response_mode', 'generated') if best_checked else 'none')
                 expanded = expand_summary(self.rag, client, sources, question, self.response_request,
-                                          payload, _schema_errors, seed_check=best_checked[1] if best_checked else None)
+                                          payload, _schema_errors)
                 if expanded and (best_checked is None or
                     length_distance(expanded[1]['length_validation']) < length_distance(best_checked[1]['length_validation'])):
                     expanded[1]['draft_stages'] = [check.get('stage') for check in checks]

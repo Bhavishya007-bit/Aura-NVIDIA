@@ -34,7 +34,7 @@ class RejectedOverviewLLM(LengthLLM):
         assert word_count(extra['text']) == 16
         self.rows[8].chunk.content += '\n' + extra['text'] + '.'
         self.seed = {'sentences': merged + [extra]}
-        self.full = {'sentences': self.seed['sentences'] + copy.deepcopy(original['sentences'][36:])}
+        self.full = {'sentences': copy.deepcopy(original['sentences']) + [extra]}
 
     def generate_json(self, data, max_retries=2, system_prompt=None):
         if 'SELECTED uploaded material' in (system_prompt or ''):
@@ -84,13 +84,13 @@ class OverviewIntentChecks(unittest.TestCase):
         result = SourceAwareTutor(RAG(DocumentRetriever(llm.rows), llm)).answer(
             'in 2000 words', course_id=3, source_id=7, history=HISTORY)
         self.assertTrue(result['length_validation']['valid'], result['length_validation'])
-        self.assertEqual(result['length_validation']['actual_words'], 1991)
+        self.assertEqual(result['length_validation']['actual_words'], 2016)
         self.assertNotEqual(result['citation_validation']['response_mode'], 'extractive')
         self.assertEqual(len([c for c in llm.calls if c[0] == 'whole']), 2)
-        self.assertEqual(len([c for c in llm.calls if c[0] == 'supplement']), 4)
+        self.assertEqual(len([c for c in llm.calls if c[0] == 'supplement']), 6)
         self.assertTrue(all(c[1]['intent_context']['scope'] == 'selected_material_section'
                             for c in llm.calls if c[0] == 'intent'))
-        for point in llm.seed['sentences']:
+        for point in llm.full['sentences']:
             self.assertIn(point['text'], result['answer'])
 
     def test_generic_summary_still_requires_positive_factual_support(self):
