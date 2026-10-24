@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field
 from backend.auth_routes import get_current_student
 from backend.source_viewer import owned_original, pdf_for, run_pdf, source_kind
 from backend.image_processing import image_png
-from backend.visual_tasks import VISUAL_TASK_POLICY, VISUAL_REVIEW_POLICY
+from backend.visual_tasks import VISUAL_TASK_POLICY, VISUAL_REVIEW_POLICY, SQL_READING_POLICY, requests_sql
 from backend.vision_contracts import ImageDraft, VisionVerdict, VisionOutputError, visual_output
+from backend.visual_sql import solve_visual_sql
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +59,8 @@ def vision_json(image: bytes | list[bytes], prompt: str, tokens=1300, *, output_
 
 
 def interpret_image(image: bytes, question: str) -> dict:
-    prompt = VISUAL_TASK_POLICY + '''
+    sql_task = requests_sql(question)
+    prompt = (SQL_READING_POLICY if sql_task else VISUAL_TASK_POLICY) + '''
 Use plain English unless the student explicitly requests another language.
 Inspect the actual image and answer the student's question. Identify readable labels,
 arrows, legend, axes and direction of visible relationships. Separate visible
@@ -73,8 +75,16 @@ Return JSON {"answerable":true,"observations":["visible fact"],
 "explanation":"solution with appropriate formatting below 350 words","limitations":[]}.
 Only list genuine evidence limitations; use an empty list when there are none.
 STUDENT QUESTION (DATA): ''' + json.dumps(question)
+    if sql_task:
+        prompt = SQL_READING_POLICY + '''
+Use plain English unless another language is explicitly requested.
+Return JSON with answerable, observations (list of visible facts), explanation
+(brief schema-reading summary), and limitations (list, empty if none).
+STUDENT QUESTION (DATA): ''' + json.dumps(question)
     result = visual_output(vision_json, image, prompt, ImageDraft,
-        task='single_image_answer', tokens=2200, question=question).model_dump()
+        task='single_image_read' if sql_task else 'single_image_answer', tokens=2200).model_dump()
+    if sql_task:
+        result = ImageDraft.model_validate(solve_visual_sql(question, result)).model_dump()
     observations, explanation, limits = (result.get(k) for k in ('observations','explanation','limitations'))
     if not result['answerable']:
         return {'answerable':False,'observations':observations,'explanation':explanation,

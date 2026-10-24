@@ -4,7 +4,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 from PIL import Image, ImageDraw
@@ -34,6 +34,7 @@ WHERE m.match_date = '2020-05-15';'''
 def solution():
     return {'answerable': True,
             'observations': ['matches has match_num and match_date.',
+                'match_referees.match_num references matches.match_num.',
                 'match_referees.fourth_referee references referees.referee_id.',
                 'referees has referee_name.'],
             'explanation': '```sql\n' + QUERY + '\n```\n'
@@ -55,13 +56,22 @@ class VisualSolvingChecks(unittest.TestCase):
         ImageDraw.Draw(image).multiline_text((10, 10), SCHEMA, fill='black')
         output = io.BytesIO(); image.save(output, format='PNG')
         self.png = output.getvalue()
+        self.reasoner = Mock()
+        self.reasoner.for_task.return_value = self.reasoner
+        self.reasoner.for_summary.return_value = self.reasoner
+        self.reasoner.with_output_budget.return_value = self.reasoner
+        self.reasoner.generate_json.return_value = {'answerable': True, 'query': QUERY,
+            'explanation': 'Join through the fourth-referee key and filter the match date.', 'limitations': []}
+        self.reasoner_patch = patch('backend.visual_sql.LLM', return_value=self.reasoner)
+        self.reasoner_patch.start(); self.addCleanup(self.reasoner_patch.stop)
 
     def test_single_image_replays_reported_refusal_and_returns_query(self):
         for answerable in (True, False):
+            readable = refusal(answerable); readable['observations'] = solution()['observations']
             with self.subTest(answerable=answerable), patch('backend.figure_tools.vision_json',
-                    side_effect=[refusal(answerable), solution(), {'supported': True}]) as model:
+                    side_effect=[readable, {'supported': True}]) as model:
                 result = interpret_image(self.png, QUESTION)
-            self.assertEqual(model.call_count, 3)
+            self.assertEqual(model.call_count, 2)
             for call in model.call_args_list:
                 self.assertEqual(call.args[0], self.png)
                 self.assertIn(QUESTION, call.args[1])
@@ -90,11 +100,14 @@ class VisualSolvingChecks(unittest.TestCase):
 
     def test_description_only_cannot_pass_as_a_completed_sql_answer(self):
         bad = refusal(); bad['limitations'] = []
+        self.reasoner.generate_json.return_value = {'answerable': True, 'query': '',
+            'explanation': 'You would need to join tables.', 'limitations': []}
         with patch('backend.figure_tools.vision_json', return_value=bad) as model:
             with self.assertRaises(HTTPException) as error:
                 interpret_image(self.png, QUESTION)
         self.assertEqual(error.exception.status_code, 503)
-        self.assertEqual(model.call_count, 2)
+        self.assertEqual(model.call_count, 1)
+        self.assertEqual(self.reasoner.generate_json.call_count, 2)
 
     def test_genuine_unreadable_join_key_is_preserved_not_guessed(self):
         missing = {'answerable': False, 'observations': ['The referee key label is blurred.'],
@@ -105,10 +118,12 @@ class VisualSolvingChecks(unittest.TestCase):
         self.assertEqual(model.call_count, 1)
         self.assertFalse(result['answerable'])
         self.assertNotIn('SELECT', result['explanation'])
+        self.reasoner.generate_json.assert_not_called()
 
     def test_a_query_with_misread_identifiers_is_withheld_when_review_rejects_it(self):
         bad = solution()
         bad['explanation'] = bad['explanation'].replace('mr.fourth_referee', 'mr.main_referee')
+        self.reasoner.generate_json.return_value['query'] = QUERY.replace('mr.fourth_referee', 'mr.main_referee')
         with patch('backend.figure_tools.vision_json', side_effect=[bad, {'supported': False}]):
             result = interpret_image(self.png, QUESTION)
         self.assertFalse(result['answerable'])
@@ -149,12 +164,12 @@ class VisualSolvingChecks(unittest.TestCase):
             bad = refusal(False); bad['observations'] = [{'image': 1, 'text': SCHEMA}, {'image': 2, 'text': SCHEMA}]
             good = solution(); good['observations'] = bad['observations']
             with patch('backend.multi_image_tutor.owned_original', side_effect=sources), \
-                 patch('backend.multi_image_tutor.vision_json', side_effect=[bad, good, {'supported': True}]) as model:
+                 patch('backend.multi_image_tutor.vision_json', side_effect=[bad, {'supported': True}]) as model:
                 result = images_tutor_answer([7, 8], QUESTION, 42)
             for call in model.call_args_list:
                 self.assertEqual(len(call.args[0]), 2)
                 self.assertIn(QUESTION, call.args[1])
-            self.assertEqual(model.call_count, 3)
+            self.assertEqual(model.call_count, 2)
             self.assertIn(QUERY, result['answer'])
             self.assertEqual([source['source_id'] for source in result['sources']], [7, 8])
             self.assertTrue(result['answer'].endswith('[1][2]'))
@@ -169,4 +184,4 @@ class VisualSolvingChecks(unittest.TestCase):
                 with self.assertRaises(HTTPException) as error:
                     images_tutor_answer([7, 8], QUESTION, 42)
         self.assertEqual(error.exception.status_code, 503)
-        self.assertEqual(model.call_count, 2)
+        self.assertEqual(model.call_count, 1)

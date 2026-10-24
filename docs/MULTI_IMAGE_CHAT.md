@@ -59,13 +59,30 @@ Writing a query does not require data rows; predicting its output can require
 them. Review permits valid derivations while checking names, join/role keys,
 filters and requested output column order. It does not execute SQL.
 
-For explicit SQL-authoring requests, a prose-only "answerable" response or a
-refusal that asks for the already-written query triggers one bounded revision
-with the same originals and question. Repeated incomplete output is withheld as
-a recoverable generation error rather than blamed on the student's material.
-Genuinely unreadable or missing required identifiers/relationships can still
-produce a specific clarification. The fenced-SQL completion check is not a SQL
-parser or a guarantee of query correctness; visual/model review remains fallible.
+Explicit SQL-authoring requests use separate reading and reasoning stages:
+
+1. The configured vision model reads table/column names, key relationships and
+   genuine unreadable details. It is not required to write the SQL.
+2. `backend/visual_sql.py` sends the recognized facts and written question to
+   Aura's configured Nebius `deep` model. It excludes the vision reader's free-form
+   narration. The model returns a dedicated `query` field and brief explanation;
+   the server renders that query as a SQL code block. Originals are sent only to
+   the configured vision endpoint; the text reasoner receives recognized facts.
+3. The existing visual review checks the solution against the original image(s).
+   A failed review still withholds the solution. Multi-image attribution and
+   ownership remain enforced before/after reasoning.
+
+The text model is selected through existing `NEBIUS_DEEP_MODEL`/`NEBIUS_MODEL`
+configuration, including the existing Ultra quality profile when applied. It
+uses the configured writing reasoning controls, a 4096-token output budget, and
+at most one repair for incomplete/invalid SQL output. It has no execution tool
+or database access and does not claim to have run the query. Connection failures
+do not silently downgrade to the local vision model. Genuine missing identifiers
+or join endpoints can still produce a specific clarification.
+
+SQL statement detection accepts plain SQL and common Markdown fences. Missing
+backticks alone no longer causes `task_incomplete`. Detection is not a SQL parser
+or a correctness guarantee; visual reading and model review remain fallible.
 
 ## Response-format recovery
 
@@ -78,30 +95,36 @@ observation objects. The review response requires a boolean `supported`.
 See [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs).
 
 `backend/vision_contracts.py` validates these outputs and performs at most one
-revision for malformed/truncated JSON, missing fields, wrong types or incomplete
-SQL. Schema and SQL repairs share the same two-attempt generation limit. Review
-also permits one response-format repair. Missing booleans/evidence are never
+revision for malformed/truncated JSON, missing fields or wrong types. SQL reading
+does not use a query-completion gate; the separate text reasoner handles query
+completion. Review also permits one response-format repair. Missing booleans/evidence are never
 invented, and string booleans are not coerced into approval. Repeated malformed
 output is withheld; transport/authentication failures are not retried as schema
 errors. Existing ownership and attribution checks still apply to all originals.
 
-Safe backend warnings identify the stage (`single_image_answer`,
-`multi_image_answer`, or review), attempt, failure code and failing field paths
+Safe backend warnings identify the stage (`single_image_read`, `multi_image_read`,
+non-SQL answer, or review), attempt, failure code and failing field paths
 and types. They omit prompts, images, raw model responses, validation input and
 unknown field names. `vision_request=failed` separately records transport error
 type and HTTP status when available. After pulling, restart the backend and
 retry the same selected material; re-uploading is not required.
+For SQL requests expect `visual_sql=started route=deep`, the ordinary Nebius
+usage log with `task=deep`, then `visual_sql=completed`. Text-model errors have
+separate `visual_sql=invalid`/`visual_sql=unavailable` diagnostics.
 
 `evaluation.check_visual_solving` replays the reported schema-only response for
 one and multiple images, checks bounded revision and withholding, and preserves
 real missing-evidence handling. Its four-table schema, images and SQL are authored
 fixtures. Only the static fixture query is run against an in-memory test database;
 no student SQL or model output is executed in production or in these checks.
+`evaluation.check_visual_sql` covers plain/fenced SQL, the configured text-model
+handoff, evidence-only payloads, reading/reasoning/review order, missing evidence,
+bounded text repairs, negative review, provider failure and instruction isolation.
 
 ## Configuration and bounds
 
 The existing `OLLAMA_VISION_MODEL` and `OLLAMA_BASE_URL` settings are reused.
-Nemotron/Token Factory text-model configuration is unchanged. No new credentials
+Existing Nemotron/Token Factory configuration is reused for SQL reasoning. No new credentials
 or runtime dependencies are required. The Ollama REST chat request uses its
 documented base64 `images` array; see
 [Ollama vision](https://docs.ollama.com/capabilities/vision) and

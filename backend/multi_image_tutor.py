@@ -9,8 +9,9 @@ from backend.ai.answer_quality import wrong_script
 from backend.figure_tools import vision_json
 from backend.image_processing import image_png
 from backend.source_viewer import owned_original, source_kind
-from backend.visual_tasks import VISUAL_TASK_POLICY, VISUAL_REVIEW_POLICY
+from backend.visual_tasks import VISUAL_TASK_POLICY, VISUAL_REVIEW_POLICY, SQL_READING_POLICY, requests_sql
 from backend.vision_contracts import VisionVerdict, visual_output
+from backend.visual_sql import solve_visual_sql
 
 
 class ImageObservation(StrictModel):
@@ -42,7 +43,8 @@ def images_tutor_answer(source_ids: list[int], question: str, student_id: int, *
                if turn.get('role') in {'user', 'assistant'} and isinstance(turn.get('content'), str)]
     data = {'question': question, 'conversation_context': context,
             'image_order': list(range(1, len(images)+1)), 'output_schema': ImagesDraft.model_json_schema()}
-    prompt = VISUAL_TASK_POLICY + '''
+    sql_task = requests_sql(question)
+    prompt = (SQL_READING_POLICY if sql_task else VISUAL_TASK_POLICY) + '''
 Inspect ALL attached original screenshots together, in image_order.
 Use the pasted student question as the task; earlier conversation only resolves
 references and is not evidence. A question, table, schema and answer options may
@@ -62,7 +64,7 @@ the application links the original screenshots. Describe uncertainties explicitl
 DATA: ''' + json.dumps(data)
     try:
         draft = visual_output(vision_json, images, prompt, ImagesDraft,
-            task='multi_image_answer', tokens=2200, question=question)
+            task='multi_image_read' if sql_task else 'multi_image_answer', tokens=2200)
         if (not draft.explanation.strip() or any(item.image > len(images) or not item.text.strip() for item in draft.observations)
                 or any(not item.strip() or len(item) > 900 for item in draft.limitations)
                 or citation_ids(draft.explanation) or has_noncanonical_citations(draft.explanation)
@@ -71,6 +73,14 @@ DATA: ''' + json.dumps(data)
             raise ValueError('Invalid image attribution or explanation')
         if draft.answerable and {item.image for item in draft.observations} != set(range(1, len(images)+1)):
             raise ValueError('Missing image observations')
+        if sql_task:
+            draft = ImagesDraft.model_validate(solve_visual_sql(question, draft.model_dump()))
+            if (citation_ids(draft.explanation) or has_noncanonical_citations(draft.explanation)
+                    or any(citation_ids(item) or has_noncanonical_citations(item) for item in draft.limitations)
+                    or wrong_script(draft.explanation, question)):
+                raise ValueError('Invalid SQL explanation attribution or language')
+            if draft.answerable and {item.image for item in draft.observations} != set(range(1, len(images)+1)):
+                raise ValueError('Missing image observations for SQL solution')
     except HTTPException:
         raise
     except (ValueError, TypeError) as error:

@@ -48,7 +48,7 @@ class VisionOutputError(HTTPException):
 
 
 def schema_fields(error):
-    allowed = {'answerable', 'observations', 'explanation', 'limitations', 'image', 'text', 'supported', 'reason'}
+    allowed = {'answerable', 'observations', 'explanation', 'limitations', 'image', 'text', 'supported', 'reason', 'query'}
     # Pydantic errors can include the input itself, unknown keys and validator
     # messages. Keep only known field paths and error types, never that content.
     return [{'path': [part if isinstance(part, int) or part in allowed else '<field>'

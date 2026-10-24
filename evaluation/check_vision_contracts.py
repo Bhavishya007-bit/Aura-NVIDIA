@@ -13,7 +13,7 @@ import requests
 
 from backend.figure_tools import interpret_image, vision_json
 from backend.multi_image_tutor import images_tutor_answer
-from backend.vision_contracts import ImageDraft, VisionOutputError
+from backend.vision_contracts import ImageDraft, VisionOutputError, visual_output
 
 
 QUESTION = 'Explain the relationship shown in this authored image.'
@@ -82,7 +82,8 @@ class VisionContractChecks(unittest.TestCase):
         incomplete = answer(); incomplete.pop('answerable')
         with patch('backend.figure_tools.vision_json', side_effect=[incomplete, answer()]) as model:
             with self.assertRaises(HTTPException):
-                interpret_image(b'fixture-image', 'Write an SQL statement to find the matching row.')
+                visual_output(model, b'fixture-image', 'Return a complete answer.', ImageDraft,
+                    task='fixture', tokens=2200, question='Write an SQL statement to find the matching row.')
         self.assertEqual(model.call_count, 2)
 
     def test_malformed_json_is_recovered_through_real_http_serialization(self):
