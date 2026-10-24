@@ -37,13 +37,31 @@ course before any image/model work. Missing, foreign and other-course sources
 fail the whole request. The backend never answers from only the last accessible
 image after another attachment fails ownership/original-file validation.
 
-`backend/multi_image_tutor.py` loads each owned original separately and passes the
-ordered image array and exact pasted question to the existing local vision
-endpoint. The generation schema requires visible observations attributed to
-each image. A second model call checks the joint answer against the same ordered
-originals; rejected output is withheld. Original-image source records keep
-per-image observations separate. `verified=false` and the visual-interpretation
-label remain: model consistency does not establish factual accuracy.
+`backend/multi_image_tutor.py` resolves all owned originals before model calls,
+then reads each original in a separate vision request. The reader returns flat
+visible facts, including any question/options written in that screenshot; it
+does not have to solve a whole problem from one partial image. Each transcription
+is checked against that same original. The server assigns image numbers and
+source attribution instead of asking the model to invent an image mapping.
+Two files both named `image.png` retain their distinct source IDs and order.
+If a readable partial image is labelled unanswerable by the reader, its checked
+facts can still be combined with the other image. Per-image limitations are kept
+for both reasoning and final review; the writer cannot erase those uncertainties.
+
+When all required images can be read, the configured Nebius deep model combines
+the server-labelled facts into a solution, with a separate text review of the
+derived reasoning. SQL-writing questions use the existing SQL reasoner, including
+when the instruction is inside a screenshot and the typed goal is only
+`solution`. Other MCQ/calculation questions use `backend/visual_reasoning.py`.
+History is supplied as referent context, not source evidence. Reader narration
+is not published as the answer. Numeric arrays/indices inside code are not
+mistaken for citation markers; source links are added by the server.
+
+An unreadable or rejected transcription identifies the affected `Image N` and
+does not silently answer from the other screenshot. Rejected joint reasoning is
+withheld. Original-image source records keep each approved transcription separate.
+`verified=false` and the visual-interpretation label remain: model consistency
+does not establish factual accuracy or human judge calibration.
 
 The frontend checks the returned source IDs against the submitted group. If an
 older backend ignores `source_ids` and returns only one screenshot, Chat shows an
@@ -68,9 +86,10 @@ Explicit SQL-authoring requests use separate reading and reasoning stages:
    narration. The model returns a dedicated `query` field and brief explanation;
    the server renders that query as a SQL code block. Originals are sent only to
    the configured vision endpoint; the text reasoner receives recognized facts.
-3. The existing visual review checks the solution against the original image(s).
-   A failed review still withholds the solution. Multi-image attribution and
-   ownership remain enforced before/after reasoning.
+3. A single-image request retains the original-image solution review. Grouped
+   requests check each transcription against its own original, then review the
+   joint solution against all transcribed evidence. A failed review withholds
+   the solution. Ownership and per-image attribution remain enforced.
 
 The text model is selected through existing `NEBIUS_DEEP_MODEL`/`NEBIUS_MODEL`
 configuration, including the existing Ultra quality profile when applied. It
@@ -90,8 +109,9 @@ The vision endpoint receives each Pydantic JSON schema in Ollama's `format`
 field, as well as in the prompt. Plain `format: "json"` guarantees neither the
 required answer fields nor their types. The single-image answer requires an
 actual boolean `answerable`, a string explanation, and string lists for visible
-observations and limitations. Grouped-image answers keep their per-image
-observation objects. The review response requires a boolean `supported`.
+observations and limitations. Each grouped-image reader also returns flat
+observation strings; the server assembles the numbered group objects. The review
+response requires a boolean `supported`.
 See [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs).
 
 `backend/vision_contracts.py` validates these outputs and performs at most one
@@ -102,7 +122,7 @@ invented, and string booleans are not coerced into approval. Repeated malformed
 output is withheld; transport/authentication failures are not retried as schema
 errors. Existing ownership and attribution checks still apply to all originals.
 
-Safe backend warnings identify the stage (`single_image_read`, `multi_image_read`,
+Safe backend warnings identify the stage (`single_image_read`, `multi_image_read_N`,
 non-SQL answer, or review), attempt, failure code and failing field paths
 and types. They omit prompts, images, raw model responses, validation input and
 unknown field names. `vision_request=failed` separately records transport error
@@ -111,6 +131,9 @@ retry the same selected material; re-uploading is not required.
 For SQL requests expect `visual_sql=started route=deep`, the ordinary Nebius
 usage log with `task=deep`, then `visual_sql=completed`. Text-model errors have
 separate `visual_sql=invalid`/`visual_sql=unavailable` diagnostics.
+Grouped requests also log `multi_image_read=started image=N total=M`, rejected
+transcription indices, and `multi_image_reasoning=started`. Text-generation and
+review failures identify their stage without logging private image/question data.
 
 `evaluation.check_visual_solving` replays the reported schema-only response for
 one and multiple images, checks bounded revision and withholding, and preserves
@@ -120,6 +143,10 @@ no student SQL or model output is executed in production or in these checks.
 `evaluation.check_visual_sql` covers plain/fenced SQL, the configured text-model
 handoff, evidence-only payloads, reading/reasoning/review order, missing evidence,
 bounded text repairs, negative review, provider failure and instruction isolation.
+`evaluation.check_multi_image_reasoning` covers a short `solution` goal, a question
+inside the second screenshot, duplicate filenames, exact server-owned attribution,
+unreadable/rejected individual images, bounded joint-answer repair, negative
+reasoning review, provider failure, history isolation and numeric code arrays.
 
 ## Configuration and bounds
 

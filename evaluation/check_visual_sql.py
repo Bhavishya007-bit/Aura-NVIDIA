@@ -96,6 +96,15 @@ class VisualSQLChecks(unittest.TestCase):
         self.assertIn(QUERY, result['explanation'])
         self.assertEqual(self.client.generate_json.call_count, 2)
 
+    def test_model_source_markers_are_repaired_without_rejecting_sql_array_data(self):
+        bad = solved(); bad['explanation'] += ' [99]'
+        good = solved(); good['query'] = 'SELECT ARRAY[1,2] FROM matches;'
+        self.client.generate_json.side_effect = [bad, good]
+        result = solve_visual_sql(QUESTION, reading())
+        self.assertNotIn('[99]', result['explanation'])
+        self.assertIn('ARRAY[1,2]', result['explanation'])
+        self.assertEqual(self.client.generate_json.call_count, 2)
+
     def test_genuine_unreadable_schema_retains_clarification_without_text_guessing(self):
         visual = reading()
         visual.update(answerable=False, explanation='Which key does fourth_referee reference?',

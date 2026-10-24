@@ -147,19 +147,18 @@ class VisionContractChecks(unittest.TestCase):
             paths = [Path(folder) / f'authored-{n}.png' for n in (1, 2)]
             for path, color in zip(paths, ('red', 'blue')): Image.new('RGB', (20, 20), color).save(path)
             sources = [{'path': path, 'title': path.name} for path in paths]
-            good = answer(); good['observations'] = [
-                {'image': 1, 'text': 'The first source has A.'},
-                {'image': 2, 'text': 'The second source has B.'}]
+            good = answer(); good['observations'] = ['Readable source facts.']
             bad = copy.deepcopy(good); bad.pop('answerable')
             with patch('backend.multi_image_tutor.owned_original', side_effect=sources), \
                  patch('backend.multi_image_tutor.vision_json',
-                    side_effect=[bad, good, {'supported': True}]) as model:
+                    side_effect=[bad, good, {'supported': True}, good, {'supported': True}]) as model, \
+                 patch('backend.multi_image_tutor.solve_image_problem', side_effect=lambda q,e,**kw: e), \
+                 patch('backend.multi_image_tutor.review_image_problem', return_value=True):
                 result = images_tutor_answer([7, 8], QUESTION, 42)
-        self.assertEqual(model.call_count, 3)
-        for call in model.call_args_list:
-            self.assertEqual(len(call.args[0]), 2)
-            self.assertEqual(Image.open(io.BytesIO(call.args[0][0])).getpixel((0, 0)), (255, 0, 0))
-            self.assertEqual(Image.open(io.BytesIO(call.args[0][1])).getpixel((0, 0)), (0, 0, 255))
+        self.assertEqual(model.call_count, 5)
+        for call, color in zip(model.call_args_list, [(255,0,0)]*3+[(0,0,255)]*2):
+            self.assertIsInstance(call.args[0], bytes)
+            self.assertEqual(Image.open(io.BytesIO(call.args[0])).getpixel((0,0)), color)
             self.assertIn(QUESTION, call.args[1])
             self.assertIsInstance(call.kwargs['output_schema'], dict)
         self.assertEqual([source['source_id'] for source in result['sources']], [7, 8])

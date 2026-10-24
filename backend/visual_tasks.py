@@ -1,5 +1,13 @@
 """Task completion rules shared by single- and multiple-image tutoring."""
 import re
+from backend.ai.answer_contract import citation_ids, has_noncanonical_citations
+
+
+def prose_citations(text):
+    """Source markers in prose, excluding bracketed arrays/indices in code."""
+    prose = re.sub(r'(?ms)^\s{0,3}(`{3,}|~{3,})[^\n]*\n.*?^\s{0,3}\1\s*$', '', text)
+    prose = re.sub(r'(`+).*?\1', '', prose)
+    return bool(citation_ids(prose) or has_noncanonical_citations(prose))
 
 
 VISUAL_TASK_POLICY = '''Solve the student's requested task using the readable image evidence and

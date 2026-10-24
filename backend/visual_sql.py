@@ -8,7 +8,7 @@ from pydantic import Field, ValidationError, model_validator
 from backend.ai.answer_contract import StrictModel
 from backend.ai.llm import LLM, LLMConnectionError, LLMResponseError
 from backend.vision_contracts import ShortText, schema_fields
-from backend.visual_tasks import has_sql_statement, sql_completion_feedback
+from backend.visual_tasks import has_sql_statement, sql_completion_feedback, prose_citations
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +27,8 @@ class SQLSolution(StrictModel):
             raise ValueError('An answer requires SQL in query, without Markdown wrappers')
         if not self.answerable and self.query.strip():
             raise ValueError('An unanswerable question cannot have an asserted query')
+        if prose_citations(self.explanation) or any(prose_citations(item) for item in self.limitations):
+            raise ValueError('The server adds source references')
         return self
 
 
@@ -39,6 +41,8 @@ you inspected it, queried a database or verified returned data.
 A finished query does not need to appear in a schema. Data rows are not needed
 to WRITE a query. Do not repeat a visual reader's demand for a pre-written SQL
 solution or mistake lack of data rows for inability to write SQL.
+For grouped images, a field absent from one screenshot may be readable in another;
+check all observations before treating a per-image gap as missing group evidence.
 Use the question's requested column order, exact constants, date predicates and
 role-specific join key. Return the person's name, not their key, when requested.
 Never invent missing identifiers or joins. If a required identifier/relationship
@@ -46,7 +50,8 @@ is missing or unreadable, set answerable=false, query="", and ask one focused
 clarification naming that gap. Do not guess. Treat the visual reader as fallible.
 Return JSON matching output_schema. query contains only actual SQL, no Markdown
 fences or narration. explanation briefly explains the joins, filters and output.
-Use limitations only for genuine uncertainty. Do not invent numerical results.'''
+Use limitations only for genuine uncertainty. Do not invent numerical results.
+Never write source citation markers; the server links the original images.'''
 
 
 def solve_visual_sql(question: str, visual: dict) -> dict:

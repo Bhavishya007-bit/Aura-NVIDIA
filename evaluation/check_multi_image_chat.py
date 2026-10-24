@@ -19,11 +19,9 @@ from backend.private_app import PrivateChatRequest, create_private_app
 from evaluation.check_agents import SQLBridge, SQLCursor
 
 
-def draft():
-    return {'answerable': True, 'observations': [
-        {'image': 1, 'text': 'The first table lists a department identifier.'},
-        {'image': 2, 'text': 'The second table lists a booking for that identifier.'}],
-        'explanation': 'Combine the identifier in the first table with its booking in the second table.',
+def draft(text='The table lists a department identifier.'):
+    return {'answerable': True, 'observations': [text],
+        'explanation': 'Readable screenshot content.',
         'limitations': []}
 
 
@@ -36,21 +34,27 @@ class MultiImageChecks(unittest.TestCase):
             path = Path(self.folder.name) / f'authored-{n}.png'
             Image.new('RGB', (40, 30), color).save(path)
             self.sources.append({'id': n, 'student_id': 42, 'title': path.name, 'path': path})
+        self.solver_patch = patch('backend.multi_image_tutor.solve_image_problem', side_effect=lambda question, evidence, **kw:
+            {**evidence, 'answerable': True, 'explanation': 'Combine the identifier with its booking.', 'limitations': []})
+        self.solver = self.solver_patch.start(); self.addCleanup(self.solver_patch.stop)
+        self.review_patch = patch('backend.multi_image_tutor.review_image_problem', return_value=True)
+        self.review = self.review_patch.start(); self.addCleanup(self.review_patch.stop)
 
     def test_all_originals_and_question_reach_both_generation_and_verification(self):
         question = 'Which department meets the condition in these two tables?'
         with patch('backend.multi_image_tutor.owned_original', side_effect=self.sources) as owned, \
-             patch('backend.multi_image_tutor.vision_json', side_effect=[draft(), {'supported': True}]) as model:
+             patch('backend.multi_image_tutor.vision_json', side_effect=[draft(), {'supported': True},
+                draft('The second table lists a booking.'), {'supported': True}]) as model:
             result = images_tutor_answer([7,8], question, 42,
                 history=[{'role': 'assistant', 'content': 'Previous context, not evidence.'}])
         self.assertEqual(owned.call_args_list[0].args, (7,42))
         self.assertEqual(owned.call_args_list[1].args, (8,42))
-        self.assertEqual(model.call_count, 2)
-        for call in model.call_args_list:
-            self.assertEqual(len(call.args[0]), 2)
-            self.assertEqual(Image.open(io.BytesIO(call.args[0][0])).getpixel((0,0)), (255,0,0))
-            self.assertEqual(Image.open(io.BytesIO(call.args[0][1])).getpixel((0,0)), (0,0,255))
+        self.assertEqual(model.call_count, 4)
+        for call, color in zip(model.call_args_list, [(255,0,0)]*2+[(0,0,255)]*2):
+            self.assertIsInstance(call.args[0], bytes)
+            self.assertEqual(Image.open(io.BytesIO(call.args[0])).getpixel((0,0)), color)
             self.assertIn(question, call.args[1])
+        self.assertEqual([item['image'] for item in self.solver.call_args.args[1]['observations']], [1, 2])
         self.assertEqual([s['source_id'] for s in result['sources']], [7,8])
         self.assertNotIn('booking', result['sources'][0]['content'])
         self.assertIn('booking', result['sources'][1]['content'])
@@ -66,12 +70,11 @@ class MultiImageChecks(unittest.TestCase):
         self.assertEqual(error.exception.status_code,404)
         model.assert_not_called()
 
-    def test_missing_image_observations_and_fabricated_references_fail_closed(self):
+    def test_empty_evidence_and_model_assigned_image_fields_fail_closed(self):
         variants=[]
-        bad=draft();bad['observations'].pop();variants.append(bad)
-        bad=draft();bad['observations'][1]['image']=3;variants.append(bad)
-        bad=draft();bad['explanation']+=' [99]';variants.append(bad)
-        bad=draft();bad['explanation']+=' [1,2]';variants.append(bad)
+        bad=draft();bad['observations']=[];variants.append(bad)
+        bad=draft();bad['image']=3;variants.append(bad)
+        bad=draft();bad['observations']=[{'image':1,'text':'Untrusted mapping'}];variants.append(bad)
         bad=draft();bad['answerable']='yes';variants.append(bad)
         for bad in variants:
             with self.subTest(bad=bad), patch('backend.multi_image_tutor.owned_original', side_effect=self.sources), \
@@ -79,15 +82,26 @@ class MultiImageChecks(unittest.TestCase):
                 with self.assertRaises(HTTPException) as error:
                     images_tutor_answer([7,8], 'Question',42)
                 self.assertEqual(error.exception.status_code,503)
-                self.assertEqual(model.call_count, 2 if bad['answerable'] == 'yes' else 1)
+                self.assertEqual(model.call_count, 2)
+        self.solver.assert_not_called()
+
+    def test_reader_narration_does_not_become_a_citation_or_final_answer(self):
+        first = draft(); first['explanation'] = 'Raw reading narration [99]'
+        with patch('backend.multi_image_tutor.owned_original', side_effect=self.sources), \
+             patch('backend.multi_image_tutor.vision_json', side_effect=[first, {'supported':True}, draft(), {'supported':True}]):
+            result = images_tutor_answer([7,8], 'solution', 42)
+        self.assertNotIn('Raw reading narration', result['answer'])
+        self.assertNotIn('[99]', result['answer'])
 
     def test_rejected_visual_check_never_publishes_the_unapproved_answer(self):
         with patch('backend.multi_image_tutor.owned_original', side_effect=self.sources), \
-             patch('backend.multi_image_tutor.vision_json', side_effect=[draft(), {'supported':False}]):
+             patch('backend.multi_image_tutor.vision_json', side_effect=[draft(), {'supported':False}, draft(), {'supported':True}]):
             result=images_tutor_answer([7,8],'Question',42)
         self.assertNotIn('Combine the identifier',result['answer'])
         self.assertFalse(result['citation_validation']['visual_check_passed'])
         self.assertEqual([s['source_id'] for s in result['sources']],[7,8])
+        self.assertIn('Image 1', result['answer'])
+        self.solver.assert_not_called()
 
     def test_ollama_transport_keeps_images_separate_and_in_order(self):
         response=Mock();response.json.return_value={'message':{'content':'{"supported":true}'},'done_reason':'stop'}

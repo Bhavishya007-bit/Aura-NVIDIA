@@ -64,6 +64,8 @@ class VisualSolvingChecks(unittest.TestCase):
             'explanation': 'Join through the fourth-referee key and filter the match date.', 'limitations': []}
         self.reasoner_patch = patch('backend.visual_sql.LLM', return_value=self.reasoner)
         self.reasoner_patch.start(); self.addCleanup(self.reasoner_patch.stop)
+        self.group_review_patch = patch('backend.multi_image_tutor.review_image_problem', return_value=True)
+        self.group_review_patch.start(); self.addCleanup(self.group_review_patch.stop)
 
     def test_single_image_replays_reported_refusal_and_returns_query(self):
         for answerable in (True, False):
@@ -161,15 +163,14 @@ class VisualSolvingChecks(unittest.TestCase):
             paths = [Path(folder) / f'authored-schema-{n}.png' for n in (1, 2)]
             for path in paths: path.write_bytes(self.png)
             sources = [{'path': p, 'title': p.name} for p in paths]
-            bad = refusal(False); bad['observations'] = [{'image': 1, 'text': SCHEMA}, {'image': 2, 'text': SCHEMA}]
-            good = solution(); good['observations'] = bad['observations']
+            good = solution(); good['observations'] = [SCHEMA]
             with patch('backend.multi_image_tutor.owned_original', side_effect=sources), \
-                 patch('backend.multi_image_tutor.vision_json', side_effect=[bad, {'supported': True}]) as model:
+                 patch('backend.multi_image_tutor.vision_json', side_effect=[good, {'supported': True}, good, {'supported': True}]) as model:
                 result = images_tutor_answer([7, 8], QUESTION, 42)
             for call in model.call_args_list:
-                self.assertEqual(len(call.args[0]), 2)
+                self.assertIsInstance(call.args[0], bytes)
                 self.assertIn(QUESTION, call.args[1])
-            self.assertEqual(model.call_count, 2)
+            self.assertEqual(model.call_count, 4)
             self.assertIn(QUERY, result['answer'])
             self.assertEqual([source['source_id'] for source in result['sources']], [7, 8])
             self.assertTrue(result['answer'].endswith('[1][2]'))
@@ -181,7 +182,8 @@ class VisualSolvingChecks(unittest.TestCase):
             bad = refusal(False); bad['observations'] = []
             with patch('backend.multi_image_tutor.owned_original', side_effect=sources), \
                  patch('backend.multi_image_tutor.vision_json', return_value=bad) as model:
-                with self.assertRaises(HTTPException) as error:
-                    images_tutor_answer([7, 8], QUESTION, 42)
-        self.assertEqual(error.exception.status_code, 503)
-        self.assertEqual(model.call_count, 1)
+                result = images_tutor_answer([7, 8], QUESTION, 42)
+        self.assertFalse(result['citation_validation']['visual_check_passed'])
+        self.assertNotIn(QUERY, result['answer'])
+        self.assertEqual(model.call_count, 2)
+        self.reasoner.generate_json.assert_not_called()
