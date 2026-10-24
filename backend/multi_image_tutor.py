@@ -26,7 +26,9 @@ class ImageObservation(StrictModel):
 class ImagesDraft(StrictModel):
     answerable: bool
     observations: list[ImageObservation] = Field(max_length=60)
-    explanation: str = Field(min_length=1, max_length=4500)
+    # Raw model text is capped at 4500. Inline-code formatting can add at most
+    # two backticks to each three-character numeric bracket token.
+    explanation: str = Field(min_length=1, max_length=7500)
     limitations: list[str] = Field(max_length=40)
 
 

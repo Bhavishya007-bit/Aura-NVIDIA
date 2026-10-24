@@ -10,6 +10,32 @@ def prose_citations(text):
     return bool(citation_ids(prose) or has_noncanonical_citations(prose))
 
 
+def literal_visual_numbers(text):
+    """Keep model-written numeric brackets as data, never as source links.
+
+    Only add inline-code formatting; never remove or change a numeric value.
+    Existing code spans/blocks are preserved. Server source markers are added
+    separately after this formatting, from owned-image metadata.
+    """
+    numeric = re.compile(r'\[\s*\d+(?:\s*[,;–-]\s*\d+)*\s*\]|【\d+】')
+    output, fence = [], None
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})([^\r\n]*)', line)
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= fence[1] and not marker[2].strip():
+                fence = None
+            output.append(line)
+            continue
+        if marker:
+            fence = (marker[1][0], len(marker[1]))
+            output.append(line)
+            continue
+        parts = re.split(r'(`+[^`\r\n]*`+)', line)
+        output.append(''.join(part if index % 2 else numeric.sub(lambda match: '`' + match[0] + '`', part)
+                              for index, part in enumerate(parts)))
+    return ''.join(output)
+
+
 VISUAL_TASK_POLICY = '''Solve the student's requested task using the readable image evidence and
 the supplied question. Describing the image alone is not enough when asked to
 solve a problem. You may derive an answer using subject knowledge and reasoning;

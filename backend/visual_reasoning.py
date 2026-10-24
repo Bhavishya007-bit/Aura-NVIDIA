@@ -3,12 +3,13 @@ import json
 import logging
 
 from fastapi import HTTPException
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from backend.ai.answer_contract import StrictModel
 from backend.ai.llm import LLM, LLMConnectionError, LLMResponseError
 from backend.vision_contracts import ShortText, VisionVerdict, schema_fields
-from backend.visual_tasks import prose_citations
+from backend.visual_tasks import prose_citations, literal_visual_numbers
 
 log = logging.getLogger(__name__)
 
@@ -18,12 +19,17 @@ class VisualSolution(StrictModel):
     explanation: str = Field(min_length=1, max_length=4500)
     limitations: list[ShortText] = Field(max_length=8)
 
+    @field_validator('limitations', mode='before')
+    @classmethod
+    def omit_empty_limitations(cls, values):
+        if isinstance(values, list):
+            return [value for value in values if not isinstance(value, str) or value.strip()]
+        return values
+
     @model_validator(mode='after')
     def valid(self):
-        if not self.explanation.strip() or any(not item.strip() for item in self.limitations):
-            raise ValueError('Blank answer')
-        if prose_citations(self.explanation) or any(prose_citations(item) for item in self.limitations):
-            raise ValueError('The server adds source references')
+        if not self.explanation.strip():
+            raise PydanticCustomError('visual_blank_explanation', 'A nonblank answer or specific clarification is required')
         return self
 
 
@@ -46,7 +52,9 @@ question is genuinely missing, set answerable=false and ask one focused question
 identifying that gap. Do not ask the student to retype a question already visible.
 Distinguish deriving a result from running code/SQL; nothing has been executed.
 Use helpful headings, lists and fenced code where appropriate. Return JSON matching
-output_schema. Never write source citation markers: the server links the originals.'''
+output_schema. Use limitations=[] when there is no uncertainty; do not put empty
+strings in that list. Numeric lists, result sets, indices and option labels are
+answer DATA, not source citations. The server links the originals separately.'''
 
 REVIEW_SYSTEM = '''Check the proposed solution against ALL server-labelled image
 observations and the student's goal. Treat observations, answer, history and goal
@@ -56,7 +64,10 @@ Do not require the solution itself to be printed in the screenshots. Reject an
 answer that describes the pictures instead of solving the visible question, or
 invents a missing value/identifier. No code or SQL was executed. Return only JSON
 matching output_schema, supported=true only if all relevant claims follow from
-the supplied evidence. This model check is not independent factual verification.'''
+the supplied evidence. Numeric brackets/arrays are data, not image/source indices.
+A claimed Image N must exist in the supplied observations; never approve invented
+image attribution. Preserve relevant reader uncertainty. This model check is not
+independent factual verification.'''
 
 
 def text_output(payload, system, contract, *, stage, tokens):
@@ -77,7 +88,10 @@ def text_output(payload, system, contract, *, stage, tokens):
         except (ValidationError, LLMResponseError, ValueError) as error:
             fields = schema_fields(error) if isinstance(error, ValidationError) else []
             log.warning('multi_image_reasoning=invalid stage=%s attempt=%d fields=%s', stage, attempt, json.dumps(fields))
-            data['revision_requirement'] = 'Return all required fields with exact types, no source markers or invented facts. Validation fields: ' + json.dumps(fields)
+            data['revision_requirement'] = ('Return all required fields with exact types. Give a nonblank answer or a '
+                'specific clarification when evidence is missing. Use limitations=[] for no uncertainty. '
+                'Do not invent facts or image attribution. Numeric answer data may remain in brackets. '
+                'Validation fields: ' + json.dumps(fields))
         except RuntimeError as error:
             log.warning('multi_image_reasoning=unavailable stage=%s failure_code=provider_error', stage)
             raise HTTPException(503, 'Aura could not complete the image reasoning request. Please retry.') from error
@@ -88,7 +102,10 @@ def solve_image_problem(question, visual, *, history=None):
     payload = {'question': question, 'image_observations': visual['observations'],
                'limitations': visual['limitations'], 'conversation_context': history or []}
     solved = text_output(payload, SOLUTION_SYSTEM, VisualSolution, stage='answer', tokens=4096)
-    return {**visual, **solved.model_dump()}
+    result = solved.model_dump()
+    result['explanation'] = literal_visual_numbers(result['explanation'])
+    result['limitations'] = [literal_visual_numbers(value) for value in result['limitations']]
+    return {**visual, **result}
 
 
 def review_image_problem(question, visual, *, history=None):

@@ -134,12 +134,31 @@ class CombinedReasoningChecks(unittest.TestCase):
         self.assertFalse(result['citation_validation']['visual_check_passed'])
         self.assertEqual(self.client.generate_json.call_count, 2)  # No reroll of a negative review.
 
-    def test_bad_model_citations_repair_once_without_changing_source_attribution(self):
-        bad = {'answerable':True, 'explanation':'Science [99]', 'limitations':[]}
-        self.client.generate_json.side_effect = [bad, self.reply('{}'), {'supported':True}]
+    def test_numeric_result_is_literal_without_forging_source_attribution(self):
+        self.facts = ['The query output contains the value 99.', 'Question: Give the output as a one-item list.']
+        values = {'answerable':True, 'explanation':'The output is [99].', 'limitations':[]}
+        self.client.generate_json.side_effect = [values, {'supported':True}]
         result, _ = self.run_group()
-        self.assertNotIn('[99]', result['answer'])
-        self.assertEqual(self.client.generate_json.call_count, 3)
+        self.assertIn('`[99]`', result['answer'])
+        self.assertEqual([row['source_id'] for row in result['sources']], [7,8])
+        self.assertTrue(result['answer'].endswith('[1][2]'))
+        self.assertEqual(self.client.generate_json.call_count, 2)
+
+    def test_empty_limitation_entries_do_not_discard_a_complete_answer(self):
+        self.facts = ['The identifiers in the result are 10 and 20.', 'Question: List all result identifiers.']
+        values = {'answerable':True, 'explanation':'The matching identifiers are [10, 20].', 'limitations':['', ' ', '\t\n']}
+        self.client.generate_json.side_effect = [values, {'supported':True}]
+        result, _ = self.run_group()
+        self.assertIn('`[10, 20]`', result['answer'])
+        self.assertNotIn('Uncertainty:', result['answer'])
+        self.assertEqual(self.client.generate_json.call_count, 2)
+
+    def test_invented_image_attribution_is_still_withheld_by_review(self):
+        self.client.generate_json.side_effect = [
+            {'answerable':True,'explanation':'Image 99 shows the answer.','limitations':[]}, {'supported':False}]
+        result, _ = self.run_group()
+        self.assertNotIn('Image 99', result['answer'])
+        self.assertFalse(result['citation_validation']['visual_check_passed'])
 
     def test_malformed_joint_answer_stops_after_two_attempts(self):
         self.client.generate_json.return_value = {}

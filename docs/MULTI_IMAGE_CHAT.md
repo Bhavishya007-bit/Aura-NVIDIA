@@ -54,8 +54,15 @@ derived reasoning. SQL-writing questions use the existing SQL reasoner, includin
 when the instruction is inside a screenshot and the typed goal is only
 `solution`. Other MCQ/calculation questions use `backend/visual_reasoning.py`.
 History is supplied as referent context, not source evidence. Reader narration
-is not published as the answer. Numeric arrays/indices inside code are not
-mistaken for citation markers; source links are added by the server.
+is not published as the answer. Numeric arrays/indices inside code are preserved.
+In general image-problem answers, numeric brackets outside code (for example
+`[2]` or `[1, 2]`) receive inline-code formatting as literal answer data. Their
+values are retained, and they do not create source records or source links.
+Actual source links are added separately by the server from owned-image metadata.
+An otherwise complete answer is no longer rejected just for bracketed numbers.
+Empty/whitespace-only limitation entries are omitted; real uncertainty remains.
+Blank explanations still fail with `visual_blank_explanation`, giving content-free
+logs and targeted revision feedback rather than an ambiguous root `value_error`.
 
 An unreadable or rejected transcription identifies the affected `Image N` and
 does not silently answer from the other screenshot. Rejected joint reasoning is
@@ -134,6 +141,9 @@ separate `visual_sql=invalid`/`visual_sql=unavailable` diagnostics.
 Grouped requests also log `multi_image_read=started image=N total=M`, rejected
 transcription indices, and `multi_image_reasoning=started`. Text-generation and
 review failures identify their stage without logging private image/question data.
+`evaluation.check_visual_answer_values` covers literal numeric data, preserved
+code, idempotent formatting, empty limitation cleanup, specific blank-answer
+diagnostics, strict types, private-log isolation and the post-format length bound.
 
 `evaluation.check_visual_solving` replays the reported schema-only response for
 one and multiple images, checks bounded revision and withholding, and preserves
