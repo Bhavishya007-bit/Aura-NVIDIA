@@ -124,6 +124,42 @@ test('completed daily cards persist checks through the task API and preserve sou
   await click(button('Today'))
   assert(document.querySelector('.plan-task input').checked)
 })
+test('Today renders saved paragraph schedules as session cards while preserving task completion', async () => {
+  const details = 'Morning (2h): Review the selected lesson. Focus on: 1) Arrays 2) Hash tables. Afternoon (1.5h): Practice a small example. Evening (1h): Make flashcards.'
+  tasks = [{ id: 'task-a', title: 'Day 1: Dictionary revision', details, done: false }]
+  await mount(AgentPanel, props())
+  await click(button('Today'))
+  assert.deepEqual([...document.querySelectorAll('.plan-task .plan-session-heading h4')].map(e => e.textContent), ['Morning', 'Afternoon', 'Evening'])
+  assert.deepEqual([...document.querySelectorAll('.plan-task .plan-session-time')].map(e => e.textContent), ['2h', '1.5h', '1h'])
+  assert.equal(document.querySelectorAll('.plan-task .plan-action-list>li').length, 5)
+  assert.equal(document.querySelectorAll('.plan-task input[type=checkbox]').length, 1)
+  await click(document.querySelector('.plan-task input'))
+  assert(requests.some(r => r.path === '/agents/tasks/task-a' && r.method === 'PATCH' && r.body.done === true))
+  assert.equal(tasks[0].details, details)
+  assert(document.querySelector('.plan-task').classList.contains('is-done'))
+})
+test('plan day cards use the same session layout and only total explicit durations', async () => {
+  const details = 'Morning (30 min): Read the lesson. Afternoon (1h): Work through an example.'
+  const saved = baseRun()
+  saved.result.structured_plan.days[0].details = details
+  jobs = [saved]; tasks = [{id:'task-a', title:'Day 1: Membrane proteins',details,done:false}]
+  const opened=[]
+  await mount(AgentPanel, props({onOpenTool:(...args)=>opened.push(args)}))
+  assert.equal(document.querySelectorAll('.plan-day .plan-session').length, 2)
+  assert.match(document.querySelector('.plan-day-top').textContent, /90 min planned/)
+  assert.match(document.querySelector('.plan-day').textContent, /Slide 18/)
+  await click(button('Read summary'))
+  assert.deepEqual(opened[0], ['Summary', 'Membrane proteins', '7'])
+})
+test('legacy task prose becomes readable action bullets without interpreting HTML', async () => {
+  tasks = [{id:'task-old',title:'Review fundamentals',details:'Review O(1) lookup. Read for 1.5 hours. Compare <img src=x onerror=alert(1)> with a code sample.',done:false}]
+  await mount(AgentPanel,props())
+  await click(button('Today'))
+  assert.equal(document.querySelectorAll('.plan-task .plan-action-list>li').length,3)
+  assert.equal(document.querySelectorAll('.plan-task img').length,0)
+  assert.match(document.querySelector('.plan-task').textContent,/1.5 hours/)
+  assert.equal(document.querySelectorAll('.plan-task .plan-session-time').length,0)
+})
 test('budget stops show saved partial work and two recovery choices without narration or raw error code', async () => {
   const finished = baseRun()
   jobs = [baseRun({ state: 'budget_exhausted', error_code: 'TOKEN_BUDGET_EXHAUSTED', result: null, steps: [...finished.steps, { tool: 'study_plan_create', state: 'completed', observation: { plan: finished.result.structured_plan, tasks: [{ id: 'task-a' }] } }] })]

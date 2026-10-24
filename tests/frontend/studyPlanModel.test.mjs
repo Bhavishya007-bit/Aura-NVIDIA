@@ -1,7 +1,37 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { planContent, taskForDay, slideReferences, stateLabel, stepLabel, isActive, goalWithOptions, displayGoal, cleanDisplayName, fileType } from '../../src/components/studyPlanModel.ts'
+import { planContent, planSessions, planDurationMinutes, taskForDay, slideReferences, stateLabel, stepLabel, isActive, goalWithOptions, displayGoal, cleanDisplayName, fileType } from '../../src/components/studyPlanModel.ts'
 const run = (overrides = {}) => ({ id: 'r1', state: 'completed', request: { skill: 'study_plan', goal: 'Study' }, tokens_used: 42, steps: [], ...overrides })
+
+test('saved paragraph schedules become named sessions and action lists without inventing times', () => {
+  const details = 'Morning (2h): Review the selected lesson. Focus on: 1) Arrays 2) Hash tables. Afternoon (1.5h): Practice a small example. Evening (1h): Make flashcards.'
+  const sessions = planSessions(details)
+  assert.deepEqual(sessions.map(s => [s.title, s.duration]), [['Morning', '2h'], ['Afternoon', '1.5h'], ['Evening', '1h']])
+  assert(sessions[0].items.includes('Review the selected lesson.'))
+  assert(sessions[0].items.includes('Focus on: Arrays'))
+  assert(sessions[0].items.includes('Hash tables.'))
+  assert.equal(planDurationMinutes(details), 270)
+  assert.equal(planDurationMinutes('Morning (20 min): Read. Evening: Recall.'), undefined)
+  assert.equal(planDurationMinutes('Review your notes.'), undefined)
+})
+test('planner formatting preserves prose, decimals, complexity notation and code literals', () => {
+  const details = 'Read for 1.5 hours. Compare O(1) and O(n). Use `label = "Morning: not a session"`.'
+  const sessions = planSessions(details)
+  assert.equal(sessions.length, 1)
+  assert.equal(sessions[0].items.length, 3)
+  assert.equal(sessions[0].items.join(' '), details)
+  const sectionReference = 'Read section 2. Compare the examples in chapter 3.'
+  assert.equal(planSessions(sectionReference)[0].items.join(' '), sectionReference)
+  const code = '```python\nvalues = [1, 2]\n# Morning: keep this code\nprint(values)\n```'
+  assert(planSessions(code)[0].items.includes(code))
+})
+test('planner handles existing markdown headings and bullet lists as saved study steps', () => {
+  const details = '### Practice (25 minutes)\n- Implement a lookup\n- Check two collisions\n### Recall\n1. Explain the result\n2. Write one limitation'
+  const sessions = planSessions(details)
+  assert.deepEqual(sessions, [{title:'Practice',duration:'25 minutes',items:['Implement a lookup','Check two collisions']},{title:'Recall',items:['Explain the result','Write one limitation']}])
+  assert.equal(planDurationMinutes(details), undefined)
+  assert.deepEqual(planSessions(''), [])
+})
 
 test('internal model narration never becomes a result or a stopped-run heading', () => {
   const stopped = run({ state: 'budget_exhausted', steps: [{ tool: 'document_search', state: 'completed', plan: ['Need gather evidence then invoke tool.'], observation: { passages: [{ text: 'Internal retrieved text' }] } }] })

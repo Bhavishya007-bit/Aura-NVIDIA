@@ -1,5 +1,40 @@
 # Study Plan screen redesign
 
+## Planner instructions as sessions and actions
+
+Both the **Plan** day cards and **Today** task cards now use
+`src/components/StudyPlanSteps.tsx` instead of presenting saved details as one
+paragraph. Existing paragraph schedules are organized into named sessions such
+as Morning, Afternoon and Evening, with their explicit time labels and action
+bullets. Plain instructions become sentence-level bullets; Markdown headings,
+numbered lists, decimals, complexity notation and code are preserved. The saved
+task text is not rewritten, regenerated or sent to an additional model.
+
+`planSessions` and `planDurationMinutes` in
+`src/components/studyPlanModel.ts` derive presentation from existing `details`.
+A total is displayed only when every parsed session has an explicit supported
+duration; missing times are not estimated. The previously saved user time budget
+remains labelled as a budget. Source chips, tool links, downloads, task IDs and
+API payloads retain their existing behavior. The task title alone labels its
+completion checkbox, so reading the activity list does not accidentally toggle
+the entire day.
+
+`src/components/AgentPanel.css` adds responsive session surfaces, time badges and
+spaced action lists using the existing light/dark tokens and focus rules. Today
+uses separate task cards rather than a continuous wall of text. The layout
+stacks on smaller screens. No runtime dependency was added.
+
+The added cases in `tests/frontend/studyPlanModel.test.mjs` and
+`tests/frontend/studyPlan.dom.test.mjs` check old paragraph schedules, Markdown,
+code/HTML safety, explicit time conversion, both views, and persisted completion
+through the unchanged tasks API. Desktop/mobile browser visual QA is still
+outstanding: the attempted Chromium download returned an invalid archive.
+
+**Backend fields assumed: none.** Activity bullets are presentation only;
+completion remains attached to the existing saved daily task. Independently
+persistent activity checkboxes would require individual task IDs or a supported
+subtask structure from the backend. Those fields are not fabricated here.
+
 The original redesign changed frontend presentation and behavior only. A separately approved backend provider fix is described in the screenshot follow-up below. No API routes, database fields, request keys, or dependencies in package.json were changed. The internal `Agents` tab identity and saved workspace keys remain compatible; the visible name is **Study Plan**.
 
 ## Requirement checklist

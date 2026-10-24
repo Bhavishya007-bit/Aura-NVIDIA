@@ -2,6 +2,62 @@ import type { AgentRun, Task } from '../services/agentApi'
 
 export type PlanDay = { day: number; title: string; details: string; references: string[]; taskId?: string }
 export type PlanContent = { overview: string; days: PlanDay[]; markdown: string }
+export type PlanSession = { title: string; duration?: string; items: string[] }
+
+export function planSessions(details: string): PlanSession[] {
+  // Presentation only: keep the saved instructions, times, code and task IDs.
+  // Protect code before detecting prose boundaries or numbered action lists.
+  const code: string[] = []
+  const protectedText = details.replace(/```[^\n]*\n[\s\S]*?(?:```|$)|~~~[^\n]*\n[\s\S]*?(?:~~~|$)|(`+)[^\n]*?\1/g, value => {
+    const token = `\uE000${code.length}\uE001`; code.push(value); return token
+  })
+  const restore = (value: string) => value.replace(/\uE000(\d+)\uE001/g, (_, index: string) => code[Number(index)] ?? '')
+  const text = protectedText.replace(/\r\n/g, '\n').replace(
+    /(^|[.!?;]\s+|\n)(?:\*\*)?(Morning|Afternoon|Evening|Night|Session\s+\d+)(\s*\([^\n)]{1,40}\))?(?:\*\*)?\s*:(?:\*\*)?\s*/gim,
+    (_, before: string, label: string, time: string = '') => `${before}\n## ${label}${time}\n`,
+  )
+  const sessions: PlanSession[] = []
+  let current: PlanSession = { title: 'Study steps', items: [] }
+  const flush = () => { if (current.items.length || current.title !== 'Study steps') sessions.push(current) }
+  const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' })
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue
+    const heading = line.match(/^\s*#{1,6}\s+(.+?)\s*$/)
+    if (heading) {
+      flush()
+      const label = heading[1].replace(/^\*\*|\*\*$/g, '')
+      const timed = label.match(/^(.*?)\s*\((\d+(?:\.\d+)?\s*(?:h(?:ours?|rs?)?|min(?:utes?|s)?))\)\s*$/i)
+      current = { title: timed?.[1] || label, ...(timed ? { duration: timed[2] } : {}), items: [] }
+      continue
+    }
+    // A numbered list begins the line or follows a colon. Do not mistake
+    // prose such as "Read section 2. Compare examples." for a list marker.
+    const firstNumber = /(^|\s)\d+[.)]\s+(?=\S)/.exec(line)
+    const prefix = firstNumber ? line.slice(0, firstNumber.index).trim() : ''
+    const isList = firstNumber && (!prefix || prefix.endsWith(':'))
+    const listed = isList ? line.replace(/(^|\s)(\d+)[.)]\s+(?=\S)/g, '$1\n$2) ') : line
+    for (const part of listed.split('\n')) {
+      const instruction = part.trim().replace(/^(?:[-*+]\s+|\d+[.)]\s+)/, '')
+      if (!instruction) continue
+      for (const { segment } of segmenter.segment(instruction)) {
+        const item = restore(segment.trim())
+        if (!item) continue
+        const previous = current.items.at(-1)
+        if (previous?.endsWith(':')) current.items[current.items.length - 1] = previous + ' ' + item
+        else current.items.push(item)
+      }
+    }
+  }
+  flush()
+  return sessions
+}
+export function planDurationMinutes(details: string): number | undefined {
+  const sessions = planSessions(details)
+  const durations = sessions.map(s => s.duration?.match(/^(\d+(?:\.\d+)?)\s*(h(?:ours?|rs?)?|min(?:utes?|s)?)$/i))
+  if (!durations.length || durations.some(d => !d)) return undefined
+  const total = durations.reduce((sum, d) => sum + Number(d![1]) * (/^h/i.test(d![2]) ? 60 : 1), 0)
+  return Number.isFinite(total) && total > 0 ? Math.round(total * 100) / 100 : undefined
+}
 export const isActive = (run?: AgentRun) => !!run && ['queued', 'running'].includes(run.state)
 export function modelFailureMessage(code?: string | null): string | undefined {
   if (code === 'model_connection_failed') return 'Aura could not connect to the AI service. Check your connection and try again.'
