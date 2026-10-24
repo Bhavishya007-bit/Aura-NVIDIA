@@ -361,7 +361,7 @@ class SourceAwareTutor:
             and os.getenv('AURA_SUMMARY_BACKGROUND', '').lower() == 'true'
             and sections and source_validation.get('response_mode') != 'extractive'
             and not length_check('\n'.join(s.text for s in sections), self.response_request)['valid']):
-            extra = background_lesson(client, question, '\n'.join(s.text for s in sections), self.response_request)
+            extra = background_lesson(client, question, '\n'.join(s.text for s in sections), self.response_request, depth=depth)
             if extra:
                 sections.append(extra)
         # Unknown coverage is never labelled not covered.

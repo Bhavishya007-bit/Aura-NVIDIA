@@ -96,6 +96,11 @@ class BackgroundLLM(SupplementLLM):
         self.background = background or prose(890)
         self.background_calls = []
 
+    def generate_json(self, data, max_retries=2, system_prompt=None):
+        if data.startswith('AURA_BACKGROUND_REVIEW:'):
+            return {'accurate': True, 'relevant': True, 'appropriately_scoped': True, 'issues': []}
+        return super().generate_json(data, max_retries, system_prompt)
+
     def generate(self, data, max_retries=2, system_prompt=None):
         if 'GENERAL BACKGROUND lesson' in (system_prompt or ''):
             self.background_calls.append(json.loads(data))
@@ -155,9 +160,10 @@ class BackgroundChecks(unittest.TestCase):
 
     def test_one_length_revision_can_replace_a_short_background_without_appending(self):
         client = Mock(); client.with_output_budget.return_value = client
-        client.generate.side_effect = [prose(100), prose(200)]
-        section = background_lesson(client, 'in 2000 words', prose(1800), response_request('in 2000 words'))
-        self.assertEqual(word_count(section.text), 200)
+        client.generate.side_effect = [prose(100), prose(500)]
+        client.generate_json.return_value = {'accurate': True, 'relevant': True, 'appropriately_scoped': True, 'issues': []}
+        section = background_lesson(client, 'in 2000 words', prose(1500), response_request('in 2000 words'))
+        self.assertEqual(word_count(section.text), 500)
         self.assertEqual(client.generate.call_count, 2)
         self.assertFalse(section.verified)
         self.assertIn('prior_draft', json.loads(client.generate.call_args.args[0]))

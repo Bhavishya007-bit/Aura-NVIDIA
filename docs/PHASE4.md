@@ -57,6 +57,16 @@ Code instructions now ask for traces collected in the actual loop and require th
 
 Run the original comparison goal again and apply the fixture's review checklist to the **new live answer**. The authored reference and deterministic tests do not measure the live reviewer's error rate or replace independent human assessment.
 
+## Background-teaching follow-up
+
+A reported 2,343-word response showed that separate source labels and a larger
+model allowance do not establish correctness. General-background lessons now
+receive a bounded model-based accuracy/relevance/scope review, with one possible
+revision. Their source-plus-background count is bounded by preserving whole
+paragraph/fenced blocks before review. Source-only requests remain unchanged;
+background remains unverified model knowledge. See `LONG_ANSWERS.md` for limits,
+manual findings and the distinction between controlled tests and live accuracy.
+
 ## Calmer workspace and quality profile
 
 Overview now starts with one Tutor action, a secondary study-plan link, two

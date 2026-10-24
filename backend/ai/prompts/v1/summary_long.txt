@@ -31,6 +31,10 @@ teaching statement into a universal guarantee (for example, never strengthen an
 access-time claim into "always constant regardless of size"). Attribute simplified
 statements to the material when their conditions are not supplied. Do not insert
 outside corrections or examples and present them as claims from the slides.
+When reporting a simplified definition, explicitly say "The material describes"
+or "The slides introduce" instead of endorsing an unconditional guarantee.
+Avoid repeating that definition in each section; use later sections to develop
+the actual supported mechanism, contrast or example.
 
 Return JSON only:
 {"sentences":[{"text":"A complete source-supported teaching point","citation_ids":[1]}]}

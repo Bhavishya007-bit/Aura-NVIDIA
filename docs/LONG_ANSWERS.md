@@ -1,5 +1,47 @@
 # Length and format follow-ups
 
+## Background review and the 2,343-word follow-up
+
+The attached follow-up contains 1,105 sourced words and 1,238 background words,
+for 2,343 total. Source/background labels worked, but the total exceeded the
+2,200-word upper bound. It also contained incorrect generalizations and runtime
+claims. A model-knowledge label is provenance disclosure, not an accuracy check.
+The attachment has no provider trace; it does not establish which model or call
+produced the answer. Do not infer those details from the prose alone.
+
+Background writing now follows the actual requested depth, preferring a simple
+valid worked example over unsourced runtime/version claims, cache counts or
+implementation thresholds. It receives a separate model-based review for
+accuracy, relevance and scope. A negative verdict permits one corrected draft
+and one new review; an unchanged rejected draft cannot reroll its verdict.
+Malformed/unavailable checks or a repeatedly rejected revision cannot publish
+that draft. A previous approved short background may remain as a fallback.
+Background remains `verified=false` and **not web verified**. The reviewer can
+make mistakes; these changes are not external fact verification or calibration.
+
+The final source-plus-background count is checked together. If a draft exceeds
+the total upper bound, only complete trailing paragraph/fenced blocks may be
+dropped before review. The selected prefix is then reviewed exactly as displayed;
+there is no shortening after approval, partial-sentence slicing, source rewrite
+or citation remapping. An overlong unsplittable block gets the existing single
+revision opportunity and is otherwise withheld. Safe partial output keeps an
+honest shortfall notice. This does not guarantee exact length for every model.
+
+The added review costs at most two small review requests per background lesson,
+plus the existing targeted JSON-truncation recovery where applicable. The limit
+of two background writing requests remains unchanged. There are no new routes,
+database fields, dependencies or changes to the strict source-only mode.
+
+The regressions in `evaluation.check_background_review` replay the reported word
+counts with independently authored text, reject partial code/heading cuts, and
+enforce controlled negative verdicts for the reported claim types. The negative
+verdict fixtures do not establish that a live reviewer catches those errors.
+Manual findings were checked against primary references: Python's
+[hashability glossary](https://docs.python.org/3/glossary.html#term-hashable),
+[dict complexity](https://docs.python.org/3.14/builtins/time-complexity.html#dict),
+and [PEP 456](https://peps.python.org/pep-0456/). The actual uploaded response and
+private material are not committed as test fixtures.
+
 ## Quality profile and separately labelled teaching depth
 
 The next attachment contains a 1,112-word answer after the earlier 1,110-word
