@@ -67,6 +67,31 @@ Genuinely unreadable or missing required identifiers/relationships can still
 produce a specific clarification. The fenced-SQL completion check is not a SQL
 parser or a guarantee of query correctness; visual/model review remains fallible.
 
+## Response-format recovery
+
+The vision endpoint receives each Pydantic JSON schema in Ollama's `format`
+field, as well as in the prompt. Plain `format: "json"` guarantees neither the
+required answer fields nor their types. The single-image answer requires an
+actual boolean `answerable`, a string explanation, and string lists for visible
+observations and limitations. Grouped-image answers keep their per-image
+observation objects. The review response requires a boolean `supported`.
+See [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs).
+
+`backend/vision_contracts.py` validates these outputs and performs at most one
+revision for malformed/truncated JSON, missing fields, wrong types or incomplete
+SQL. Schema and SQL repairs share the same two-attempt generation limit. Review
+also permits one response-format repair. Missing booleans/evidence are never
+invented, and string booleans are not coerced into approval. Repeated malformed
+output is withheld; transport/authentication failures are not retried as schema
+errors. Existing ownership and attribution checks still apply to all originals.
+
+Safe backend warnings identify the stage (`single_image_answer`,
+`multi_image_answer`, or review), attempt, failure code and failing field paths
+and types. They omit prompts, images, raw model responses, validation input and
+unknown field names. `vision_request=failed` separately records transport error
+type and HTTP status when available. After pulling, restart the backend and
+retry the same selected material; re-uploading is not required.
+
 `evaluation.check_visual_solving` replays the reported schema-only response for
 one and multiple images, checks bounded revision and withholding, and preserves
 real missing-evidence handling. Its four-table schema, images and SQL are authored
@@ -103,3 +128,7 @@ pending/ready refresh recovery, failed upload removal/retry, pasted images, lega
 single-image drafts and older-backend detection. Fixtures are independently
 authored; no private screenshot or hosted/local model request is used in tests.
 Live recognition quality and real-browser visual QA remain separate checks.
+`evaluation.check_vision_contracts` exercises schema serialization, missing/wrong
+fields, bounded recovery, malformed/truncated JSON, review rejection, transport
+classification, grouped-image retention and content-free diagnostics. These
+checks use authored fixtures and mocked HTTP responses, not a live vision model.

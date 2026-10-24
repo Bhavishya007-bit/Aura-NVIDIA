@@ -79,7 +79,7 @@ class MultiImageChecks(unittest.TestCase):
                 with self.assertRaises(HTTPException) as error:
                     images_tutor_answer([7,8], 'Question',42)
                 self.assertEqual(error.exception.status_code,503)
-                self.assertEqual(model.call_count,1)
+                self.assertEqual(model.call_count, 2 if bad['answerable'] == 'yes' else 1)
 
     def test_rejected_visual_check_never_publishes_the_unapproved_answer(self):
         with patch('backend.multi_image_tutor.owned_original', side_effect=self.sources), \
