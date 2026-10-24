@@ -93,15 +93,20 @@ class SummaryReasoningChecks(unittest.TestCase):
                 self.assertNotIn('previous_draft', json.loads(payloads[1]['messages'][-1]['content']))
                 self.assertEqual(client.json_max_tokens, 8192)
 
-    def test_retry_respects_cap_and_does_not_loop_or_accept_truncated_json(self):
+    def test_whole_and_section_recovery_respect_caps_and_reject_truncated_json(self):
         tutor, sources, draft = self.tutor()
         client = self.client().with_output_budget(8192)
         truncated = response(json.dumps(draft), finish='length', reasoning=8192)
         with patch.dict(os.environ, {'AURA_MAX_ANSWER_TOKENS': '10000'}, clear=True), \
              patch('backend.ai.llm.requests.post', return_value=truncated) as post:
             section, validation = self.run_summary(tutor, sources, client)
-        self.assertEqual(post.call_count, 2)
-        self.assertEqual(post.call_args.kwargs['json']['max_tokens'], 10000)
+        # Two whole-file attempts, four scoped attempts and two shared repairs.
+        self.assertEqual(post.call_count, 8)
+        payloads = [call.kwargs['json'] for call in post.call_args_list]
+        self.assertEqual([row['max_tokens'] for row in payloads[:2]], [8192, 10000])
+        self.assertTrue(all(row['max_tokens']==4096 for row in payloads[2:]))
+        self.assertTrue(all(row['max_tokens']<=10000 for row in payloads))
+        self.assertTrue(all('section_request' in json.loads(row['messages'][-1]['content']) for row in payloads[2:]))
         self.assertEqual(validation['response_mode'], 'extractive')
         self.assertFalse(length_check(section.text, tutor.response_request)['valid'])
 

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from backend.ai.response_request import response_request, length_check, length_distance
+from backend.ai.llm import LLMConnectionError
 from backend.ai.summary_answer import (
     SummaryDraft, SummaryDraftError, summary_contract, checked_points, source_section,
 )
@@ -64,6 +65,7 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
         state['seed_words'] += length_check(SummaryDraft.model_validate({'sentences': [point]}).render(len(sources)), request)['actual_words']
     writing_calls = 0
     verification_unavailable = False
+    connection_unavailable = False
     system = (Path(__file__).with_name('prompts') / 'v1' / 'summary_answer.txt').read_text(encoding='utf-8')
 
     def part_request(state):
@@ -93,7 +95,7 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
             render_points(state['points'], part_request(state)), part_request(state))['actual_words'] - state['seed_words'])
 
     def write(state):
-        nonlocal writing_calls, verification_unavailable
+        nonlocal writing_calls, verification_unavailable, connection_unavailable
         part = state['plan']
         remaining = max(1, request['target_words'] - overall_check()['actual_words'])
         additional_target = min(remaining, max(80, deficit(state)))
@@ -164,6 +166,8 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
                      validation.get('stage'), validation.get('valid') is True,
                      length_check(text, req)['actual_words'], overall_check()['actual_words'] - before, additional_target)
         except Exception as error:
+            if isinstance(error, LLMConnectionError):
+                connection_unavailable = True
             code = getattr(error, 'failure_code', 'schema_or_generation_failure')
             state['feedback'] = {'failure_code': code, 'schema_errors': schema_errors(error),
                                  'instruction': 'Repair the draft using draft_contract. Use a nonempty sentences list with complete supported points and only allowed source IDs.'}
@@ -172,7 +176,7 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
         state['last_draft'] = draft
 
     for state in states:
-        if time.monotonic() - started >= EXPANSION_SECONDS or verification_unavailable or overall_check()['valid']:
+        if time.monotonic() - started >= EXPANSION_SECONDS or verification_unavailable or connection_unavailable or overall_check()['valid']:
             break
         if not deficit(state):
             continue
@@ -180,7 +184,7 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
     for _ in range(MAX_REPAIRS):
         points = combined()
         text = SummaryDraft.model_validate({'sentences': points}).render(len(sources), request) if points else ''
-        if length_check(text, request)['valid'] or verification_unavailable or time.monotonic() - started >= EXPANSION_SECONDS:
+        if length_check(text, request)['valid'] or verification_unavailable or connection_unavailable or time.monotonic() - started >= EXPANSION_SECONDS:
             break
         candidates = [s for s in states if s['attempts'] == 1 and deficit(s)]
         if not candidates:

@@ -10,7 +10,7 @@ from backend.ai.answer_contract import (
     AnswerSection, CoverageDecision, SourceAwareFields, choose_depth, citation_ids,
 )
 from backend.ai.lexical import topic_excerpt
-from backend.ai.llm import LLMResponseError
+from backend.ai.llm import LLMConnectionError, LLMResponseError
 from backend.ai.long_summary import expand_summary
 from backend.ai.summary_answer import SummaryDraft, SummaryDraftError, summary_contract, recover_summary
 from backend.ai.response_request import response_request, resolve_format_followup, length_check, length_distance, word_count
@@ -185,7 +185,7 @@ class SourceAwareTutor:
                 if validation.get("stage") == "verification_unavailable":
                     break
             except Exception as error:
-                code = (error.failure_code if isinstance(error, (SummaryDraftError, LLMResponseError))
+                code = (error.failure_code if isinstance(error, (SummaryDraftError, LLMResponseError, LLMConnectionError))
                         else 'schema_validation' if isinstance(error, ValidationError) else 'unexpected_error')
                 log.warning("source_answer=unavailable task=%s attempt=%s error_type=%s failure_code=%s schema_errors=%s",
                             "summary" if overview else "answer", attempt + 1,
@@ -223,15 +223,27 @@ class SourceAwareTutor:
                     best_checked = section, recovered
             # A checked subset is useful evidence, but it must not end a long
             # request before scoped expansion has had a bounded chance to finish.
+            # Empty/malformed/truncated whole-file drafts also need that chance:
+            # exact excerpts prove origin, not that synthesis is impossible.
+            checked_support = any(item.get('supported') is True for check in checks
+                                  for item in check.get('grounding_validation', {}).get('results', []))
+            recoverable_draft = any(check.get('stage') in {'summary_draft_invalid', 'grounding', 'question_relevance'}
+                or check.get('failure_code') in {'output_truncated', 'content_json', 'content_shape', 'empty_content'}
+                for check in checks)
+            connection_failed = bool(checks and checks[-1].get('failure_code') in
+                                     {'model_timeout', 'model_connection_failed'})
             if (self.response_request['target_words'] and self.response_request['target_words'] >= 1200
-                and best_checked and not best_checked[1]['length_validation']['valid']
-                and best_checked[1]['length_validation']['actual_words'] < int(self.response_request['target_words'] * .9)
-                and any(item.get('supported') is True for check in checks
-                        for item in check.get('grounding_validation', {}).get('results', []))
+                and (best_checked is None or (not best_checked[1]['length_validation']['valid']
+                    and best_checked[1]['length_validation']['actual_words'] < int(self.response_request['target_words'] * .9)))
+                and (checked_support or recoverable_draft) and not connection_failed
                 and not any(check.get('stage') == 'verification_unavailable' for check in checks)):
+                log.info('summary_expansion=start seed_mode=%s',
+                         best_checked[1].get('response_mode', 'generated') if best_checked else 'none')
                 expanded = expand_summary(self.rag, client, sources, question, self.response_request,
-                                          payload, _schema_errors, seed_check=best_checked[1])
-                if expanded and length_distance(expanded[1]['length_validation']) < length_distance(best_checked[1]['length_validation']):
+                                          payload, _schema_errors, seed_check=best_checked[1] if best_checked else None)
+                if expanded and (best_checked is None or
+                    length_distance(expanded[1]['length_validation']) < length_distance(best_checked[1]['length_validation'])):
+                    expanded[1]['draft_stages'] = [check.get('stage') for check in checks]
                     best_checked = expanded
         if best_checked:
             if not best_checked[1]['length_validation']['valid']:

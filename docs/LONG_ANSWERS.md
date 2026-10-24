@@ -52,6 +52,27 @@ No prompts can guarantee any length for unreadable or insufficient evidence.
 Checks measure length and source support separately, and preserve that distinction.
 Model-based support decisions still require calibrated live evaluation.
 
+## Recovery after two unusable whole-file drafts
+
+The repeated short-excerpt path had a separate gate: section expansion required a positively checked sentence from an earlier generated draft. When both whole-file drafts were empty, malformed or truncated, the application could retrieve ample material yet stop at exact excerpts without attempting section-based synthesis.
+
+Long overview requests of at least 1,200 words now also allow the existing bounded section path after those recoverable generation failures or rejected whole-file prose. Every new point still passes the same relevance, citation and source-support checks. Only positively checked points seed the new explanation; raw excerpts, rejected claims and assistant history never become source evidence. A file with no short literal excerpt can also start from its retrieved passages. Foreign-section citations remain invalid.
+
+The limits remain one initial writing call per section plus two shared repairs, at most eight sections, with the existing elapsed-time checks. A 2,000-word request normally creates four sections, so this recovery can add up to six writing requests plus source-verification requests after the two initial attempts. It uses existing provider credits and adds latency only when recovery is needed. Network failures do not trigger this bootstrap, and a connection lost during expansion stops further writing calls. An unavailable verifier also stops recovery. If no supported improvement is produced, the checked answer or exact excerpts remain, with an honest length shortfall.
+
+`python -m unittest evaluation.check_summary_bootstrap` reproduces the initial failure with controlled empty/truncated/rejected drafts and verifies a 2,000-word source-backed recovery across 39 synthetic locations. It also checks unavailable verification, connection loss, preserved checked drafts, and bounded failure with excerpts. These are orchestration regressions, not evidence that a live model will always reach the requested length or understand every diagram. No API route, database schema or application dependency changes.
+
+## Real-material follow-up check
+
+Use the prepared presentation in Aura after pulling and restarting the backend. Record the outputs and relevant server diagnostics for this sequence:
+
+1. Ask “Explain the beta-barrel membrane proteins shown in this presentation. Describe the examples that are actually shown and cite the slides.” Check each named example and citation against the slide, including diagram labels. Text-only coverage tests do not establish image-reading accuracy.
+2. Ask “Explain that more simply, with an example.” Confirm that the subject and selected material persist.
+3. Ask “Summarize the PPT”, then “in 2000 words”. Count the answer body, excluding numeric citation markers. The current acceptance range is 1,800–2,200 words. Verify that the explanation covers the presentation rather than repeating one topic, and inspect its citations and scientific claims. A word-count pass alone does not establish quality.
+4. Ask a question whose requested facts are absent from the presentation. Check source/background labels independently of answer length.
+
+Keep the separate live coverage-judge calibration marked pending until its human judgments and gate satisfy the stated criteria. Real-material retrieval, follow-up coherence, teaching depth and requested length need their own checks; passing the synthetic judge set does not establish them.
+
 ## Validation
 
 ```powershell
@@ -129,8 +150,11 @@ If the first draft still truncates and the provider reports reasoning usage,
 the existing single retry adds those measured reasoning tokens to the writing
 allowance, respecting `AURA_MAX_ANSWER_TOKENS`. The observed allowances become
 15,716 or 16,384 tokens on that retry. Unknown usage is not guessed. Incomplete
-JSON remains rejected, and a second failure still returns the honest fallback.
-There is no additional retry loop or unbounded output increase. Logs include
+JSON remains rejected. If bounded recovery cannot produce checked synthesis,
+the honest fallback remains available.
+There is no additional whole-file retry loop or unbounded output increase. The
+separate bounded section recovery described above can follow two unusable drafts.
+Logs include
 the requested effort and actual usage so ignored controls remain detectable.
 
 Eight new controlled regressions exercise the real HTTP parser with both

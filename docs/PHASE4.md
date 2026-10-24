@@ -156,6 +156,8 @@ Version 1 contained a flawed `duplicates-good` reference: the supplied linear sc
 
 ## Clean-database demo checklist
 
+Calibration can remain pending while independent answer-quality work continues. The long-summary path now attempts verified section recovery even when both whole-file drafts are unusable; it does not require a previously approved generated sentence. See `docs/LONG_ANSWERS.md` for limits, credit/latency impact and the actual-presentation sequence covering beta-barrel diagrams, conversational follow-ups and requested word count. This does not mark calibration or the clean-database demo complete.
+
 Use a separate empty demo database and synthetic material, following README initialization. Do not delete your working database.
 
 1. Start the backend/frontend, register a demo learner, and create a course.
