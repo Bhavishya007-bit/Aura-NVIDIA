@@ -116,7 +116,9 @@ class VisualSolvingChecks(unittest.TestCase):
 
     def test_plain_query_output_questions_do_not_require_generating_new_sql(self):
         for question in ('What will be the output of the following query? SELECT name FROM teams;',
-                         'Explain this SQL query.', 'Describe the four tables and their relationships.'):
+                         'Explain this SQL query.', 'Explain this SQL query to me.',
+                         'Explain the SQL query for finding matches.', 'Show the SQL query output.',
+                         'Describe the four tables and their relationships.'):
             with self.subTest(question=question):
                 self.assertFalse(requests_sql(question))
                 self.assertIsNone(sql_completion_feedback(question, refusal()))

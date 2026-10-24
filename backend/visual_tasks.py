@@ -40,7 +40,8 @@ def requests_sql(question: str) -> bool:
         r'\b(?:write|generate|construct|compose|provide|give|return|show|create|build|formulate)'
         r'\s+(?:(?:me|us|an?|the|appropriate|equivalent|correct|required|a\s+suitable)\s+)*'
         r'(?:sql\s+(?:query|statement|code)|(?:query|statement)\s+in\s+sql)\b'
-        r'|\b(?:what\s+is\s+the\s+)?sql\s+query\s+(?:to|for)\b', text, re.I))
+        r'(?!\s+(?:output|results?|plan)\b)'
+        r'|^\s*(?:what\s+is\s+the\s+)?sql\s+query\s+(?:to|for)\b', text, re.I))
 
 
 def sql_completion_feedback(question: str, result: dict) -> str | None:
