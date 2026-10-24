@@ -49,6 +49,30 @@ The frontend checks the returned source IDs against the submitted group. If an
 older backend ignores `source_ids` and returns only one screenshot, Chat shows an
 error and retains the group for retry instead of showing that as a joint answer.
 
+## Solve the question, not just describe the image
+
+Single-image chat, the figure viewer and grouped-image chat share the task and
+review policy in `backend/visual_tasks.py`. When asked to write SQL, Aura should
+derive a query from readable schema identifiers, keys and written requirements,
+then explain it briefly. The query itself does not need to appear in the picture.
+Writing a query does not require data rows; predicting its output can require
+them. Review permits valid derivations while checking names, join/role keys,
+filters and requested output column order. It does not execute SQL.
+
+For explicit SQL-authoring requests, a prose-only "answerable" response or a
+refusal that asks for the already-written query triggers one bounded revision
+with the same originals and question. Repeated incomplete output is withheld as
+a recoverable generation error rather than blamed on the student's material.
+Genuinely unreadable or missing required identifiers/relationships can still
+produce a specific clarification. The fenced-SQL completion check is not a SQL
+parser or a guarantee of query correctness; visual/model review remains fallible.
+
+`evaluation.check_visual_solving` replays the reported schema-only response for
+one and multiple images, checks bounded revision and withholding, and preserves
+real missing-evidence handling. Its four-table schema, images and SQL are authored
+fixtures. Only the static fixture query is run against an in-memory test database;
+no student SQL or model output is executed in production or in these checks.
+
 ## Configuration and bounds
 
 The existing `OLLAMA_VISION_MODEL` and `OLLAMA_BASE_URL` settings are reused.
