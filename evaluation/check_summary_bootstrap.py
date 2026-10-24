@@ -71,7 +71,8 @@ class SummaryBootstrap(unittest.TestCase):
                 parts = [row[1] for row in llm.calls if row[0]=='part']
                 self.assertEqual(len(parts), 4)
                 self.assertEqual(parts[0]['already_explained'], [])
-                self.assertEqual(sorted(n for part in parts for n in part['section_request']['source_ids']), list(range(1,40)))
+                self.assertCountEqual([source['text'] for part in parts for source in part['passages']],
+                                      [row.chunk.content for row in llm.rows])
                 self.assertTrue(all(section['kind']=='sourced' for section in result['sections']))
                 self.assertNotIn('pure gold', result['answer'])
                 self.assertNotEqual(result['citation_validation']['response_mode'], 'extractive')

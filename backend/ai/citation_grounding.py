@@ -1,7 +1,10 @@
 import json
 import re
+import logging
 
 from backend.ai.llm import LLM, generate_verification_json
+
+log = logging.getLogger(__name__)
 
 
 class CitationGrounding:
@@ -147,6 +150,11 @@ Return JSON only.
         """Independent per-claim decisions, bounded to 12 claims per request."""
         unavailable = {item['id']: {'supported': False, 'error': 'verification_unavailable',
             'reason': 'The batch did not return a complete, valid per-claim decision.'} for item in items}
+        wire = [{**item, 'id': number} for number, item in enumerate(items, 1)]
+        def reject(code, returned=0):
+            log.warning('citation_batch=unavailable failure_code=%s expected_claims=%s returned_claims=%s',
+                        code, len(items), returned)
+            return unavailable
         try:
             result = generate_verification_json(self.llm,
                 'Check each claim independently against ONLY its own evidence. '
@@ -156,21 +164,28 @@ Return JSON only.
                 'and quantities follow from that claim\'s supplied evidence. Do not use '
                 'outside knowledge or evidence assigned to a different claim. '
                 'Return exactly one result for every supplied integer id, no missing or extra IDs. '
+                'The id identifies the claim record; do not use citation numbers from the evidence as claim ids. '
                 'Keep each reason below 40 words. JSON shape: '
-                '{"results":[{"id":0,"supported":true,"reason":"brief reason"}]}.\n'
-                'BATCH_CLAIMS_DATA: ' + json.dumps(items))
+                '{"results":[{"id":1,"supported":true,"reason":"brief reason"}]}.\n'
+                'BATCH_CLAIMS_DATA: ' + json.dumps(wire))
+            if not isinstance(result, dict):
+                return reject('batch_shape_invalid')
             rows = result.get('results')
             if not isinstance(rows, list) or len(rows) != len(items):
-                return unavailable
+                return reject('batch_size_mismatch', len(rows) if isinstance(rows, list) else 0)
             parsed = {}
             for row in rows:
                 if (not isinstance(row, dict) or type(row.get('id')) is not int
-                    or row['id'] in parsed or type(row.get('supported')) is not bool):
-                    return unavailable
+                    or type(row.get('supported')) is not bool):
+                    return reject('claim_shape_invalid', len(rows))
+                if row['id'] in parsed:
+                    return reject('duplicate_claim_id', len(rows))
                 parsed[row['id']] = {'supported': row['supported'], 'reason': str(row.get('reason', ''))[:500]}
-            return parsed if parsed.keys() == unavailable.keys() else unavailable
+            if set(parsed) != set(range(1, len(items)+1)):
+                return reject('claim_id_mismatch', len(rows))
+            return {item['id']: parsed[number] for number, item in enumerate(items, 1)}
         except Exception:
-            return unavailable
+            return reject('verification_request_failed')
 
     def verify_answer(self, answer: str, sources: list[dict]) -> dict:
         if not answer or not answer.strip() or not sources:

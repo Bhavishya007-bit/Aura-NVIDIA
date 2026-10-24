@@ -8,7 +8,7 @@ from pathlib import Path
 from backend.ai.response_request import response_request, length_check, length_distance
 from backend.ai.llm import LLMConnectionError
 from backend.ai.summary_answer import (
-    SummaryDraft, SummaryDraftError, summary_contract, checked_points, source_section,
+    SummaryDraft, summary_contract, checked_points, source_section,
 )
 
 log = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
     """At most one initial call per section plus two repairs shared across sections."""
     plan = summary_plan(sources, request['target_words'])
     if not plan:
+        log.info('summary_expansion=skipped reason=section_plan_unavailable')
         return None
     started = time.monotonic()
     states = [{'plan': part, 'points': [], 'seed_words': 0, 'attempts': 0, 'last_draft': None, 'feedback': None}
@@ -66,7 +67,7 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
     writing_calls = 0
     verification_unavailable = False
     connection_unavailable = False
-    system = (Path(__file__).with_name('prompts') / 'v1' / 'summary_answer.txt').read_text(encoding='utf-8')
+    system = (Path(__file__).with_name('prompts') / 'v1' / 'summary_long.txt').read_text(encoding='utf-8')
 
     def part_request(state):
         req = response_request(f"in {state['plan']['target_words']} words")
@@ -101,18 +102,21 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
         additional_target = min(remaining, max(80, deficit(state)))
         req = response_request(f'in {additional_target} words')
         req.update(layout='prose', long_form=True, detailed=True)
-        allowed = set(part['source_ids'])
+        # The model sees one simple 1..N namespace. Keep the mapping server-side;
+        # never guess whether an invalid returned number meant a global source.
+        local_sources = [sources[number-1] for number in part['source_ids']]
+        local_ids = list(range(1, len(local_sources)+1))
         payload = {key: value for key, value in base_payload.items() if key not in
-                   {'passages', 'previous_draft', 'feedback', 'draft_contract', 'supported_parts', 'missing_parts'}}
-        payload.update(passages=[{'id': n, 'text': sources[n - 1]['content'][:6000]} for n in part['source_ids']],
+                   {'passages', 'previous_draft', 'feedback', 'draft_contract', 'supported_parts', 'missing_parts', 'conversation_context'}}
+        payload.update(passages=[{'id': n, 'text': source['content'][:6000]} for n, source in enumerate(local_sources, 1)],
                        supported_parts=[], missing_parts=[], response_request=req,
-                       draft_contract=summary_contract(req, len(sources)),
-                       section_request={**part, 'target_words': additional_target,
+                       draft_contract=summary_contract(req, len(local_sources)),
+                       section_request={**part, 'source_ids': local_ids, 'target_words': additional_target,
                                         'section_total_target_words': part['target_words']},
-                       already_explained=combined(),
+                       already_explained=[{'text': point['text']} for point in combined()],
                        overall_user_request=question,
                        question='Explain only this portion of the selected presentation. Honor the overall user language and style.')
-        payload['draft_contract']['output_schema']['$defs']['SummarySentence']['properties']['citation_ids']['items']['enum'] = part['source_ids']
+        payload['draft_contract']['output_schema']['$defs']['SummarySentence']['properties']['citation_ids']['items']['enum'] = local_ids
         if state['feedback'] is not None:
             payload.update(previous_draft=state['last_draft'], feedback=state['feedback'])
         writer = client.with_output_budget(req['token_budget'], exact=True) if hasattr(client, 'with_output_budget') else client
@@ -123,23 +127,22 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
             draft = writer.generate_json(json.dumps(payload), max_retries=1,
                 system_prompt=system + '\nWrite ONLY additional teaching points for the assigned section. '
                 'The word target is for NEW text only: section_request.target_words. '
-                'The already_explained points are already in the answer; develop other supported '
-                'details, terms, comparisons or mechanisms from this section. Do not rewrite or '
-                'repeat those points or fill the count with paraphrases of the same facts. '
+                'Develop the supported concepts already mentioned briefly, adding explanations '
+                'of terms, steps, comparisons and relationships from this section. '
+                'Do not repeat identical points or pad with empty paraphrases. '
                 'Already explained points are context, not new source evidence. '
                 'Use complete self-contained sentences, preserve scientific abbreviations, '
                 'and keep every qualification on model-interpreted image content.')
             parsed = SummaryDraft.model_validate(draft)
-            points = parsed.points(len(sources), req)
-            if any(n not in allowed for point in points for n in point['citation_ids']):
-                raise SummaryDraftError('citation_outside_section')
-            text = parsed.render(len(sources), req)
+            points = parsed.points(len(local_sources), req)
+            text = parsed.render(len(local_sources), req)
             intent = {'scope': 'selected_material_section',
                       'section_question': 'Explain teaching points from this assigned portion of the selected presentation.',
-                      'passages': [{'id': n, 'text': sources[n - 1]['content'][:500]} for n in part['source_ids']]}
-            validation = rag._validate_answer(text, sources, question, structured_points=points, intent_context=intent)
+                      'passages': [{'id': n, 'text': source['content'][:500]} for n, source in enumerate(local_sources, 1)]}
+            validation = rag._validate_answer(text, local_sources, question, structured_points=points, intent_context=intent)
             verification_unavailable = validation.get('stage') == 'verification_unavailable'
-            approved = checked_points(sources, validation, question, req)
+            approved = [{'text': point['text'], 'citation_ids': [part['source_ids'][n-1] for n in point['citation_ids']]}
+                        for point in checked_points(local_sources, validation, question, req)]
             before = overall_check()['actual_words']
             seen = {' '.join(p['text'].casefold().split()) for p in combined()}
             for point in approved:
@@ -192,10 +195,17 @@ def expand_summary(rag, client, sources, question, request, base_payload, schema
         write(max(candidates, key=deficit))
     points = combined()
     if not points:
+        log.info('summary_expansion=finished actual_words=0 target_words=%s writing_calls=%s valid=False '
+                 'verification_unavailable=%s connection_unavailable=%s',
+                 request['target_words'], writing_calls, verification_unavailable, connection_unavailable)
         return None
     text = SummaryDraft.model_validate({'sentences': points}).render(len(sources), request)
     check = length_check(text, request)
     complete = check['valid'] and all(s['points'] or s['seed_words'] for s in states)
+    log.info('summary_expansion=finished actual_words=%s target_words=%s writing_calls=%s valid=%s '
+             'verification_unavailable=%s connection_unavailable=%s',
+             check['actual_words'], request['target_words'], writing_calls, check['valid'],
+             verification_unavailable, connection_unavailable)
     return source_section(text), {'valid': True, 'stage': 'summary_section_expansion',
         'response_mode': 'generated' if complete else 'checked_points', 'length_validation': check,
         'writing_calls': writing_calls, 'section_count': len(plan),

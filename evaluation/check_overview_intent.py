@@ -11,6 +11,7 @@ from backend.ai.summary_intent import generic_material_summary
 from backend.ai.response_request import word_count
 from evaluation.check_long_answers import LengthLLM, DocumentRetriever, long_fixture, HISTORY
 from evaluation.check_phase2 import Retriever, FakeLLM
+from evaluation.check_sectioned_summaries import scoped_fixture_points
 
 
 CONTEXT = {'scope': 'selected_material_overview', 'source_id': 7}
@@ -42,10 +43,9 @@ class RejectedOverviewLLM(LengthLLM):
                 self.calls.append(('whole', payload))
                 return copy.deepcopy(self.seed)
             self.calls.append(('supplement', payload))
-            allowed = set(payload['section_request']['source_ids'])
             existing = {p['text'] for p in payload['already_explained']}
-            return {'sentences': [copy.deepcopy(p) for p in self.full['sentences']
-                                  if set(p['citation_ids']) <= allowed and p['text'] not in existing]}
+            return {'sentences': scoped_fixture_points(payload, [p for p in self.full['sentences']
+                                  if p['text'] not in existing])}
         if 'answers_question' in data:
             payload = json.loads(data.split('DATA: ', 1)[1])
             self.calls.append(('intent', payload))

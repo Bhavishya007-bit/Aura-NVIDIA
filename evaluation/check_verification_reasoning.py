@@ -23,7 +23,7 @@ class VerificationReasoningChecks(unittest.TestCase):
     def verdicts(payload, *, unsupported=None):
         items = json.loads(payload['messages'][-1]['content'].split('BATCH_CLAIMS_DATA: ', 1)[1])
         return response(json.dumps({'results': [
-            {'id': p['id'], 'supported': p['id'] != unsupported, 'reason': 'Controlled decision.'}
+            {'id': p['id'], 'supported': p['claim'] != unsupported, 'reason': 'Controlled decision.'}
             for p in items]}))
 
     def test_verification_effort_is_scoped_to_judges(self):
@@ -57,12 +57,12 @@ class VerificationReasoningChecks(unittest.TestCase):
             seen.append([p['id'] for p in items])
             if len(seen) == 2:
                 return response(finish='length', reasoning=4096, completion=4096)
-            return self.verdicts(payload, unsupported=16)
+            return self.verdicts(payload, unsupported='Teaching point 16')
         client = self.client()
         points = [{'text': f'Teaching point {i}', 'citation_ids': [1]} for i in range(25)]
         with patch.dict(os.environ, {}, clear=True), patch('backend.ai.llm.requests.post', side_effect=send) as post:
             checked = CitationGrounding(client).verify_points(points, [{'content': 'Evidence to check.'}])
-        self.assertEqual(seen, [list(range(12)), list(range(12, 24)), list(range(12, 24)), [24]])
+        self.assertEqual(seen, [list(range(1,13)), list(range(1,13)), list(range(1,13)), [1]])
         self.assertFalse(checked['valid'])
         self.assertEqual([p['supported'] for p in checked['results']], [i != 16 for i in range(25)])
         self.assertFalse(any(p.get('error') for p in checked['results']))

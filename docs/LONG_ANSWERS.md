@@ -62,6 +62,18 @@ The limits remain one initial writing call per section plus two shared repairs, 
 
 `python -m unittest evaluation.check_summary_bootstrap` reproduces the initial failure with controlled empty/truncated/rejected drafts and verifies a 2,000-word source-backed recovery across 39 synthetic locations. It also checks unavailable verification, connection loss, preserved checked drafts, and bounded failure with excerpts. These are orchestration regressions, not evidence that a live model will always reach the requested length or understand every diagram. No API route, database schema or application dependency changes.
 
+## Citation scope and the 287-word live result
+
+The supplied live trace at `e036c48` identified concrete losses: whole-file drafts had 404 and 199 words, sections 1 and 2 were rejected with `citation_outside_section`, section 3 added 88 checked words, and section 4 ended with `verification_unavailable`. The retained 199-word seed plus those 88 words explains the 287-word answer. These calls finished without output truncation. The trace did not include raw model drafts or the exact malformed verifier response, so it does not establish which returned IDs were wrong.
+
+Section generation and verification now use an explicit local `1..N` citation namespace. The server keeps the mapping to original passages, and remaps only positively checked points before rendering the final global citations. Existing checked context is sent without citation IDs, and prior conversation text is omitted from the section-writing prompt to avoid mixing citation namespaces. This is a declared protocol, not a guessed repair of invalid citations. Out-of-range IDs remain rejected; checking still uses the actual selected source passages.
+
+Verification batches also use local `1..N` claim IDs and explicitly map decisions back to the original claim indices. Missing, duplicate, extra or malformed decisions still invalidate the entire batch. Safe `citation_batch=unavailable` codes now distinguish response shape, size, claim-ID and value errors without logging document or model text. An unusable verifier still stops expansion and cannot approve added prose.
+
+Long overview and section writing use `summary_long.txt`, which has no brief-summary default or short-sentence example. It asks for explanatory development of supported concepts and allows elaborating an earlier brief mention while rejecting duplicate padding and invented source facts. The short-summary prompt is unchanged. Call and output limits are unchanged; this does not add a verifier retry loop or claim that a live word target always succeeds.
+
+The controlled citation-scope replay previously failed when section citations restarted at 1; it now produces 2,000 words with each final citation tied to its correct original passage. Other tests cover shuffled batch decisions, sparse original claim indices and fail-closed handling of malformed batches. These tests establish protocol correctness, not live model teaching quality. Look for `summary_expansion=finished` alongside per-section logs when evaluating a fresh live run.
+
 ## Real-material follow-up check
 
 Use the prepared presentation in Aura after pulling and restarting the backend. Record the outputs and relevant server diagnostics for this sequence:

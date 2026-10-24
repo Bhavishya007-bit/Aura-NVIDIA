@@ -147,7 +147,7 @@ class SourceAwareTutor:
             try:
                 if overview:
                     draft = client.generate_json(json.dumps(payload), max_retries=1,
-                        system_prompt=prompt("summary_answer.txt"))
+                        system_prompt=prompt("summary_long.txt" if self.response_request['long_form'] else "summary_answer.txt"))
                     parsed = SummaryDraft.model_validate(draft)
                     log.info('summary_draft attempt=%s sentences=%s actual_words=%s target_words=%s',
                              attempt + 1, len(parsed.sentences),

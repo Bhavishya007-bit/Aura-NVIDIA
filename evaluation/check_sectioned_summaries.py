@@ -75,6 +75,16 @@ class ScientificClaimChecks(unittest.TestCase):
                 self.assertFalse(checker.verify_points([point], [{'content': 'A point'}])['valid'])
 
 
+def scoped_fixture_points(payload, points):
+    """Answer against the actual supplied passages in their declared namespace."""
+    result = []
+    for point in points:
+        ids = [source['id'] for source in payload['passages'] if point['text'] in source['text']]
+        if ids:
+            result.append({'text': point['text'], 'citation_ids': ids})
+    return result
+
+
 class SectionLLM(LengthLLM):
     def __init__(self, mode='normal'):
         self.rows, self.full = long_fixture()
@@ -94,8 +104,7 @@ class SectionLLM(LengthLLM):
             self.part_attempts[index] = self.part_attempts.get(index, 0) + 1
             if self.mode == 'empty':
                 return {'sentences': []}
-            points = [copy.deepcopy(p) for p in self.full['sentences']
-                      if set(p['citation_ids']) <= set(part['source_ids'])]
+            points = scoped_fixture_points(payload, self.full['sentences'])
             if self.mode == 'repair' and index == 2 and self.part_attempts[index] == 1:
                 return {'sentences': points[:1] + [{'text': 'The membrane contains pure gold',
                                                    'citation_ids': [part['source_ids'][0]]}]}
@@ -128,9 +137,10 @@ class SectionExpansionChecks(unittest.TestCase):
         self.assertEqual(len(parts), 4)
         self.assertEqual([p['section_request']['target_words'] for p in parts], [300, 500, 500, 450])
         self.assertEqual([p['section_request']['section_total_target_words'] for p in parts], [500] * 4)
-        ids = [n for p in parts for n in p['section_request']['source_ids']]
-        self.assertEqual(sorted(ids), list(range(1, 40)))
-        self.assertEqual(len(ids), len(set(ids)))
+        supplied = [source['text'] for part in parts for source in part['passages']]
+        self.assertCountEqual(supplied, [row.chunk.content for row in llm.rows])
+        for part in parts:
+            self.assertEqual(part['section_request']['source_ids'], list(range(1, len(part['passages'])+1)))
         self.assertFalse(any(s['kind'] == 'beyond' for s in result['sections']))
         self.assertIn(('budget', 4096), llm.calls)
 

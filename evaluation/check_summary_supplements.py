@@ -11,6 +11,7 @@ from backend.ai.source_aware import SourceAwareTutor, _schema_errors
 from backend.ai.summary_answer import SummaryDraft
 from backend.ai.long_summary import expand_summary
 from evaluation.check_long_answers import long_fixture, LengthLLM, DocumentRetriever, HISTORY
+from evaluation.check_sectioned_summaries import scoped_fixture_points
 
 
 class SupplementLLM(LengthLLM):
@@ -31,10 +32,9 @@ class SupplementLLM(LengthLLM):
                 self.calls.append(('whole', payload))
                 return copy.deepcopy(self.seed)
             self.calls.append(('supplement', payload))
-            allowed = set(payload['section_request']['source_ids'])
             existing = {p['text'] for p in payload['already_explained']}
-            points = [copy.deepcopy(p) for p in self.full['sentences']
-                      if set(p['citation_ids']) <= allowed and (p['text'] in existing) == self.repeat]
+            points = scoped_fixture_points(payload, [p for p in self.full['sentences']
+                if (p['text'] in existing) == self.repeat])
             return {'sentences': points}
         if 'answers_question' in data:
             payload = json.loads(data.split('DATA: ', 1)[1])
