@@ -1,5 +1,30 @@
 # Length and format follow-ups
 
+## Broken PDF wording and selected-file binding
+
+`Summarize the P indf 2000 words.` did not match the document-summary
+detector, so it could enter ordinary question answering and finish with only a
+verification notice. With a selected material, the Tutor now repairs narrowly
+defined split PDF references (`P indf`, `p df`, `p d f`, `pd f`, `PDFin`) only
+after an explicit summarize verb and only when the remainder consists of format
+constraints. It does not guess filenames, subjects, standalone `P`, or topical
+restrictions. The original user message remains available unchanged.
+
+An already explicit generic selected-file summary no longer goes through the
+conversation rewrite model: "this PDF" refers to the selected file, even if old
+messages discuss something else. Named topic questions and actual conversational
+references keep their existing resolution. Owned document retrieval, length
+budgets, citation checks and source-preserving quote recovery remain in force.
+No selected file means no inferred binding or correction.
+
+The controlled regressions in `evaluation.check_summary_request_typing` exercise
+the reported wording through full document retrieval and a measured long answer,
+plus stale history, failed-writer quotation recovery and negative routing cases.
+These tests establish routing and recovery behavior, not live provider accuracy.
+The displayed notice alone contains no provider failure trace; if it persists
+after updating, inspect the matching `tutor_request`, `summary_draft`, `source_answer_check` and
+`source_answer=unavailable` log entries before changing model settings.
+
 ## Background review and the 2,343-word follow-up
 
 The attached follow-up contains 1,105 sourced words and 1,238 background words,

@@ -16,6 +16,7 @@ from backend.ai.llm import LLMConnectionError, LLMResponseError
 from backend.ai.long_summary import expand_summary
 from backend.ai.summary_answer import SummaryDraft, SummaryDraftError, summary_contract, recover_summary
 from backend.ai.summary_background import background_lesson
+from backend.ai.summary_intent import generic_material_summary, normalize_summary_request
 from backend.ai.response_request import response_request, resolve_format_followup, length_check, length_distance, word_count
 
 log = logging.getLogger(__name__)
@@ -270,16 +271,22 @@ class SourceAwareTutor:
             for m in (history or [])[-8:]
             if m.get("role") in {"user", "assistant"} and isinstance(m.get("content"), str)
         ]
-        question = self.rag._resolve_material_correction(original_question, history or []) if source_id else original_question
+        question = normalize_summary_request(original_question) if source_id is not None else original_question
+        question = self.rag._resolve_material_correction(question, history or []) if source_id else question
         question = resolve_format_followup(question, history or [],
             fallback='Explain the selected material.' if source_id else None)
-        if question == original_question:
+        # An explicit selected-file summary already has its subject. Resolving
+        # "this PDF" through old chat can replace that binding with an unrelated
+        # earlier topic and bypass the summary recovery path entirely.
+        if question == original_question and not (source_id is not None and generic_material_summary(question)):
             question = self.rag._resolve_followup(question, history or [])
         self.response_request = response_request(question)
         self.context_limit = 96 if self.response_request['long_form'] else 24
         search_question = re.split(r"\n(?:Answer format requested now|Follow-up request):", question)[0].strip()
         self.rag.retrieval_question = search_question
         overview = source_id is not None and self.rag._is_material_overview(question)
+        log.info('tutor_request overview=%s selected_material=%s target_words=%s',
+                 overview, source_id is not None, self.response_request['target_words'])
         explicit_grounding = bool(re.search(
             r"\b(?:use only|only use|using only|strictly from|solely from|based only on|based solely on|based exclusively on|exclusively from)\b|\bonly (?:my|the|this|these|your) (?:sources?|material|slides?|presentation|documents?|deck)\b|\b(?:no|without(?: any)?) (?:outside|external|background) (?:knowledge|information|explanations?|content)\b",
             question, re.I))
