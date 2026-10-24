@@ -134,6 +134,8 @@ class LLM:
                  system_prompt: str | None = None) -> str:
         # Preserve the old client's meaning: max_retries limits total attempts.
         attempts = max(1, min(int(max_retries), 3))
+        from backend.generation_jobs import guard
+        guard()
         messages = []
 
         instructions = system_prompt or ""
@@ -175,6 +177,7 @@ class LLM:
             input_tokens = output_tokens = reasoning_tokens = None
 
             try:
+                guard()
                 response = requests.post(
                     self.base_url,
                     headers=headers,
@@ -189,6 +192,7 @@ class LLM:
                         "Unexpected redirect. Check NEBIUS_BASE_URL."
                     )
 
+                guard()
                 response.raise_for_status()
                 failure_code = "response_json"
                 data = response.json()

@@ -1,3 +1,6 @@
+import { savedGeneration, resumeGeneration } from '../services/generationJobs'
+import type { SavedGeneration } from '../services/generationJobs'
+import { artifact as decodeArtifact, report as decodeReport } from '../services/studyToolsApi'
 import TutorReply from './TutorReply'
 import StudyOverview from './StudyOverview'
 import StudyRhythm from './StudyRhythm'
@@ -24,6 +27,13 @@ import { generateTool, getPracticeProgress, listArtifacts, listMaterials, setMat
 import type { Artifact, LearningMode, Material, PracticeProgress, ToolCitation, ToolKind } from '../services/studyToolsApi'
 import { readWorkspace, saveWorkspace } from '../services/workspaceStorage'
 import './StudyWorkspace.css'
+import MaterialPicker, { cleanSelection, MaterialChips, materialReady } from './MaterialPicker'
+import GenerationStatus from './GenerationStatus'
+import ChoiceSelect, { ItemCount } from './ChoiceSelect'
+import { useGeneration } from '../hooks/useGeneration'
+import { useGenerationSupport } from '../hooks/useGenerationSupport'
+import type { GenerationTicket } from '../hooks/useGeneration'
+import { multiMaterialNotice } from '../services/generationSupport'
 
 type Tab = 'Overview' | 'Tutor' | 'Notes' | 'Summary' | 'Flashcards' | 'Assessment' | 'Progress' | 'Agents'
 const tabs: Tab[] = ['Overview', 'Tutor', 'Notes', 'Summary', 'Flashcards', 'Assessment', 'Progress', 'Agents']
@@ -32,8 +42,8 @@ const extraTabs: Tab[] = ['Notes', 'Summary', 'Flashcards', 'Progress']
 const iconPaths = ['M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z', 'M4 4h16v12H9l-5 4z', 'M5 5h14 M5 10h14 M5 15h14 M5 20h9', 'M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5', 'M7 3h14v15H7z M3 7v14h14', 'M4 12l5 5L20 6', 'M4 19V5 M4 19h16 M7 15l4-5 4 2 5-7']
 function WorkspaceIcon({ path }: { path: string }) { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path} /></svg> }
 const kinds: Partial<Record<Tab, ToolKind>> = { Notes: 'notes', Summary: 'summary', Flashcards: 'flashcards', Assessment: 'assessment' }
-type ChatEntry = { clarifyingQuestion?: string; followUpOptions?: string[]; role: 'user' | 'assistant'; text: string; grounded?: boolean; answerMode?: 'source' | 'source_plus_background' | 'general_background' | 'visual' | 'excerpt'; citations?: ToolCitation[] }
-type Saved = { preparationIds?: string[]; preparationId?: string; sourceId?: string; tab?: Tab; selectedArtifact?: string; question?: string; chats?: Record<string, ChatEntry[]>; answers?: Record<string, Record<string, string>> }
+type ChatEntry = { stopped?: boolean; clarifyingQuestion?: string; followUpOptions?: string[]; role: 'user' | 'assistant'; text: string; grounded?: boolean; answerMode?: 'source' | 'source_plus_background' | 'general_background' | 'visual' | 'excerpt'; citations?: ToolCitation[] }
+type Saved = { materialIds?: string[]; preparationIds?: string[]; preparationId?: string; sourceId?: string; tab?: Tab; selectedArtifact?: string; question?: string; chats?: Record<string, ChatEntry[]>; answers?: Record<string, Record<string, string>> }
 type Props = { user: AuthUser; courses: Course[]; courseId: string; coursesLoading: boolean; coursesError: string; theme: 'light' | 'dark'; onCourseChange: (id: string) => void; onThemeChange: () => void; onChatHome: () => void; onSignOut: () => void; signingOut: boolean; sessionNotice: string }
 const explainError = (error: unknown) => error instanceof Error ? error.message : 'Could not complete this request. Please retry.'
 const studyGenerationError = (error: unknown) => error instanceof ApiHttpError && error.status === 503
@@ -41,19 +51,31 @@ const studyGenerationError = (error: unknown) => error instanceof ApiHttpError &
   : explainError(error)
 
 function SourceButtons({ ids, citations, onOpen }: { ids: number[]; citations: ToolCitation[]; onOpen: (citation: ToolCitation) => void }) {
-  return <div className="sw-citations">{groupToolCitations(ids, citations).map(citation => <button key={`${citation.source_id}:${citation.id}`} type="button" onClick={() => onOpen(citation)} title={citation.title}>[{citation.referenceIds?.join(', ') ?? citation.id}] {citation.location}</button>)}</div>
+  return <div className="sw-citations">{groupToolCitations(ids, citations).map(citation => <button key={`${citation.source_id}:${citation.id}`} type="button" onClick={() => onOpen(citation)} title={citation.title}>[{citation.referenceIds?.join(', ') ?? citation.id}] {citation.title} · {citation.location}</button>)}</div>
 }
 
 export default function StudyWorkspace(props: Props) {
   const { user, courseId, theme } = props
   const storageKey = `aura.study.v1:${user.id}:${courseId}`
+  const [pendingJob] = useState(() => savedGeneration(`${storageKey}:generation`))
   const [saved] = useState(() => readWorkspace<Saved>(storageKey, {}))
   const [link] = useState(() => new URLSearchParams(window.location.search))
   const [initialPlanGoal, setInitialPlanGoal] = useState(link.get('goal')?.slice(0, 2500))
   const [tab, setTab] = useState<Tab>(tabs.includes(link.get('tab') as Tab) ? link.get('tab') as Tab : saved.tab && tabs.includes(saved.tab) ? saved.tab : 'Overview')
   const [moreTools, setMoreTools] = useState(() => extraTabs.includes(tab))
   const materialManager = useRef<HTMLDetailsElement>(null)
-  const [sourceId, setSourceId] = useState(link.get('source') ?? (typeof saved.sourceId === 'string' ? saved.sourceId : ''))
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => pendingJob?.course === courseId && Array.isArray(pendingJob.payload.material_ids) ? cleanSelection(pendingJob.payload.material_ids.map(String)) : link.get('materials') ? cleanSelection(link.get('materials')!.split(',')) : link.get('source') ? cleanSelection([link.get('source')]) : saved.materialIds ? cleanSelection(saved.materialIds) : cleanSelection([saved.sourceId]))
+  const sourceId = selectedIds[0] ?? ''
+  const chatKey = selectedIds.length > 1 ? [...selectedIds].sort().join(',') : sourceId
+  function setSourceId(id: string) { setSelectedIds(id ? [id] : []) }
+  const generation = useGeneration()
+  const support = useGenerationSupport(courseId)
+  const resumed = useRef(false)
+  const currentTicket = useRef<GenerationTicket | null>(null)
+  const [partial, setPartial] = useState<{ key: string; text: string; prompt: string } | null>(null)
+  const partialRef = useRef<typeof partial>(null)
+  function updatePartial(value: typeof partial) { partialRef.current = value; setPartial(value) }
+  const selectionInitialized = useRef(Array.isArray(saved.materialIds))
   const [materials, setMaterials] = useState<Material[]>([])
   const [materialSearch, setMaterialSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
@@ -94,18 +116,21 @@ export default function StudyWorkspace(props: Props) {
   const archivedCount = materials.filter(item => item.archived).length
   const visibleMaterials = materials.filter(item => Boolean(item.archived) === showArchived && item.title.toLocaleLowerCase().includes(materialSearch.trim().toLocaleLowerCase()))
   const material = activeMaterials.find(item => item.id === sourceId)
-  const sourceReady = Boolean(material) && !['processing', 'error', 'empty', 'not_configured'].includes(material?.status ?? '')
+  const sourceReady = selectedIds.length > 0 && selectedIds.every(id => activeMaterials.some(item => item.id === id && materialReady(item)))
+  const imageGroup = selectedIds.length > 1 && selectedIds.every(id => /\.(png|jpe?g)$/i.test(materials.find(item => item.id === id)?.title ?? ''))
+  const canUseGroup = selectedIds.length <= 1 || support.multi_study
+  const canChatGroup = selectedIds.length <= 1 || imageGroup || support.multi_chat
   const kind = kinds[tab]
-  const available = artifacts.filter(item => item.kind === kind && item.payload.learning?.mode !== 'conversation')
+  const available = artifacts.filter(item => item.kind === kind && item.payload.learning?.mode !== 'conversation' && (selectedIds.length < 2 || item.payload.material_ids?.length === selectedIds.length && selectedIds.every(id => item.payload.material_ids!.includes(Number(id)))))
   const active = available.find(item => item.id === selectedArtifact) ?? available[0]
-  const entries = Array.isArray(chats[sourceId]) ? chats[sourceId].filter(item => item && typeof item.text === 'string' && ['user', 'assistant'].includes(item.role)) : []
+  const entries = Array.isArray(chats[chatKey]) ? chats[chatKey].filter(item => item && typeof item.text === 'string' && ['user', 'assistant'].includes(item.role)) : []
   const draftAnswers = active && answers[active.id] && typeof answers[active.id] === 'object' ? answers[active.id] : {}
 
   useEffect(() => { setUploadEntries([]); return () => uploadController.current?.abort() }, [courseId])
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => {
-    saveWorkspace(storageKey, { sourceId, tab, selectedArtifact, question, chats, answers, preparationId, preparationIds })
-  }, [storageKey, sourceId, tab, selectedArtifact, question, chats, answers, preparationId, preparationIds])
+    saveWorkspace(storageKey, { sourceId, materialIds: selectedIds, tab, selectedArtifact, question, chats, answers, preparationId, preparationIds })
+  }, [storageKey, sourceId, selectedIds, tab, selectedArtifact, question, chats, answers, preparationId, preparationIds])
   useEffect(() => {
     let cancelled = false
     if (!courseId) { setMaterialsLoading(false); return }
@@ -114,11 +139,14 @@ export default function StudyWorkspace(props: Props) {
       if (cancelled) return
       setMaterials(items)
       const visible = items.filter(item => !item.archived)
-      setSourceId(current => {
-        if (visible.some(item => item.id === current)) return current
+      setSelectedIds(current => {
+        const retained = current.filter(id => visible.some(item => item.id === id))
+        if (retained.length || selectionInitialized.current) return retained
+        selectionInitialized.current = true
         const home = readWorkspace<{ uploaded?: { sourceId?: string } }>(`aura.chat.v1:${user.id}:${courseId}`, {})
         const ready = visible.filter(item => item.status === 'success' || item.status === 'partial' || item.status === 'ready')
-        return visible.find(item => item.id === home.uploaded?.sourceId)?.id ?? ready.at(-1)?.id ?? visible.at(-1)?.id ?? ''
+        const initial = visible.find(item => item.id === home.uploaded?.sourceId && materialReady(item))?.id ?? ready.at(-1)?.id
+        return initial ? [initial] : []
       })
     }).catch(cause => { if (!cancelled) setMaterialsError(explainError(cause)) })
       .finally(() => { if (!cancelled) setMaterialsLoading(false) })
@@ -131,18 +159,20 @@ export default function StudyWorkspace(props: Props) {
     if (url.searchParams.get('source') && url.searchParams.get('source') !== sourceId) { url.searchParams.delete('topic'); setFocus('') }
     if (sourceId) url.searchParams.set('source', sourceId)
     else url.searchParams.delete('source')
+    if (selectedIds.length > 1) url.searchParams.set('materials', selectedIds.join(','))
+    else url.searchParams.delete('materials')
     window.history.replaceState(null, '', url)
-  }, [sourceId, materialsLoading])
+  }, [sourceId, selectedIds, materialsLoading])
   useEffect(() => {
     let cancelled = false
     setArtifacts([]); setArtifactsError('')
     if (!courseId || !sourceId) { setArtifactsLoading(false); return }
     setArtifactsLoading(true)
-    listArtifacts(courseId, sourceId).then(items => { if (!cancelled) setArtifacts(items) })
+    listArtifacts(courseId, sourceId, support.multi_study ? selectedIds : undefined).then(items => { if (!cancelled) setArtifacts(items) })
       .catch(cause => { if (!cancelled) setArtifactsError(explainError(cause)) })
       .finally(() => { if (!cancelled) setArtifactsLoading(false) })
     return () => { cancelled = true }
-  }, [courseId, sourceId, reload])
+  }, [courseId, chatKey, reload, support.multi_study])
   useEffect(() => {
     let cancelled = false
     if (!courseId) return
@@ -166,9 +196,9 @@ export default function StudyWorkspace(props: Props) {
     window.history.replaceState(null, '', url)
   }
   function changeMaterial() { if (materialManager.current) materialManager.current.open = true; setShowArchived(false); setMaterialSearch(''); materialSearchInput.current?.scrollIntoView({ block: 'center' }); materialSearchInput.current?.focus() }
-  function openPlanTool(next: 'Flashcards' | 'Assessment' | 'Summary', topic: string, source: string, artifactId?: string) {
+  function openPlanTool(next: 'Flashcards' | 'Assessment' | 'Summary', topic: string, source: string, artifactId?: string, materialIds?: string[]) {
     if (!activeMaterials.some(m => m.id === source)) { setError('The material for this plan is no longer active. Restore it from Materials to continue.'); return }
-    selectTab(next); setSourceId(source); setFocus(topic); setSelectedArtifact(artifactId ?? ''); setLearningMode('manual'); if (artifactId) setReload(value => value + 1)
+    selectTab(next); setSelectedIds(materialIds?.length ? materialIds : [source]); setFocus(topic); setSelectedArtifact(artifactId ?? ''); setLearningMode('manual'); if (artifactId) setReload(value => value + 1)
     const url = new URL(window.location.href)
     url.searchParams.set('source', source); url.searchParams.set('topic', topic)
     if (artifactId) url.searchParams.set('artifact', artifactId)
@@ -176,6 +206,20 @@ export default function StudyWorkspace(props: Props) {
   }
   function begin(label: string) { if (busyRef.current) return false; busyRef.current = true; setBusy(label); setError(''); return true }
   function end() { busyRef.current = false; if (mounted.current) setBusy('') }
+  function beginGeneration(label: string) {
+    if (!begin(label)) return null
+    const ticket = generation.start()
+    if (!ticket) { end(); return null }
+    currentTicket.current = ticket
+    resumed.current = true
+    return ticket
+  }
+  function endGeneration(ticket: GenerationTicket) { generation.finish(ticket); if (currentTicket.current === ticket) end() }
+  async function stopGeneration() {
+    await generation.stop()
+    if (currentTicket.current?.signal.aborted) { setBusy(''); busyRef.current = false; if (partial?.prompt) setQuestion(partial.prompt) }
+  }
+  function changeSelection(ids: string[]) { if (busyRef.current || generation.active) return; selectionInitialized.current = true; setSelectedIds(ids); setSelectedArtifact(''); setError(''); setFlipped({}); setFocus(''); updatePartial(null) }
   async function archiveMaterial(item: Material, archived: boolean) {
     if (!begin(archived ? 'Archiving material…' : 'Restoring material…')) return
     setMaterialNotice('')
@@ -183,8 +227,8 @@ export default function StudyWorkspace(props: Props) {
       await setMaterialArchived(courseId, item.id, archived)
       if (!mounted.current) return
       setMaterials(current => current.map(material => material.id === item.id ? { ...material, archived } : material))
-      if (archived && sourceId === item.id) {
-        setSourceId(activeMaterials.find(material => material.id !== item.id)?.id ?? '')
+      if (archived && selectedIds.includes(item.id)) {
+        setSelectedIds(current => current.filter(id => id !== item.id))
         setSelectedArtifact(''); setFlipped({}); setFocus(''); setOpenCitation(null)
       }
       if (!archived && !sourceId) setSourceId(item.id)
@@ -219,52 +263,65 @@ export default function StudyWorkspace(props: Props) {
     }
   }
   async function generate() {
-    if (!kind || !sourceId || material?.status === 'processing' || material?.status === 'error' || !begin('Creating and checking your study material…')) return
+    if (!kind || !sourceReady || !canUseGroup) return
+    const ticket = beginGeneration('Creating and checking your study material…'); if (!ticket) return
     try {
-      const generated = await generateTool(courseId, sourceId, kind, { count, focus, difficulty, questionType, learningMode: kind === 'assessment' ? learningMode : 'manual' })
-      if (mounted.current) { setArtifacts(current => [generated, ...current]); setSelectedArtifact(generated.id); setFlipped({}) }
-    } catch (cause) { if (mounted.current) setError(studyGenerationError(cause)) }
-    finally { end() }
+      const generated = await generateTool(courseId, sourceId, kind, { count, focus, difficulty, questionType, learningMode: kind === 'assessment' ? learningMode : 'manual' }, { signal: ticket.signal, materialIds: selectedIds, enabled: support.study_jobs, course: courseId, storageKey: `${storageKey}:generation`, setCancel: generation.setCancel })
+      if (ticket.current()) { setArtifacts(current => [generated, ...current]); setSelectedArtifact(generated.id); setFlipped({}) }
+    } catch (cause) { if (ticket.current()) setError(studyGenerationError(cause)) }
+    finally { endGeneration(ticket) }
   }
   async function startLearning(mode: LearningMode, topic = '') {
-    if (!sourceReady || !begin('Creating and checking your practice…')) return
+    if (!sourceReady || !canUseGroup) return
+    const ticket = beginGeneration('Creating and checking your practice…'); if (!ticket) return
     try {
       const generated = await generateTool(courseId, sourceId, 'assessment', {
         count: mode === 'diagnostic' ? 5 : count, focus: topic,
         difficulty: 'beginner', questionType, learningMode: mode,
-      })
-      if (mounted.current) {
+      }, { signal: ticket.signal, materialIds: selectedIds, enabled: support.study_jobs, course: courseId, storageKey: `${storageKey}:generation`, setCancel: generation.setCancel })
+      if (ticket.current()) {
         setArtifacts(current => [generated, ...current]); setSelectedArtifact(generated.id)
         setLearningMode(mode); setFocus(topic); selectTab('Assessment')
       }
-    } catch (cause) { if (mounted.current) setError(studyGenerationError(cause)) }
-    finally { end() }
+    } catch (cause) { if (ticket.current()) setError(studyGenerationError(cause)) }
+    finally { endGeneration(ticket) }
   }
-  async function send() {
-    const text = question.trim()
-    if (!text || !sourceId || material?.status === 'processing' || material?.status === 'error' || !begin('Aura is thinking…')) return
+  async function send(resume?: SavedGeneration) {
+    const text = String(resume?.payload.question ?? question).trim()
+    if (!text || !sourceReady || !canChatGroup) return
+    const ticket = beginGeneration('Aura is thinking…'); if (!ticket) return
     setQuestion('')
-    setChats(current => ({ ...current, [sourceId]: [...entries, { role: 'user', text }] }))
+    updatePartial({ key: chatKey, text: '', prompt: text })
+    if (!resume) setChats(current => ({ ...current, [chatKey]: [...entries, { role: 'user', text }] }))
     try {
-      const response = await askTutor({ courseId, materialId: sourceId, question: text,
-        history: entries.slice(-8).map(item => ({ role: item.role, content: item.text.slice(0, 12000) })) })
+      const response = await askTutor({ courseId, materialId: sourceId, materialIds: selectedIds, question: text,
+        history: entries.filter(item => !item.stopped && item.text.trim()).slice(-8).map(item => ({ role: item.role, content: item.text.slice(0, 12000) })) }, { signal: ticket.signal, resume, enabled: support.study_jobs, course: courseId, storageKey: `${storageKey}:generation`, setCancel: generation.setCancel, combinedMaterials: !imageGroup && support.multi_chat,
+        onText: value => { if (ticket.current()) updatePartial({ key: chatKey, text: value, prompt: text }) } })
       const citations: ToolCitation[] = response.citations.map((citation, index) => {
         const location = citation.location
         const label = location.kind === 'pdf_page' ? (/\.(png|jpe?g)$/i.test(material?.title ?? '') ? 'Image' : `Page ${location.page}`) : location.kind === 'slide' ? `Slide ${location.slide}` : `${Math.floor(location.seconds / 60)}:${String(Math.floor(location.seconds % 60)).padStart(2, '0')}`
-        return { id: citation.citationNumber ?? index + 1, page: location.kind === 'pdf_page' ? location.page : null, slide: location.kind === 'slide' ? location.slide : null, seconds: location.kind === 'video_timestamp' ? location.seconds : null, chunk_id: 0, source_id: Number(citation.sourceId), title: material?.title ?? 'Source', location: label, excerpt: citation.excerpt ?? '' }
+        return { id: citation.citationNumber ?? index + 1, page: location.kind === 'pdf_page' ? location.page : null, slide: location.kind === 'slide' ? location.slide : null, seconds: location.kind === 'video_timestamp' ? location.seconds : null, chunk_id: 0, source_id: Number(citation.sourceId), title: citation.sourceName ?? materials.find(item => item.id === citation.sourceId)?.title ?? 'Material', location: label, excerpt: citation.excerpt ?? '' }
       })
-      if (mounted.current) setChats(current => ({ ...current, [sourceId]: [...(current[sourceId] ?? []), { role: 'assistant', text: response.message.content, clarifyingQuestion: response.clarifyingQuestion, followUpOptions: response.followUpOptions, grounded: response.groundingStatus === 'grounded', answerMode: response.answerMode, citations }] }))
-    } catch (cause) { if (mounted.current) { setError(explainError(cause)); setQuestion(text) } }
-    finally { end() }
+      if (ticket.current()) { updatePartial(null); setChats(current => ({ ...current, [chatKey]: [...(current[chatKey] ?? []), { role: 'assistant', text: response.message.content, clarifyingQuestion: response.clarifyingQuestion, followUpOptions: response.followUpOptions, grounded: response.groundingStatus === 'grounded', answerMode: response.answerMode, citations }] })) }
+    } catch (cause) { if (ticket.current()) { setError('Aura could not finish this answer. Your question and any received text are kept. Please retry.'); setQuestion(text) } else if (ticket.signal.aborted && mounted.current && currentTicket.current === ticket) setQuestion(text) }
+    finally {
+      if (mounted.current && currentTicket.current === ticket) {
+        const captured = partialRef.current
+        if (captured?.key === chatKey && captured.text) setChats(chats => ({ ...chats, [chatKey]: [...(chats[chatKey] ?? []), { role: 'assistant', text: captured.text, stopped: true }] }))
+        updatePartial(null)
+      }
+      endGeneration(ticket)
+    }
   }
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!active || !begin('Checking your answers…')) return
+    if (!active) return
+    const ticket = beginGeneration('Checking your answers…'); if (!ticket) return
     try {
-      const result = await submitAssessment(active.id, draftAnswers)
-      if (mounted.current) { setArtifacts(current => current.map(item => item.id === active.id ? { ...item, result } : item)); setProgressReload(value => value + 1) }
-    } catch (cause) { if (mounted.current) setError(explainError(cause)) }
-    finally { end() }
+      const result = await submitAssessment(active.id, draftAnswers, ticket.signal, {enabled:support.study_jobs,course:courseId,storageKey:`${storageKey}:generation`,setCancel:generation.setCancel})
+      if (ticket.current()) { setArtifacts(current => current.map(item => item.id === active.id ? { ...item, result } : item)); setProgressReload(value => value + 1) }
+    } catch (cause) { if (ticket.current()) setError('Aura could not finish checking your answers. Your answers are kept; please retry.') }
+    finally { endGeneration(ticket) }
   }
   function exportTool() {
     if (!active) return
@@ -275,6 +332,22 @@ export default function StudyWorkspace(props: Props) {
     const link = document.createElement('a'); link.href = url; link.download = `aura-${active.kind}.txt`; link.click(); URL.revokeObjectURL(url)
   }
   const weakTopics = progress?.topics.filter(item => item.score < 65) ?? []
+
+  useEffect(() => {
+    if (resumed.current || !support.study_jobs || materialsLoading || busyRef.current) return
+    const pending = savedGeneration(`${storageKey}:generation`)
+    if (!pending || pending.course !== courseId) return
+    resumed.current = true
+    if (pending.operation === 'chat') { void send(pending); return }
+    const ticket = beginGeneration('Reopening your saved work…'); if (!ticket) return
+    const options = { signal: ticket.signal, storageKey: `${storageKey}:generation`, setCancel: generation.setCancel }
+    const work = pending.operation === 'generate' ? resumeGeneration(pending, decodeArtifact, options).then(value => {
+      if (ticket.current()) { setArtifacts(current => [value, ...current.filter(item => item.id !== value.id)]); setSelectedArtifact(value.id) }
+    }) : resumeGeneration(pending, decodeReport, options).then(result => {
+      if (ticket.current()) { setArtifacts(current => current.map(item => item.id === pending.payload.artifact_id ? {...item,result} : item)); setReload(value => value + 1); setProgressReload(value => value + 1) }
+    })
+    work.catch(() => { if (ticket.current()) setError('Aura could not reopen this work. Your earlier results are kept; please retry.') }).finally(() => endGeneration(ticket))
+  }, [support.study_jobs, materialsLoading, storageKey])
 
   function navigationItem(item: Tab) {
     return <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} className={tab === item ? 'is-active' : ''} onClick={() => selectTab(item)}><span aria-hidden="true"><WorkspaceIcon path={iconPaths[tabs.indexOf(item)] ?? 'M4 12h16 M12 4v16'} /></span>{item === 'Agents' ? 'Study Plan' : item === 'Tutor' ? 'Tutor' : item}</button>
@@ -301,34 +374,39 @@ export default function StudyWorkspace(props: Props) {
           <details className="sw-material-manage" ref={materialManager}><summary>Find &amp; manage materials</summary>
           <label className="sw-material-search"><span className="sw-sr-only">Search materials</span><input ref={materialSearchInput} type="search" placeholder="Search materials" value={materialSearch} onChange={event => setMaterialSearch(event.target.value)} /></label>
           <div className="sw-material-tabs"><button type="button" aria-pressed={!showArchived} onClick={() => setShowArchived(false)}>Active <span>{activeMaterials.length}</span></button><button type="button" aria-pressed={showArchived} onClick={() => setShowArchived(true)}>Archived <span>{archivedCount}</span></button></div>
+          {!showArchived && <div className="sw-archive-actions">{visibleMaterials.map(item => <button type="button" key={item.id} disabled={!!busy || generation.active} onClick={() => void archiveMaterial(item, true)} aria-label={`Archive ${item.title}`}>Archive {item.title}</button>)}</div>}
           </details>
-          <div className="sw-material-list">{visibleMaterials.map(item => <div key={item.id} className={`sw-material-row ${!showArchived && item.id === sourceId ? 'is-selected' : ''}`}>
+          {!showArchived && <MaterialPicker materials={visibleMaterials} selected={selectedIds} onChange={changeSelection} storageKey={`aura.sets.v1:${user.id}:${courseId}`} disabled={!!busy || generation.active} loading={materialsLoading} />}
+          <div className="sw-material-list">{(showArchived ? visibleMaterials : []).map(item => <div key={item.id} className={`sw-material-row ${!showArchived && item.id === sourceId ? 'is-selected' : ''}`}>
             {showArchived ? <div className="sw-archived-title"><strong>{item.title}</strong><small>{fileType(item.title, item.type)}</small></div> : <button className="sw-material-select" type="button" disabled={!!busy || item.status === 'processing'} aria-current={item.id === sourceId ? 'true' : undefined} onClick={() => { setSourceId(item.id); setSelectedArtifact(''); setError(''); setFlipped({}); setFocus('') }}><span className="sw-file-icon"><WorkspaceIcon path="M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6" /></span><span><strong>{item.title}</strong><small>{fileType(item.title, item.type)}{item.status === 'processing' ? ' · Preparing' : ''}{['empty', 'error', 'not_configured'].includes(item.status) ? ' · Needs attention' : ''}</small></span></button>}
             <button className="sw-material-action" type="button" disabled={!!busy} aria-label={`${showArchived ? 'Restore' : 'Archive'} ${item.title}`} title={showArchived ? 'Restore to active materials' : 'Archive material; saved work is kept'} onClick={() => void archiveMaterial(item, !showArchived)}><WorkspaceIcon path={showArchived ? 'M5 9a8 8 0 111 9 M5 4v5h5' : 'M3 4h18v4H3z M5 8v12h14V8 M9 12h6'} /></button>
           </div>)}</div>
           {!materialsLoading && !visibleMaterials.length && !materialsError && <p className="sw-material-empty">{materialSearch ? 'No matching materials.' : showArchived ? 'No archived materials.' : 'Add a file or restore an archived material.'}</p>}
           {materialNotice && <p className="sw-material-notice" role="status">{materialNotice}</p>}
-          <p className="sw-material-footnote">All tools use the selected material.</p>
+          <p className="sw-material-footnote">Choose up to 5 materials. Your selection stays with this study session.</p>
         </aside>
         <main className="sw-main">
-          <div className="sw-heading"><div><p className="sw-eyebrow">{tab === 'Progress' ? 'All materials in this course' : 'YOUR STUDY WORKSPACE'}</p><h1>{tab === 'Agents' ? 'Study Plan' : tab === 'Tutor' ? 'Ask Aura' : tab === 'Overview' ? 'Your study space' : tab}</h1>{tab === 'Agents' && <p className="sw-plan-subtitle">Make time for what matters. Aura will help you get there.</p>}</div>{tab !== 'Overview' && tab !== 'Progress' && <div className="sw-using"><span title={material?.title}>Using: <strong>{material?.title ?? 'No material selected'}</strong></span><button type="button" onClick={changeMaterial}>Change</button></div>}</div>
+          <div className="sw-heading"><div><p className="sw-eyebrow">{tab === 'Progress' ? 'All materials in this course' : 'YOUR STUDY WORKSPACE'}</p><h1>{tab === 'Agents' ? 'Study Plan' : tab === 'Tutor' ? 'Ask Aura' : tab === 'Overview' ? 'Your study space' : tab}</h1>{tab === 'Agents' && <p className="sw-plan-subtitle">Make time for what matters. Aura will help you get there.</p>}</div></div>
+          <MaterialChips materials={materials} selected={selectedIds} onChange={changeSelection} disabled={!!busy || generation.active} onChangeOpen={changeMaterial} />
+          {selectedIds.length > 1 && (tab === 'Tutor' ? !canChatGroup : tab !== 'Agents' && !canUseGroup) && <p className="sw-status" role="status">{multiMaterialNotice}</p>}
           {error && <p className="sw-error" role="alert">{error}</p>}
           <UploadBatchStatus simple={tab === 'Agents'} entries={uploadEntries} busy={!!busy} onRetry={() => void upload(uploadEntries.filter(entry => entry.state === 'failed').map(entry => entry.file))} />
           <PreparationStatus simple={tab === 'Agents'} pendingIds={preparationIds} courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={job => { setPreparationIds(current => current.filter(id => id !== job.id)); setReload(value => value + 1) }} />
-          {busy && <div className="sw-status" role="status"><span className="sw-spinner" aria-hidden="true" />{busy}</div>}
-          {tab === 'Agents' && <AgentPanel key={`${user.id}:${courseId}`} courseId={courseId} sourceId={sourceId} materialReady={sourceReady} storageKey={`aura.plan.v1:${user.id}:${courseId}`} initialGoal={initialPlanGoal} materialNames={Object.fromEntries(materials.map(item => [item.id, item.title]))} onOpenTool={openPlanTool} />}
+          {busy && !generation.active && <div className="sw-status" role="status"><span className="sw-spinner" aria-hidden="true" />{busy}</div>}
+          <GenerationStatus active={generation.active} cancelling={generation.state === 'cancelling'} stopped={generation.state === 'stopped' || generation.state === 'cancelled' ? generation.state : undefined} label={busy} slow={generation.slow} notice={generation.notice} onStop={() => void stopGeneration()} onKeepWaiting={generation.keepWaiting} />
+          {tab === 'Agents' && <AgentPanel key={`${user.id}:${courseId}`} courseId={courseId} sourceId={sourceId} materialIds={selectedIds} multiMaterial={support.multi_agents} materialReady={sourceReady} storageKey={`aura.plan.v1:${user.id}:${courseId}`} initialGoal={initialPlanGoal} materialNames={Object.fromEntries(materials.map(item => [item.id, item.title]))} onOpenTool={openPlanTool} />}
           {tab === 'Overview' && <StudyOverview material={material} ready={sourceReady} busy={!!busy} canUpload={!!courseId} artifacts={artifacts} loading={artifactsLoading} error={artifactsError} onNavigate={selectTab} onUpload={() => fileInput.current?.click()} onOpenArtifact={artifact => { setSelectedArtifact(artifact.id); selectTab(artifact.kind === 'assessment' ? 'Assessment' : artifact.kind === 'notes' ? 'Notes' : artifact.kind === 'summary' ? 'Summary' : 'Flashcards') }} />}
-          {tab === 'Tutor' && <><section className="sw-tutor"><div className="sw-transcript" ref={transcript} aria-live="polite">{!entries.length && <div className="sw-chat-empty"><span>✦</span><h2>What would you like to understand?</h2><p>Ask about {material?.title ?? 'a material you select'}.</p><div>{['What is this material about?', 'Explain the main ideas'].map(prompt => <button key={prompt} type="button" onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div>}{entries.map((entry, index) => <article key={index} className={`sw-chat-entry ${entry.role}`}><strong>{entry.role === 'user' ? 'You' : '✦ Aura'}</strong>{entry.role === 'assistant' ? <TutorReply text={entry.text} clarification={entry.clarifyingQuestion} followUps={entry.followUpOptions} onFollowUp={value => { setQuestion(value); document.getElementById('sw-question')?.focus() }} /> : <p>{entry.text}</p>}{entry.role === 'assistant' && <><span className="sw-grounding">{entry.answerMode === 'visual' ? 'Visual interpretation — check against the image' : entry.answerMode === 'excerpt' ? 'Quoted source excerpts — explanation unavailable' : entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : (entry.answerMode === 'source' || entry.grounded) ? 'Source checked' : 'Contains unverified content — see answer label'}</span>{entry.citations?.length ? <SourceButtons ids={citedNumbers(entry.text)} citations={entry.citations} onOpen={setOpenCitation} /> : null}</>}</article>)}</div><form className="sw-composer" onSubmit={event => { event.preventDefault(); void send() }}><label className="sw-sr-only" htmlFor="sw-question">Ask Aura a question</label><textarea id="sw-question" rows={2} onKeyDown={event => {
+          {tab === 'Tutor' && <><section className="sw-tutor"><div className="sw-transcript" ref={transcript} aria-live="polite">{!entries.length && <div className="sw-chat-empty"><span>✦</span><h2>What would you like to understand?</h2><p>Ask about {material?.title ?? 'a material you select'}.</p><div>{['What is this material about?', 'Explain the main ideas'].map(prompt => <button key={prompt} type="button" onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div>}{entries.map((entry, index) => <article key={index} className={`sw-chat-entry ${entry.role}`}><strong>{entry.role === 'user' ? 'You' : '✦ Aura'}</strong>{entry.role === 'assistant' ? <TutorReply text={entry.text} clarification={entry.clarifyingQuestion} followUps={entry.followUpOptions} onFollowUp={value => { setQuestion(value); document.getElementById('sw-question')?.focus() }} /> : <><p>{entry.text}</p><button type="button" className="sw-link" disabled={!!busy} onClick={() => { setQuestion(entry.text); document.getElementById('sw-question')?.focus() }}>Edit &amp; resend</button></>}{entry.stopped && <span className="aura-stopped">■ Stopped</span>}{entry.role === 'assistant' && !entry.stopped && <><span className="sw-grounding">{entry.answerMode === 'visual' ? 'Visual interpretation — check against the image' : entry.answerMode === 'excerpt' ? 'Quoted source excerpts — explanation unavailable' : entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : (entry.answerMode === 'source' || entry.grounded) ? 'Source checked' : 'Contains unverified content — see answer label'}</span>{entry.citations?.length ? <SourceButtons ids={citedNumbers(entry.text)} citations={entry.citations} onOpen={setOpenCitation} /> : null}</>}</article>)}{partial?.key === chatKey && partial.text && <article className="sw-chat-entry assistant"><strong>✦ Aura</strong><TeachingText text={partial.text} /><span className="aura-stopped">{generation.active ? 'Writing…' : 'Stopped'}</span></article>}</div><form className="sw-composer" onSubmit={event => { event.preventDefault(); void send() }}><label className="sw-sr-only" htmlFor="sw-question">Ask Aura a question</label><textarea id="sw-question" rows={2} onKeyDown={event => {
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
                 event.preventDefault()
                 void send()
               }
-            }} value={question} disabled={!sourceId || !!busy} onChange={event => setQuestion(event.target.value)} placeholder={sourceId ? 'Ask a question about this material…' : 'Select or add a material first'} /><button className="sw-primary" type="submit" disabled={!sourceReady || !question.trim() || !!busy}>Send ↑</button></form></section><TutorCheck key={`${courseId}:${sourceId}`} courseId={courseId} sourceId={sourceId} disabled={!!busy || !sourceReady} onUpdated={() => { setProgressReload(value => value + 1); setReload(value => value + 1) }} onOpen={setOpenCitation} /></>}
+            }} value={question} disabled={!sourceId || !!busy} onChange={event => setQuestion(event.target.value)} placeholder={sourceId ? 'Ask a question about this material…' : 'Select or add a material first'} />{generation.active ? <button className="sw-primary" type="button" aria-label="Stop generation" disabled={generation.state === 'cancelling'} onClick={() => void stopGeneration()}>■</button> : <button className="sw-primary" type="submit" disabled={!sourceReady || !canChatGroup || !question.trim() || !!busy}>Send ↑</button>}</form></section><TutorCheck key={`${courseId}:${chatKey}`} courseId={courseId} sourceId={sourceId} materialIds={selectedIds} disabled={!!busy || !sourceReady || !canUseGroup} onUpdated={() => { setProgressReload(value => value + 1); setReload(value => value + 1) }} onOpen={setOpenCitation} /></>}
           {kind && <>
-            <form className="sw-generation" onSubmit={event => { event.preventDefault(); void generate() }}><label className="sw-focus">Focus <span>(optional)</span><input value={focus} maxLength={180} onChange={event => setFocus(event.target.value)} placeholder="e.g. cytoskeleton functions" disabled={!!busy} /></label>{kind !== 'summary' && <label>{kind === 'assessment' ? 'Questions' : 'Items'}<select value={count} disabled={!!busy} onChange={event => setCount(Number(event.target.value))}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}{kind === 'assessment' && <><label>Format<select value={questionType} disabled={!!busy} onChange={event => setQuestionType(event.target.value)}><option value="mcq">Multiple choice</option><option value="short_answer">Short answer</option><option value="numerical">Numerical (with units)</option></select></label><label>Practice mode<select value={learningMode} disabled={!!busy} onChange={event => setLearningMode(event.target.value as LearningMode)}><option value="adaptive">Adapt to my understanding</option><option value="diagnostic">Starting-point diagnostic</option><option value="manual">Choose difficulty myself</option></select></label>{learningMode === 'manual' && <label>Difficulty<select value={difficulty} disabled={!!busy} onChange={event => setDifficulty(event.target.value)}>{['beginner', 'intermediate', 'advanced'].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}</>}<button className="sw-primary" disabled={!sourceReady || !!busy || artifactsLoading || !!artifactsError} type="submit">{active ? 'Generate new' : 'Generate'}</button></form>
+            <form className="sw-generation" onSubmit={event => { event.preventDefault(); void generate() }}><label className="sw-focus">Focus <span>(optional)</span><input value={focus} maxLength={180} onChange={event => setFocus(event.target.value)} placeholder="e.g. cytoskeleton functions" disabled={!!busy} /></label>{kind !== 'summary' && <ItemCount value={count} onChange={setCount} disabled={!!busy} label={kind === 'assessment' ? 'Questions' : 'Items'} />}{kind === 'assessment' && <><div className="aura-field"><span>Format</span><ChoiceSelect label="Question format" value={questionType} disabled={!!busy} onChange={setQuestionType} options={[{value:'mcq',label:'Multiple choice'},{value:'short_answer',label:'Short answer'},{value:'numerical',label:'Numerical (with units)'}]} /></div><div className="aura-field"><span>Practice mode</span><ChoiceSelect label="Practice mode" value={learningMode} disabled={!!busy} onChange={value => setLearningMode(value as LearningMode)} options={[{value:'adaptive',label:'Adapt to my understanding'},{value:'diagnostic',label:'Starting-point diagnostic'},{value:'manual',label:'Choose difficulty myself'}]} /></div>{learningMode === 'manual' && <div className="aura-field"><span>Difficulty</span><ChoiceSelect label="Difficulty" value={difficulty} disabled={!!busy} onChange={setDifficulty} options={['beginner','intermediate','advanced'].map(value => ({value,label:value[0].toUpperCase()+value.slice(1)}))} /></div>}</>}<button className="sw-primary" disabled={!sourceReady || !canUseGroup || !!busy || artifactsLoading || !!artifactsError} type="submit">{active ? 'Generate new' : 'Generate'}</button></form>
             {artifactsError && <p className="sw-error" role="alert">{artifactsError} <button type="button" onClick={() => setReload(value => value + 1)}>Retry</button></p>}
             {artifactsLoading ? <p className="sw-muted" role="status">Loading saved work…</p> : !active ? <div className="sw-empty"><span>{tab === 'Assessment' ? '✓' : '▤'}</span><h2>{sourceId ? `Create your first ${tab.toLowerCase()}` : 'Choose a material first'}</h2><p>{sourceId ? 'Aura will generate content from selected passages and check its sources before saving.' : 'Select a file from the materials list or upload one.'}</p></div> : <>
-              <div className="sw-output-toolbar"><label>Saved version<select aria-label="Saved version" value={active.id} disabled={!!busy} onChange={event => { setSelectedArtifact(event.target.value); setFlipped({}) }}>{available.map(item => <option key={item.id} value={item.id}>{new Date(item.created_at).toLocaleString()}{item.payload.focus ? ` · ${item.payload.focus}` : ''}</option>)}</select></label>{kind !== 'assessment' && <button type="button" onClick={exportTool}>Export text ↓</button>}</div>
+              <div className="sw-output-toolbar"><div className="aura-field"><span>Saved version</span><ChoiceSelect label="Saved version" value={active.id} disabled={!!busy} onChange={value => { setSelectedArtifact(value); setFlipped({}) }} options={available.map(item => ({value:item.id,label:`${new Date(item.created_at).toLocaleString()}${item.payload.focus ? ` · ${item.payload.focus}` : ''}`}))} /></div>{kind !== 'assessment' && <button type="button" onClick={exportTool}>Export text ↓</button>}</div>
               {kind === 'assessment' && active.payload.learning && <p className="sw-status" role="status">{active.payload.learning.mode === 'diagnostic' ? 'Diagnostic' : active.payload.learning.mode === 'adaptive' ? 'Adaptive practice' : 'Practice'}: {active.payload.learning.reason}{active.payload.learning.difficulty ? ` Suggested difficulty: ${active.payload.learning.difficulty}.` : ''}</p>}
               <p className="sw-coverage">Based on your selected material. Check the linked slides as you study.</p>
               {active.payload.notice && <p className="sw-status" role="status">{active.payload.notice}</p>}
@@ -337,7 +415,7 @@ export default function StudyWorkspace(props: Props) {
               {kind === 'assessment' && (!active.result ? <form className="sw-assessment" onSubmit={event => void submit(event)}>{active.payload.items.map((item, index) => <fieldset key={item.id} disabled={!!busy}><legend><small>QUESTION {index + 1} · {item.difficulty} · {item.topic}</small>{item.prompt}</legend>{item.kind === 'mcq' ? item.choices?.map(choice => <label key={choice.id} className={draftAnswers[item.id] === choice.id ? 'is-chosen' : ''}><input type="radio" name={item.id} value={choice.id} required checked={draftAnswers[item.id] === choice.id} onChange={() => setAnswers(current => ({ ...current, [active.id]: { ...draftAnswers, [item.id]: choice.id } }))} /><span>{choice.id}</span>{choice.text}</label>) : <textarea aria-label={`Answer question ${index + 1}`} required rows={3} placeholder={item.kind === 'numerical' ? 'Enter a number and unit, e.g. 12 cm/s' : 'Explain your answer'} maxLength={3000} value={draftAnswers[item.id] ?? ''} onChange={event => setAnswers(current => ({ ...current, [active.id]: { ...draftAnswers, [item.id]: event.target.value } }))} />}<SourceButtons ids={item.citation_ids} citations={active.payload.citations} onOpen={setOpenCitation} /></fieldset>)}<button className="sw-primary" type="submit" disabled={!!busy || active.payload.items.some(item => !draftAnswers[item.id]?.trim())}>Submit assessment</button></form> : <section className="sw-report"><div className="sw-report-heading"><div><span className="sw-eyebrow">ASSESSMENT COMPLETE</span><h2>{active.result.correct_count} of {active.result.question_count} correct</h2></div><strong>{active.result.score}%</strong></div><p>{active.result.recommended_action}</p>{Boolean(active.result.mastery_updates?.length) && <p className="sw-status">Your topic mastery estimates were updated. <button type="button" onClick={() => selectTab('Progress')}>View understanding and next practice →</button></p>}{active.result.feedback.map((item, index) => <article key={item.question_id}><small className={item.correct ? 'sw-correct' : 'sw-incorrect'}>{item.correct ? 'Correct' : 'Review this'} · QUESTION {index + 1}</small><h3>{item.prompt}</h3><p><strong>Your answer:</strong> {item.submitted_answer}</p><p><strong>Expected answer:</strong> {item.expected_answer}</p><TeachingText text={item.explanation} />{item.numerical_feedback && <p>{item.numerical_feedback.hint}</p>}{item.misconception && <aside className="sw-status"><strong>Possible misconception: {item.misconception.category.replaceAll('_', ' ')}</strong><p>{item.misconception.hint}</p>{item.misconception.student_quote && <p>Your response: “{item.misconception.student_quote}”</p>}{item.misconception.source_quote && <p>Source evidence: “{item.misconception.source_quote}”</p>}<small>This is a feedback hypothesis from this answer, not a confirmed diagnosis.</small></aside>}<SourceButtons ids={item.citation_ids} citations={active.payload.citations} onOpen={setOpenCitation} /><button type="button" className="sw-link" onClick={() => { setFocus(item.topic); selectTab('Flashcards') }}>Review {item.topic} →</button></article>)}</section>)}
             </>}
           </>}
-          {tab === 'Progress' && <section className="sw-progress"><LearningPanel courseId={courseId} sourceId={sourceId} refreshKey={progressReload} disabled={!!busy || !sourceReady} onPractice={(mode, topic) => void startLearning(mode, topic)} />{progressError ? <p className="sw-error" role="alert">{progressError} <button type="button" onClick={() => setProgressReload(value => value + 1)}>Retry</button></p> : !progress ? <p role="status">Loading progress…</p> : <ProgressDashboard progress={progress} onPractice={() => selectTab('Assessment')} />}{weakTopics.length > 0 && <details className="sw-disclosure"><summary>Suggested review</summary><p className="sw-muted">Based on your completed practice.</p>{weakTopics.slice(0, 3).map(item => <button className="sw-review" key={item.topic} type="button" onClick={() => { setFocus(item.topic); selectTab('Flashcards') }}>{item.topic}<span>Create review cards →</span></button>)}</details>}<details className="sw-disclosure"><summary>Daily study rhythm &amp; reminders</summary><StudyRhythm courseId={courseId} onPractice={(topic, source) => openPlanTool('Assessment', topic, source)} /></details><EvaluationSummary courseId={courseId} /></section>}
+          {tab === 'Progress' && <section className="sw-progress"><LearningPanel courseId={courseId} sourceId={sourceId} refreshKey={progressReload} disabled={!!busy || !sourceReady || !canUseGroup} onPractice={(mode, topic) => void startLearning(mode, topic)} />{progressError ? <p className="sw-error" role="alert">{progressError} <button type="button" onClick={() => setProgressReload(value => value + 1)}>Retry</button></p> : !progress ? <p role="status">Loading progress…</p> : <ProgressDashboard progress={progress} onPractice={() => selectTab('Assessment')} />}{weakTopics.length > 0 && <details className="sw-disclosure"><summary>Suggested review</summary><p className="sw-muted">Based on your completed practice.</p>{weakTopics.slice(0, 3).map(item => <button className="sw-review" key={item.topic} type="button" onClick={() => { setFocus(item.topic); selectTab('Flashcards') }}>{item.topic}<span>Create review cards →</span></button>)}</details>}<details className="sw-disclosure"><summary>Daily study rhythm &amp; reminders</summary><StudyRhythm courseId={courseId} onPractice={(topic, source) => openPlanTool('Assessment', topic, source)} /></details><EvaluationSummary courseId={courseId} /></section>}
         </main>
       </div>
     </div>

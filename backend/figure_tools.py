@@ -25,6 +25,8 @@ class FigureRequest(BaseModel):
 
 
 def vision_json(image: bytes | list[bytes], prompt: str, tokens=1300, *, output_schema: dict | None = None) -> dict:
+    from backend.generation_jobs import guard
+    guard()
     model = os.getenv('OLLAMA_VISION_MODEL', '').strip()
     if not model:
         raise HTTPException(503, 'Set OLLAMA_VISION_MODEL in backend/.env to an installed vision-capable Ollama model, then restart the backend. Your text model stays unchanged.')
@@ -41,6 +43,7 @@ def vision_json(image: bytes | list[bytes], prompt: str, tokens=1300, *, output_
         response = requests.post(endpoint, json={'model':model,'messages':[{
             'role':'user','content':prompt,'images':[base64.b64encode(value).decode('ascii') for value in images]}],
             'format':output_schema if output_schema is not None else 'json','stream':False,'options':{'temperature':0,'num_predict':tokens,'num_ctx':max(8192,4096*(len(images)+1))}}, timeout=(5,300))
+        guard()
         response.raise_for_status()
         result = response.json()
         if not isinstance(result, dict): raise ValueError('Invalid envelope')

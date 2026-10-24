@@ -15,7 +15,7 @@ def assessment_payload(run, action, steps, history):
     citations = []
     for index, ref in enumerate(refs, 1):
         passage = observed[ref]
-        citations.append({'id': index, 'chunk_id': int(ref[1:]), 'source_id': run['source_id'],
+        citations.append({'id': index, 'chunk_id': int(ref[1:]), 'source_id': passage.get('source_id', run['source_id']),
             'title': passage.get('title', 'Selected material'), 'page': passage.get('page'),
             'slide': passage.get('slide'), 'seconds': None, 'topic_id': None,
             'location': (f"Slide {passage['slide']}" if passage.get('slide') else
@@ -31,7 +31,7 @@ def assessment_payload(run, action, steps, history):
     request = GenerateRequest(course_id=run['course_id'], source_id=run['source_id'], kind='assessment',
         count=len(raw_items), focus=action.focus, difficulty=action.difficulty, learning_mode='manual')
     items = validate_items(attach_source_evidence({'items': raw_items}, citations), request, citations, set(), history)
-    return {'agent_run_id': str(run['id']), 'source_id': run['source_id'], 'course_id': run['course_id'],
+    return {'material_ids': run['request'].get('material_ids') or [run['source_id']], 'agent_run_id': str(run['id']), 'source_id': run['source_id'], 'course_id': run['course_id'],
         'source_title': citations[0]['title'], 'title': action.title, 'focus': action.focus,
         'items': items, 'citations': citations,
         'coverage': {'selected_passages': len(citations), 'available_passages': len(observed)},

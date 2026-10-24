@@ -1,3 +1,5 @@
+import { savedGeneration } from '../services/generationJobs'
+import type { SavedGeneration } from '../services/generationJobs'
 import TutorReply from './TutorReply'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
@@ -16,6 +18,15 @@ import './ChatHome.css'
 import { readWorkspace, saveWorkspace } from '../services/workspaceStorage'
 import { imageFilename, restoreChatImages } from '../services/chatImages'
 import type { ChatImage } from '../services/chatImages'
+import MaterialPicker, { cleanSelection, MaterialChips, materialReady } from './MaterialPicker'
+import GenerationStatus from './GenerationStatus'
+import TeachingText from './TeachingText'
+import { listMaterials } from '../services/studyToolsApi'
+import type { Material } from '../services/studyToolsApi'
+import { useGeneration } from '../hooks/useGeneration'
+import { useGenerationSupport } from '../hooks/useGenerationSupport'
+import { multiMaterialNotice } from '../services/generationSupport'
+import { ApiResponseError } from '../services/apiClient'
 
 type Props = {
   courses: Course[]
@@ -32,6 +43,7 @@ type Props = {
   onCreateStudyPlan?: (goal: string, source?: string) => void
 }
 type Entry = {
+  stopped?: boolean
   message: ChatMessage
   citations: Citation[]
   clarifyingQuestion?: string
@@ -52,9 +64,10 @@ export default function ChatHome({
   onSignOut, signingOut, sessionNotice, workspaceKey, onOpenWorkspace, onCreateStudyPlan,
 }: Props) {
   const storageKey = `aura.chat.v1:${workspaceKey}:${courseId}`
+  const [pendingJob] = useState(() => savedGeneration(`${storageKey}:generation`))
   const [openCitation, setOpenCitation] = useState<ToolCitation | null>(null)
   const [saved] = useState(() => {
-    const value = readWorkspace<Partial<{ question: string; entries: Entry[]; uploaded: SourceUploadResult; uploadStage: UploadStage; fileNames: Record<string, string>; preparationIds: string[]; preparationId: string; pendingFilename: string; imageAttachments: ChatImage[] }>>(storageKey, {})
+    const value = readWorkspace<Partial<{ partial: { id: string; text: string; scope: string }; materialIds: string[]; question: string; entries: Entry[]; uploaded: SourceUploadResult; uploadStage: UploadStage; fileNames: Record<string, string>; preparationIds: string[]; preparationId: string; pendingFilename: string; imageAttachments: ChatImage[] }>>(storageKey, {})
     const source = value.uploaded
     if (!source || source.courseId !== courseId || !/^\d+$/.test(source.sourceId) || typeof source.filename !== 'string') delete value.uploaded
     value.entries = Array.isArray(value.entries) ? value.entries.filter(entry =>
@@ -66,10 +79,22 @@ export default function ChatHome({
          (c.location.kind === 'video_timestamp' && typeof c.location.seconds === 'number')) &&
         (c.excerpt === undefined || typeof c.excerpt === 'string'))
     ) : []
+    if (value.partial && typeof value.partial.id === 'string' && typeof value.partial.text === 'string' && value.partial.text && typeof value.partial.scope === 'string') value.entries.push({ message: { id: value.partial.id, role: 'tutor', content: value.partial.text, citationIds: [], isDemo: false }, citations: [], stopped: true, scope: value.partial.scope })
     return value
   })
   const [question, setQuestion] = useState(typeof saved.question === 'string' ? saved.question : '')
   const [entries, setEntries] = useState<Entry[]>(saved.entries ?? [])
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState(() => cleanSelection(pendingJob?.course === courseId && Array.isArray(pendingJob.payload.material_ids) ? pendingJob.payload.material_ids.map(String) : saved.materialIds ?? (saved.uploaded ? [saved.uploaded.sourceId] : [])))
+  const [materials, setMaterials] = useState<Material[]>([])
+  const [materialsLoading, setMaterialsLoading] = useState(false)
+  const [materialsError, setMaterialsError] = useState('')
+  const [materialRefresh, setMaterialRefresh] = useState(0)
+  const generation = useGeneration()
+  const support = useGenerationSupport(courseId)
+  const [partial, setPartial] = useState<{ id: string; text: string; scope: string } | null>(null)
+  const partialRef = useRef<typeof partial>(null)
+  const requestVersion = useRef(0)
+  const resumed = useRef(false)
   const [sending, setSending] = useState(false)
   const [chatError, setChatError] = useState('')
   const [failedQuestion, setFailedQuestion] = useState('')
@@ -95,20 +120,34 @@ export default function ChatHome({
   const mounted = useRef(true)
   const hasConversation = entries.length > 0
   const readyImages = imageAttachments.flatMap(item => item.stage === 'ready' && item.source ? [item.source] : [])
+  const effectiveIds = imageAttachments.length ? readyImages.map(source => source.sourceId) : selectedMaterialIds
+  const materialOptions = [...new Map([...materials, ...[...readyImages, ...(uploaded ? [uploaded] : [])].map(source => ({ id: source.sourceId, title: source.filename, type: source.fileType, status: 'ready' }))].map(item => [item.id, item])).values()]
+  const selectedReady = effectiveIds.every(id => materialOptions.some(item => item.id === id && materialReady(item)))
+  const legacyImages = effectiveIds.length > 1 && effectiveIds.every(id => imageFilename(materialOptions.find(item => item.id === id)?.title ?? ''))
+  const groupSupported = effectiveIds.length <= 1 || legacyImages || support.multi_chat
   const preparing = imageAttachments.length ? imageAttachments.some(item => ['uploading', 'embedding'].includes(item.stage)) : uploadStage === 'uploading' || uploadStage === 'embedding'
   const busy = sending || preparing || uploadEntries.some(entry => entry.state === 'waiting' || entry.state === 'uploading')
   const canEmbed = uploaded &&
     (uploaded.processingStatus === 'success' || uploaded.processingStatus === 'partial') &&
     uploaded.contentUnitCount > 0
-  const canSend = Boolean(studentName && workspaceKey && courseId) && !coursesLoading && !coursesError && !busy &&
+  const canSend = Boolean(studentName && workspaceKey && courseId) && !coursesLoading && !coursesError && !busy && !generation.active && selectedReady && groupSupported &&
     (imageAttachments.length ? readyImages.length === imageAttachments.length : uploadStage === 'idle' || uploadStage === 'ready')
-  const readySource = imageAttachments.length ? readyImages[0] ?? null : uploadStage === 'ready' ? uploaded : null
-  const chatScope = `${courseId}:${imageAttachments.length ? readyImages.map(source => source.sourceId).join(',') : readySource?.sourceId ?? ''}`
+  const readySource = effectiveIds[0] ? { sourceId: effectiveIds[0] } : null
+  const chatScope = `${courseId}:${effectiveIds.join(',')}`
   useEffect(() => {
     if (courseId) saveWorkspace(storageKey, { question, entries, uploaded: imageAttachments.length ? imageAttachments[0].source ?? null : uploaded,
       uploadStage: imageAttachments.length ? readyImages.length === imageAttachments.length ? 'ready' : 'embedding' : uploadStage,
-      imageAttachments, fileNames, preparationId, preparationIds, pendingFilename })
-  }, [storageKey, courseId, question, entries, uploaded, uploadStage, imageAttachments, fileNames, preparationId, preparationIds, pendingFilename])
+      imageAttachments, fileNames, preparationId, preparationIds, pendingFilename, materialIds: effectiveIds, partial })
+  }, [storageKey, courseId, question, entries, uploaded, uploadStage, imageAttachments, fileNames, preparationId, preparationIds, pendingFilename, selectedMaterialIds, partial])
+  useEffect(() => {
+    let cancelled = false
+    if (!courseId || !studentName) return
+    setMaterialsLoading(true); setMaterialsError('')
+    listMaterials(courseId).then(items => { if (!cancelled) { setMaterials(items); setFileNames(current => ({ ...current, ...Object.fromEntries(items.map(item => [item.id, item.title])) })) } })
+      .catch(() => { if (!cancelled) setMaterialsError('Could not load your saved materials. Refresh the list to try again.') })
+      .finally(() => { if (!cancelled) setMaterialsLoading(false) })
+    return () => { cancelled = true }
+  }, [courseId, studentName, materialRefresh])
 
   useEffect(() => { setUploadEntries([]); return () => uploadController.current?.abort() }, [courseId])
   useEffect(() => {
@@ -116,7 +155,7 @@ export default function ChatHome({
     return () => { mounted.current = false }
   }, [])
   useEffect(() => {
-    conversationEnd.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+    conversationEnd.current?.scrollIntoView({ block: 'end', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
   }, [entries, sending, chatError])
   useEffect(() => {
     if (uploadMenu) fileInput.current?.focus()
@@ -204,9 +243,11 @@ export default function ChatHome({
     if (image) setImageAttachments(current => current.map(item => item.jobId === job.id ? {...item, source, stage: 'ready', error: undefined} : item))
     else {
       setUploaded(source); setUploadStage('ready'); setPreparationId('')
+      setSelectedMaterialIds([source.sourceId])
       if (imageFilename(source.filename)) setImageAttachments([{key: `source-${source.sourceId}`, filename: source.filename, source, stage: 'ready'}])
     }
     setFileNames(current => ({ ...current, [source.sourceId]: source.filename }))
+    setMaterialRefresh(current => current + 1)
     composer.current?.focus()
   }
   function preparationFailed(job: PreparationJob) {
@@ -233,9 +274,14 @@ export default function ChatHome({
     }
   }
 
-  async function sendQuestion(text: string, retry = false) {
+  async function sendQuestion(text: string, retry = false, resume?: SavedGeneration) {
     text = text.trim()
     if (!text || !canSend || busyRef.current) return
+    const ticket = generation.start(); if (!ticket) return
+    resumed.current = true
+    const version = ++requestVersion.current
+    const draft = { id: crypto.randomUUID(), text: '', scope: chatScope }
+    partialRef.current = draft; setPartial(draft)
     busyRef.current = true
     setSending(true)
     setChatError('')
@@ -245,7 +291,7 @@ export default function ChatHome({
         message: { id: crypto.randomUUID(), role: 'student', content: text, citationIds: [], isDemo: false },
         citations: [],
         scope: chatScope,
-        ...(readyImages.length ? { attachments: readyImages.map(source => ({sourceId: source.sourceId, filename: source.filename})) } : {}),
+        ...(effectiveIds.length ? { attachments: effectiveIds.map(id => ({sourceId: id, filename: materialOptions.find(item => item.id === id)?.title ?? 'Material'})) } : {}),
       }])
       setQuestion('')
     }
@@ -254,16 +300,18 @@ export default function ChatHome({
         question: text,
         courseId,
         materialId: readySource?.sourceId,
-        ...(readyImages.length > 1 ? { materialIds: readyImages.map(source => source.sourceId) } : {}),
+        materialIds: effectiveIds,
         // Background answers also establish conversational subjects. The backend
         // treats history as context, never as uploaded-source evidence.
-        history: entries.filter(entry => entry.scope === chatScope)
+        history: entries.filter(entry => entry.scope === chatScope && !entry.stopped)
           .slice(-8).map(entry => ({
             role: entry.message.role === 'student' ? 'user' as const : 'assistant' as const,
             content: entry.message.content.slice(0, 12000),
           })),
-      })
-      if (mounted.current) {
+      }, { signal: ticket.signal, resume, enabled: support.study_jobs, course: courseId, storageKey: `${storageKey}:generation`, setCancel: generation.setCancel, combinedMaterials: !legacyImages && support.multi_chat,
+        onText: text => { if (ticket.current()) { const value = { ...draft, text }; partialRef.current = value; setPartial(value) } } })
+      if (ticket.current()) {
+        partialRef.current = null; setPartial(null)
         setEntries(current => [...current, {
           message: response.message, citations: response.citations, clarifyingQuestion: response.clarifyingQuestion, followUpOptions: response.followUpOptions,
           grounded: response.groundingStatus === 'grounded', answerMode: response.answerMode,
@@ -271,13 +319,17 @@ export default function ChatHome({
         }])
       }
     } catch (error) {
-      if (mounted.current) {
-        setChatError(errorMessage(error))
+      if (mounted.current && requestVersion.current === version) {
+        if (!ticket.signal.aborted && !ticket.cancelRequested()) setChatError(error instanceof ApiResponseError && error.message.startsWith('Aura could not confirm that all attached screenshots') ? error.message : 'Aura could not finish this answer. Your attachments and any received text are kept. Please retry.')
         setFailedQuestion(text)
+        if (ticket.signal.aborted || ticket.cancelRequested()) setQuestion(text)
       }
     } finally {
-      busyRef.current = false
-      if (mounted.current) {
+      generation.finish(ticket)
+      if (mounted.current && requestVersion.current === version) {
+        const captured = partialRef.current
+        if (captured?.text) setEntries(current => [...current, { message: { id: captured.id, role: 'tutor', content: captured.text, citationIds: [], isDemo: false }, citations: [], scope: captured.scope, stopped: true }])
+        partialRef.current = null; setPartial(null); busyRef.current = false
         setSending(false)
         composer.current?.focus()
       }
@@ -297,10 +349,12 @@ export default function ChatHome({
   function removeAttachment(key?: string) {
     if (sending || uploadEntries.some(entry => ['waiting', 'uploading'].includes(entry.state))) return
     const removedJob = imageAttachments.find(item => item.key === key)?.jobId
+    const removedSource = imageAttachments.find(item => item.key === key)?.source?.sourceId
     if (removedJob) setPreparationIds(current => current.filter(id => id !== removedJob))
     setImageAttachments(current => key ? current.filter(item => item.key !== key) : [])
     setPreparationId('')
     setUploaded(null)
+    setSelectedMaterialIds(current => key ? current.filter(id => id !== removedSource) : [])
     setUploadStage('idle')
     setUploadError('')
     setPendingFilename('')
@@ -314,6 +368,17 @@ export default function ChatHome({
     setChatError('')
     setFailedQuestion('')
     composer.current?.focus()
+  }
+  useEffect(() => {
+    if (resumed.current || !support.study_jobs || !canSend) return
+    const pending = savedGeneration(`${storageKey}:generation`)
+    if (!pending || pending.course !== courseId || pending.operation !== 'chat') return
+    resumed.current = true
+    void sendQuestion(String(pending.payload.question ?? ''), true, pending)
+  }, [support.study_jobs, canSend, storageKey])
+  function changeMaterials(ids: string[]) {
+    if (busy || generation.active) return
+    setSelectedMaterialIds(ids); setImageAttachments([]); setUploaded(null); setUploadStage('idle'); setUploadError(''); setChatError(''); setFailedQuestion('')
   }
 
   return (
@@ -337,11 +402,16 @@ export default function ChatHome({
           <p>Bring your study materials. Ask a question.<br />Make the difficult things a little clearer.</p>
         </section>}
 
+        <details className="aura-home__materials"><summary>Materials · {effectiveIds.length} selected</summary><MaterialPicker materials={materialOptions} selected={effectiveIds} onChange={changeMaterials} storageKey={`aura.sets.v1:${workspaceKey}:${courseId}`} disabled={busy || generation.active} loading={materialsLoading} />{materialsLoading && <p role="status">Loading materials…</p>}{materialsError && <p role="alert">{materialsError} <button type="button" onClick={() => setMaterialRefresh(value => value + 1)}>Refresh</button></p>}</details>
+        <MaterialChips materials={materialOptions} selected={effectiveIds} onChange={changeMaterials} disabled={busy || generation.active} />
+        {!groupSupported && <p className="aura-home__loading" role="status">{multiMaterialNotice}</p>}
         {hasConversation && <section className="aura-home__conversation" aria-label="Conversation" aria-busy={sending}>
           {entries.map(entry => <article key={entry.message.id} className={`aura-home__message aura-home__message--${entry.message.role}`}>
             <div className="aura-home__speaker">{entry.message.role === 'student' ? 'You' : '✦ Aura'}</div>
             <div className="aura-home__message-text">{entry.message.role === 'tutor' ? <TutorReply text={entry.message.content} clarification={entry.clarifyingQuestion} followUps={entry.followUpOptions} onFollowUp={value => { setQuestion(value); composer.current?.focus() }} /> : entry.message.content}</div>
-            {entry.message.role === 'student' && Array.isArray(entry.attachments) && <ul className="aura-home__sent-images" aria-label="Screenshots sent with this question">{entry.attachments.filter(item => item && typeof item.filename === 'string').map((item, index) => <li key={index}>Image {index+1}: {item.filename}</li>)}</ul>}
+            {entry.message.role === 'student' && Array.isArray(entry.attachments) && <ul className="aura-home__sent-images" aria-label="Materials sent with this question">{entry.attachments.filter(item => item && typeof item.filename === 'string').map((item, index) => <li key={index}>{imageFilename(item.filename) ? `Image ${index+1}: ` : ''}{item.filename}</li>)}</ul>}
+            {entry.message.role === 'student' && <button type="button" className="aura-home__plan-link" disabled={sending} onClick={() => { setQuestion(entry.message.content); composer.current?.focus() }}>Edit &amp; resend</button>}
+            {entry.stopped && <span className="aura-stopped">■ Stopped</span>}
             {entry.message.role === 'student' && onCreateStudyPlan && /\b(?:study plan|revision plan|exam|prepare for|study goal|\d+[- ]day plan)\b/i.test(entry.message.content) && <button className="aura-home__plan-link" type="button" onClick={() => onCreateStudyPlan(entry.message.content, uploaded?.sourceId)}>Turn this into a study plan ↗</button>}
             {entry.message.role === 'tutor' && entry.answerMode && <small>{entry.answerMode === 'visual' ? 'Visual interpretation — check against the image' : entry.answerMode === 'excerpt' ? 'Quoted source excerpts — explanation unavailable' : entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : (entry.answerMode === 'source' || entry.grounded) ? 'Source checked' : 'Answer could not be verified'}</small>}
             {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).length > 0 && <details className="aura-home__sources">
@@ -349,7 +419,7 @@ export default function ChatHome({
               {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).map(citation => <button key={`${citation.source_id}:${citation.id}`} className="aura-home__citation" type="button" onClick={() => setOpenCitation(citation)}>[{citation.referenceIds?.join(', ')}] {citation.title} · {citation.location}</button>)}
             </details>}
           </article>)}
-          {sending && <div className="aura-home__thinking" role="status">✦ Aura is thinking…</div>}
+          {partial?.text && <article className="aura-home__message aura-home__message--tutor"><div className="aura-home__speaker">✦ Aura</div><TeachingText text={partial.text} /><span className="aura-stopped">Writing…</span></article>}
           {chatError && <div className="aura-home__error" role="alert">
             <p>{chatError}</p>
             {failedQuestion && <button type="button" onClick={() => void sendQuestion(failedQuestion, true)} disabled={!canSend}>Retry question</button>}
@@ -368,6 +438,7 @@ export default function ChatHome({
             {canEmbed && uploaded?.courseId === courseId && <button type="button" onClick={() => void retryEmbeddings()} disabled={busy}>Retry preparation</button>}
           </div>}
 
+          <GenerationStatus active={generation.active} cancelling={generation.state === 'cancelling'} stopped={generation.state === 'stopped' || generation.state === 'cancelled' ? generation.state : undefined} slow={generation.slow} notice={generation.notice} onStop={() => void generation.stop()} onKeepWaiting={generation.keepWaiting} />
           <form className="aura-home__composer" onSubmit={submit}>
             {imageAttachments.length > 0 && <div className="aura-home__image-attachments" role="group" aria-label="Attached screenshots" aria-live="polite">
               {imageAttachments.map((item, index) => <div className={`aura-home__attachment aura-home__attachment--${item.stage}`} key={item.key}>
@@ -410,7 +481,7 @@ export default function ChatHome({
                 </div>}
               </div>
               <span className="aura-home__composer-hint">{sending ? 'Thinking…' : ''}</span>
-              <button type="submit" className="aura-home__send" aria-label="Send question" disabled={!canSend || !question.trim()}>↑</button>
+              {generation.active ? <button type="button" className="aura-home__send" aria-label="Stop generation" onClick={() => void generation.stop()}>■</button> : <button type="submit" className="aura-home__send" aria-label="Send question" disabled={!canSend || !question.trim()}>↑</button>}
             </div>
           </form>
           {!hasConversation && <p className="aura-home__footnote">Check the sources as you learn.</p>}

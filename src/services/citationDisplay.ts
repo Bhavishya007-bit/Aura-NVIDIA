@@ -26,7 +26,7 @@ export function chatCitationGroups(text: string, citations: Citation[], title: (
   const tools = citations.map((citation, index) => {
     const location = citation.location
     const number = citation.citationNumber ?? index + 1 // Preserve old saved chat entries.
-    return { id: number, chunk_id: 0, source_id: Number(citation.sourceId), title: title(citation.sourceId), excerpt: citation.excerpt ?? '',
+    return { id: number, chunk_id: 0, source_id: Number(citation.sourceId), title: citation.sourceName || title(citation.sourceId), excerpt: citation.excerpt ?? '',
       location: location.kind === 'pdf_page' ? (/\.(png|jpe?g)$/i.test(title(citation.sourceId)) ? 'Image' : `Page ${location.page}`) : location.kind === 'slide' ? `Slide ${location.slide}` : `${Math.floor(location.seconds / 60)}:${String(Math.floor(location.seconds % 60)).padStart(2, '0')}`,
       page: location.kind === 'pdf_page' ? location.page : null,
       slide: location.kind === 'slide' ? location.slide : null,
@@ -48,3 +48,4 @@ export function previewLocation(citation: ToolCitation): { kind: 'pdf_page' | 's
   if (time && Number(time[2]) < 60) return { kind: 'timestamp', value: Number(time[1]) * 60 + Number(time[2]) }
   return null
 }
+

@@ -11,9 +11,13 @@ import MemoryDialog from './MemoryDialog'
 import ResearchResult from './ResearchResult'
 import CodeResult, { savedCodeOutput, codeFailureMessage } from './CodeResult'
 import './AgentPanel.css'
+import GenerationStatus from './GenerationStatus'
+import ChoiceSelect, { ItemCount } from './ChoiceSelect'
+import { cleanSelection } from './MaterialPicker'
+import { multiMaterialNotice } from '../services/generationSupport'
 
-type Props = { courseId: string; sourceId: string; materialReady: boolean; storageKey: string; initialGoal?: string; materialNames?: Record<string, string>; onOpenTool: (tool: 'Flashcards' | 'Assessment' | 'Summary', topic: string, sourceId: string, artifactId?: string) => void }
-type Draft = { goal?: string; skill?: string; options?: PlanOptions; hidden?: string[]; selected?: string; runOptions?: Record<string, PlanOptions> }
+type Props = { courseId: string; sourceId: string; materialIds?: string[]; multiMaterial?: boolean; materialReady: boolean; storageKey: string; initialGoal?: string; materialNames?: Record<string, string>; onOpenTool: (tool: 'Flashcards' | 'Assessment' | 'Summary', topic: string, sourceId: string, artifactId?: string, materialIds?: string[]) => void }
+type Draft = { goal?: string; skill?: string; options?: PlanOptions; hidden?: string[]; selected?: string; runOptions?: Record<string, PlanOptions>; runMaterials?: Record<string, string[]> }
 const examples = [
   { label: '3-day plan', goal: 'Create a 3-day study plan from my material, with a review task for each day.' },
   { label: 'Exam tomorrow, focus on weak topics', goal: 'My exam is tomorrow. Create a 1-day revision plan. Prioritize topics I have struggled with if my saved progress is available; otherwise help me identify them.' },
@@ -43,7 +47,8 @@ function duration(run: AgentRun) {
 }
 function RichText({ text }: { text: string }) { return <TeachingText text={text} /> }
 
-export default function AgentPanel({ courseId, sourceId, materialReady, storageKey, initialGoal, materialNames = {}, onOpenTool }: Props) {
+export default function AgentPanel({ courseId, sourceId, materialIds, multiMaterial = false, materialReady, storageKey, initialGoal, materialNames = {}, onOpenTool }: Props) {
+  const selection = materialIds ?? (sourceId ? [sourceId] : [])
   const [saved] = useState(() => readWorkspace<Draft>(storageKey, {}))
   const [pane, setPane] = useState<'Plan' | 'Today'>('Plan')
   const [goal, setGoal] = useState(initialGoal ?? saved.goal ?? '')
@@ -58,6 +63,9 @@ export default function AgentPanel({ courseId, sourceId, materialReady, storageK
   const [assessmentEnabled, setAssessmentEnabled] = useState(false)
   const [options, setOptions] = useState<PlanOptions>(() => ({ ...defaults, ...saved.options }))
   const [runOptions, setRunOptions] = useState<Record<string, PlanOptions>>(saved.runOptions ?? {})
+  const [runMaterials, setRunMaterials] = useState<Record<string, string[]>>(saved.runMaterials ?? {})
+  const [cancelling, setCancelling] = useState<string | null>(null)
+  const cancellation = useRef<string | null>(null)
   const [allowMemory, setAllowMemory] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [webEnabled, setWebEnabled] = useState<boolean | null>(null)
@@ -79,7 +87,7 @@ export default function AgentPanel({ courseId, sourceId, materialReady, storageK
   const goalInput = useRef<HTMLTextAreaElement>(null)
   const manageMemoryButton = useRef<HTMLButtonElement>(null)
   const resultHeading = useRef<HTMLHeadingElement>(null)
-  useEffect(() => { saveWorkspace(storageKey, { goal, skill, options, hidden, selected, runOptions }) }, [storageKey, goal, skill, options, hidden, selected, runOptions])
+  useEffect(() => { saveWorkspace(storageKey, { goal, skill, options, hidden, selected, runOptions, runMaterials }) }, [storageKey, goal, skill, options, hidden, selected, runOptions, runMaterials])
   useEffect(() => {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -132,9 +140,10 @@ export default function AgentPanel({ courseId, sourceId, materialReady, storageK
   const goalExamples = skill === 'code_analysis' ? codeExamples : skill === 'assessment' ? quizExamples : skill === 'research_brief' ? researchExamples : examples
   const early = !!run && ['budget_exhausted', 'timed_out', 'interrupted'].includes(run.state)
   const activeCount = runs.filter(isActive).length
-  const canUseMaterial = skill === 'code_analysis' || (!!sourceId && materialReady)
+  const groupSupported = selection.length <= 1 || multiMaterial
+  const canUseMaterial = (skill === 'code_analysis' || (!!sourceId && materialReady)) && groupSupported
   const canStart = (skill !== 'assessment' || assessmentEnabled) && (skill !== 'code_analysis' || codeEnabled) && canUseMaterial && loaded && !!courseId && !!goal.trim() && !busy && (skill !== 'code_analysis' || (!readingFiles && !inputError)) && activeCount < 2
-  const canRegenerate = !busy && activeCount < 2 && (run?.request.skill === 'code_analysis' ? codeEnabled : !!sourceId && materialReady)
+  const canRegenerate = !busy && !cancelling && groupSupported && activeCount < 2 && (run?.request.skill === 'code_analysis' ? codeEnabled : !!sourceId && materialReady)
   const finishedSteps = run?.steps.filter(s => s.state === 'completed') ?? []
   const currentStep = run?.steps.find(s => ['running', 'started', 'pending'].includes(s.state))
   const progressLabel = (tool: string) => tool === 'verification' && run?.request.skill === 'code_analysis' ? 'Checking your explanation' : tool === 'verification' && run?.request.skill === 'assessment' ? 'Checking your questions' : stepLabel(tool)
@@ -146,9 +155,36 @@ export default function AgentPanel({ courseId, sourceId, materialReady, storageK
     return typeof data?.credits === 'number' && Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : null
   })
   const knownCredits = reportedCredits.reduce<number>((sum, n) => sum + (n ?? 0), 0)
+  const stopTarget = working ? run : active
+  async function stopRun() {
+    if (!stopTarget || cancellation.current) return
+    const id = stopTarget.id
+    cancellation.current = id; setCancelling(id); setError('')
+    try {
+      const value = await cancelAgent(courseId, id)
+      if (value.id !== id || typeof value.state !== 'string') throw new Error('Invalid cancellation acknowledgement')
+      // Preserve saved partial results; a cancellation response may contain newer ones.
+      setRuns(current => current.map(item => item.id === id ? { ...item, ...value } as AgentRun : item))
+      setRefresh(value => value + 1)
+    } catch { setError('Could not cancel this run yet. Please try Stop again.') }
+    finally { cancellation.current = null; setCancelling(null) }
+  }
+  useEffect(() => {
+    if (!stopTarget || cancelling) return
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.isComposing) { event.preventDefault(); void stopRun() } }
+    window.addEventListener('keydown', escape)
+    return () => window.removeEventListener('keydown', escape)
+  }, [stopTarget?.id, cancelling])
+  const savedRunMaterials = cleanSelection(run?.request.material_ids?.map(String) ?? (run ? runMaterials[run.id] ?? (run.source_id ? [String(run.source_id)] : []) : []))
 
+  function openSavedTool(tool: 'Flashcards' | 'Assessment' | 'Summary', topic: string, artifact?: string) {
+    if (!run?.source_id) return
+    if (savedRunMaterials.length > 1) onOpenTool(tool, topic, String(run.source_id), artifact, savedRunMaterials)
+    else if (artifact) onOpenTool(tool, topic, String(run.source_id), artifact)
+    else onOpenTool(tool, topic, String(run.source_id))
+  }
   async function create(inputGoal = goal, simple = false, source = sourceId, nextSkill = skill, chosenOptions = options, inputs = codeInputs) {
-    if ((nextSkill !== 'code_analysis' && (!source || !materialReady)) || !inputGoal.trim()) return
+    if (!groupSupported || (nextSkill !== 'code_analysis' && (!source || !materialReady)) || !inputGoal.trim()) return
     await act(async () => {
       const selectedOptions: PlanOptions = simple ? { days: '1', minutes: '20', depth: 'quick' } : chosenOptions
       const latestMemory = nextSkill === 'code_analysis' ? memory : await getMemories(courseId)
@@ -157,7 +193,9 @@ export default function AgentPanel({ courseId, sourceId, materialReady, storageK
       let requestGoal = goalWithOptions(adjustedGoal, nextSkill !== 'study_plan' ? { ...selectedOptions, days: '', minutes: '' } : selectedOptions) + (allowMemory && latestMemory.enabled ? '\nRemember learning preferences I explicitly state in this goal.' : '')
       if (nextSkill === 'assessment') requestGoal += `\nCreate exactly ${simple ? 1 : quizCount} multiple-choice questions. Difficulty: ${simple ? 'beginner' : quizDifficulty}.`
       if (nextSkill === 'code_analysis') requestGoal = inputGoal + (simple ? '\nUse one small calculation, print the essential result and skip output files.' : '')
-      const value = await startAgent(courseId, source && materialReady ? source : '', requestGoal, nextSkill, nextSkill !== 'code_analysis' && allowMemory && latestMemory.enabled, inputs)
+      const snapshot = selection.filter(id => id !== sourceId || materialReady)
+      const value = await startAgent(courseId, source && materialReady ? source : '', requestGoal, nextSkill, nextSkill !== 'code_analysis' && allowMemory && latestMemory.enabled, inputs, multiMaterial ? snapshot : undefined)
+      setRunMaterials(current => ({ ...current, [String(value.id)]: snapshot }))
       setSelected(String(value.id)); setPane('Plan'); setRunOptions(current => ({ ...current, [String(value.id)]: selectedOptions }))
     })
   }
@@ -202,6 +240,8 @@ export default function AgentPanel({ courseId, sourceId, materialReady, storageK
   }
   return <section className="study-plan" aria-label="Study plan workspace">
     <nav className="plan-tabs" aria-label="Plan views">{(['Plan', 'Today'] as const).map(p => <button key={p} type="button" aria-pressed={pane === p} onClick={() => setPane(p)}>{p}{p === 'Today' && tasks.some(t => !t.done) && <span>{tasks.filter(t => !t.done).length}</span>}</button>)}</nav>
+    {!groupSupported && <p className="plan-notice" role="status">{multiMaterialNotice}</p>}
+    {stopTarget && <GenerationStatus key={stopTarget.id} active={true} cancelling={cancelling === stopTarget.id} label={stopTarget.state === 'queued' ? 'Getting ready to begin…' : 'Working on your goal…'} startedAt={stopTarget.started_at ?? stopTarget.created_at} onStop={() => void stopRun()} />}
     {error && <div className="plan-notice plan-notice--warning" role="alert">{error} <button type="button" disabled={busy} onClick={() => setRefresh(v => v + 1)}>Retry</button></div>}
     {memoryNote && <div className="plan-notice" role="status">Noted: {memoryNote.item.record.text}<button type="button" disabled={busy} onClick={() => void act(async () => { if (memoryNote.before) await saveMemory(courseId, memoryNote.before.record, memoryNote.before.id); else await deleteMemory(courseId, memoryNote.item.id); setMemoryNote(undefined) })}>Undo</button><button type="button" aria-label="Dismiss memory notice" onClick={() => setMemoryNote(undefined)}>✕</button></div>}
     <div className="plan-sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
@@ -216,20 +256,21 @@ export default function AgentPanel({ courseId, sourceId, materialReady, storageK
         {skill === 'assessment' && <p className="plan-caption">Aura will create {quizCount} multiple-choice questions from your material and check their sources. Answer and get feedback in Assessment.</p>}
         {skill === 'code_analysis' && <div className="plan-code-input"><p className="plan-caption">Python standard library · no network access · up to two attempts. A material is optional. Only attached CSVs and any material excerpts Aura reads are sent for execution.</p><label htmlFor="plan-code-files">Attach CSV files <small>Optional · up to 2 files, 16 KiB each · UTF-8</small></label><input id="plan-code-files" type="file" accept=".csv,text/csv" multiple disabled={busy || readingFiles} onChange={e => void attachCSVs(Array.from(e.target.files ?? []))} />{readingFiles && <p role="status">Reading files…</p>}{inputError && <p role="alert">{inputError}</p>}{codeInputs.length > 0 && <><ul>{codeInputs.map(item => <li key={item.name}>{item.name}</li>)}</ul><button type="button" onClick={() => { ++fileReadVersion.current; setCodeInputs([]); setInputError(''); setReadingFiles(false); const field = document.getElementById('plan-code-files') as HTMLInputElement; if (field) field.value = '' }}>Remove files</button></>}</div>}
         <div className="plan-examples" aria-label="Example goals">{goalExamples.map(example => <button key={example.label} type="button" onClick={() => useExample(example)}>{example.label}<span aria-hidden="true"> ↗</span></button>)}</div>
-        {skill !== 'code_analysis' && <details className="plan-options"><summary>Options <span>Time, depth &amp; memory</span></summary><div className="plan-option-fields">{skill === 'assessment' && <><label>Questions<select value={quizCount} onChange={e => setQuizCount(Number(e.target.value))}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label><label>Difficulty<select value={quizDifficulty} onChange={e => setQuizDifficulty(e.target.value)}>{['beginner', 'intermediate', 'advanced'].map(value => <option key={value} value={value}>{value}</option>)}</select></label></>}{skill === 'study_plan' && <><label>Days available<input type="number" min={1} max={14} step={1} value={options.days} placeholder="Optional · 1–14" onChange={e => setOptions({ ...options, days: e.target.value })} /></label><label>Minutes per day<input type="number" min={5} max={600} step={1} value={options.minutes} placeholder="Optional · e.g. 30" onChange={e => setOptions({ ...options, minutes: e.target.value })} /></label></>}<label>Depth<select value={options.depth} onChange={e => setOptions({ ...options, depth: e.target.value as PlanOptions['depth'] })}><option value="quick">Quick</option><option value="standard">Standard</option><option value="deep">Deep</option></select></label></div><div className="plan-memory-option"><label><input type="checkbox" role="switch" checked={allowMemory && memory.enabled} disabled={!memory.enabled} onChange={e => setAllowMemory(e.target.checked)} /><span>Remember what I learn from this plan<small>{memory.enabled ? 'Aura can save preferences you explicitly ask it to remember.' : 'Memory is off in this workspace.'}</small></span></label><button ref={manageMemoryButton} type="button" className="plan-text-button" onClick={() => setMemoryOpen(true)}>Manage memory</button></div></details>}
+        {skill !== 'code_analysis' && <details className="plan-options"><summary>Options <span>Time, depth &amp; memory</span></summary><div className="plan-option-fields">{skill === 'assessment' && <><ItemCount label="Questions" value={quizCount} onChange={setQuizCount} /><div className="aura-field"><span>Difficulty</span><ChoiceSelect label="Quiz difficulty" value={quizDifficulty} onChange={setQuizDifficulty} options={['beginner','intermediate','advanced'].map(value=>({value,label:value[0].toUpperCase()+value.slice(1)}))} /></div></>}{skill === 'study_plan' && <><label>Days available<input type="number" min={1} max={14} step={1} value={options.days} placeholder="Optional · 1–14" onChange={e => setOptions({ ...options, days: e.target.value })} /></label><label>Minutes per day<input type="number" min={5} max={600} step={1} value={options.minutes} placeholder="Optional · e.g. 30" onChange={e => setOptions({ ...options, minutes: e.target.value })} /></label></>}<div className="aura-field"><span>Depth</span><ChoiceSelect label="Plan depth" value={options.depth} onChange={value=>setOptions({...options,depth:value as PlanOptions['depth']})} options={[{value:'quick',label:'Quick'},{value:'standard',label:'Standard'},{value:'deep',label:'Deep'}]} /></div></div><div className="plan-memory-option"><label><input type="checkbox" role="switch" checked={allowMemory && memory.enabled} disabled={!memory.enabled} onChange={e => setAllowMemory(e.target.checked)} /><span>Remember what I learn from this plan<small>{memory.enabled ? 'Aura can save preferences you explicitly ask it to remember.' : 'Memory is off in this workspace.'}</small></span></label><button ref={manageMemoryButton} type="button" className="plan-text-button" onClick={() => setMemoryOpen(true)}>Manage memory</button></div></details>}
         <div className="plan-compose-footer"><p id="plan-goal-hint">{skill === 'code_analysis' ? codeEnabled ? 'Code runs in an isolated environment. Results are saved with this run.' : 'Enable a Python execution backend to begin.' : !sourceId ? 'Choose a material to create your plan.' : !materialReady ? 'Your material needs to finish preparing before you begin.' : activeCount >= 2 ? 'Two plans are already in progress. Finish or cancel one to begin.' : 'Your progress is saved, even when you leave.'}</p><button type="submit" className="plan-primary" disabled={!canStart}>{busy ? 'Saving…' : skill === 'code_analysis' ? 'Run analysis' : skill === 'assessment' ? 'Create my quiz' : skill === 'research_brief' ? 'Start research' : 'Create my plan'} <span aria-hidden="true">→</span></button></div>
       </form>
       {loaded && !run && <div className="plan-empty plan-empty--quiet"><span aria-hidden="true">✦</span><h3>Your next study session, thoughtfully planned</h3><p>Choose an example above or tell Aura your goal. Your plan and checklist will live here.</p></div>}
       {run && <section className="plan-result" aria-labelledby="plan-result-title">
-        <header className="plan-result-heading"><div><span className={`plan-status ${early || run.state === 'failed' ? 'plan-status--warning' : ''}`}>{stateLabel(run.state)}</span><h2 ref={resultHeading} tabIndex={-1} id="plan-result-title">{working ? 'Making a little room for progress' : early ? 'Stopped early. Here is what Aura found so far.' : run.state === 'failed' ? 'Something went wrong' : run.state === 'cancelled' ? 'Cancelled' : run.request.skill === 'code_analysis' ? 'Your analysis' : run.request.skill === 'assessment' ? 'Your quiz is ready' : run.request.skill === 'research_brief' ? 'Your research brief' : 'Your study plan'}</h2><p>{displayGoal(run.request.goal)}</p></div><div className="plan-result-actions">{working ? <button type="button" disabled={busy} onClick={() => void act(() => cancelAgent(courseId, run.id))}>Cancel</button> : <>{hasContent && !assessment && run.request.skill !== 'code_analysis' && <button type="button" onClick={download}>Download .md</button>}{run.state === 'completed' && <button type="button" disabled={!canRegenerate} onClick={() => regenerate()}>Regenerate</button>}</>}</div></header>
+        <header className="plan-result-heading"><div><span className={`plan-status ${early || run.state === 'failed' ? 'plan-status--warning' : ''}`}>{stateLabel(run.state)}</span><h2 ref={resultHeading} tabIndex={-1} id="plan-result-title">{working ? 'Making a little room for progress' : early ? 'Stopped early. Here is what Aura found so far.' : run.state === 'failed' ? 'Something went wrong' : run.state === 'cancelled' ? 'Cancelled' : run.request.skill === 'code_analysis' ? 'Your analysis' : run.request.skill === 'assessment' ? 'Your quiz is ready' : run.request.skill === 'research_brief' ? 'Your research brief' : 'Your study plan'}</h2><p>{displayGoal(run.request.goal)}</p></div><div className="plan-result-actions">{working ? <button type="button" disabled={cancelling === run.id} onClick={() => void stopRun()}>{cancelling === run.id ? 'Cancelling…' : 'Stop'}</button> : <>{hasContent && !assessment && run.request.skill !== 'code_analysis' && <button type="button" onClick={download}>Download .md</button>}{run.state === 'completed' && <button type="button" disabled={!canRegenerate} onClick={() => regenerate()}>Regenerate</button>}</>}</div></header>
+        {savedRunMaterials.length > 0 && <p className="plan-caption">Materials for this run: {savedRunMaterials.map(id => materialNames[id] ?? 'Saved material').join(' · ')}</p>}
         {run.source_id && String(run.source_id) !== sourceId && <p className="plan-caption">Saved work for: {materialNames[String(run.source_id)] ?? 'a different material'}. Review actions use that file; regenerating uses the material selected above.</p>}
         {working && <div className="plan-progress"><ol>{finishedSteps.map((step, index) => <li key={index}><span className="plan-step-mark" aria-hidden="true">✓</span><span>{progressLabel(step.tool)}</span><small>Done</small></li>)}<li aria-current="step"><span className="plan-step-mark plan-step-mark--current" aria-hidden="true"><span className="plan-spinner" /></span><span>{run.state === 'queued' ? 'Getting ready to begin' : progressLabel(currentStep?.tool ?? '')}</span><small>In progress</small></li></ol><p>You can leave this page. Aura will keep working.</p></div>}
         {!working && codeOutput && <CodeResult run={run} courseId={courseId} />}
-        {!working && assessment && <div className="plan-content plan-quiz-ready"><span className="plan-kicker">READY TO PRACTICE</span><h3>{assessment.title}</h3><p>{assessment.question_count} multiple-choice questions · {assessment.difficulty}</p><p className="plan-caption">Questions were checked against cited passages by an AI model. Your score and feedback appear after you answer in Assessment.</p><button type="button" className="plan-primary" disabled={!run.source_id} onClick={() => onOpenTool('Assessment', assessment.focus, String(run.source_id), assessment.artifact_id)}>Open my quiz <span aria-hidden="true">↗</span></button></div>}
+        {!working && assessment && <div className="plan-content plan-quiz-ready"><span className="plan-kicker">READY TO PRACTICE</span><h3>{assessment.title}</h3><p>{assessment.question_count} multiple-choice questions · {assessment.difficulty}</p><p className="plan-caption">Questions were checked against cited passages by an AI model. Your score and feedback appear after you answer in Assessment.</p><button type="button" className="plan-primary" disabled={!run.source_id} onClick={() => openSavedTool('Assessment', assessment.focus, assessment.artifact_id)}>Open my quiz <span aria-hidden="true">↗</span></button></div>}
         {!working && run.result?.research_sections && <ResearchResult run={run} />}
         {!working && hasContent && !assessment && run.request.skill !== 'code_analysis' && !run.result?.research_sections && <div className="plan-content">{run.result?.verified !== true && <p className="plan-caption">A draft based on your material. Check the source slides as you study.</p>}{content!.overview && (run.request.skill === 'study_plan' ? <StudyPlanSteps text={content!.overview} label="Plan at a glance" /> : <RichText text={content!.overview} />)}<div className="plan-days">{content!.days.map(day => {
           const task = taskForDay(day, tasks), refs = slideReferences(run, day.references), minutes = runOptions[run.id]?.minutes, plannedMinutes = planDurationMinutes(day.details)
-          return <article className="plan-day" key={day.day}><div className="plan-day-top"><span className="plan-day-number">DAY {String(day.day).padStart(2, '0')}</span><small>{minutes ? `${minutes} min · your time budget` : plannedMinutes !== undefined ? `${plannedMinutes} min planned` : 'Follow the study steps'}</small></div><h3>{day.title}</h3><StudyPlanSteps text={day.details} label={`Study steps for day ${day.day}`} />{task ? <label className="plan-day-check"><input type="checkbox" checked={task.done} disabled={busy} onChange={e => void act(() => updateTask(courseId, task.id, e.target.checked))} /><span>{task.done ? 'Day complete' : 'Mark this day’s study task complete'}</span></label> : <p className="plan-caption">{day.taskId ? 'This saved task is currently unavailable.' : 'No saved checklist is attached to this day.'}</p>}{refs.length > 0 && <div className="plan-citations" aria-label="Source slides">{[...new Set(refs.map(r => r.slide))].map(slide => <span key={slide}>Slide {slide}</span>)}</div>}<div className="plan-day-actions">{([{ tab: 'Flashcards', text: 'Review flashcards' }, { tab: 'Assessment', text: 'Take a quick quiz' }, { tab: 'Summary', text: 'Read summary' }] as const).map(action => <button type="button" key={action.tab} disabled={!run.source_id} onClick={() => onOpenTool(action.tab, day.title, String(run.source_id))}>{action.text}<span aria-hidden="true"> ↗</span></button>)}</div></article>
+          return <article className="plan-day" key={day.day}><div className="plan-day-top"><span className="plan-day-number">DAY {String(day.day).padStart(2, '0')}</span><small>{minutes ? `${minutes} min · your time budget` : plannedMinutes !== undefined ? `${plannedMinutes} min planned` : 'Follow the study steps'}</small></div><h3>{day.title}</h3><StudyPlanSteps text={day.details} label={`Study steps for day ${day.day}`} />{task ? <label className="plan-day-check"><input type="checkbox" checked={task.done} disabled={busy} onChange={e => void act(() => updateTask(courseId, task.id, e.target.checked))} /><span>{task.done ? 'Day complete' : 'Mark this day’s study task complete'}</span></label> : <p className="plan-caption">{day.taskId ? 'This saved task is currently unavailable.' : 'No saved checklist is attached to this day.'}</p>}{refs.length > 0 && <div className="plan-citations" aria-label="Source slides">{[...new Map(refs.map(ref => { const passage = run.steps.flatMap(step => (step.observation as {passages?: {reference:string;title?:string}[]})?.passages ?? []).find(item => item.reference === ref.reference); const title = passage?.title ?? (savedRunMaterials.length === 1 ? materialNames[savedRunMaterials[0]] : undefined) ?? 'Material'; return [`${title}:${ref.slide}`, {title,slide:ref.slide}] as const })).values()].map(ref => <span key={`${ref.title}:${ref.slide}`}>{ref.title} · Slide {ref.slide}</span>)}</div>}<div className="plan-day-actions">{([{ tab: 'Flashcards', text: 'Review flashcards' }, { tab: 'Assessment', text: 'Take a quick quiz' }, { tab: 'Summary', text: 'Read summary' }] as const).map(action => <button type="button" key={action.tab} disabled={!run.source_id} onClick={() => openSavedTool(action.tab, day.title)}>{action.text}<span aria-hidden="true"> ↗</span></button>)}</div></article>
         })}</div></div>}
         {!working && !hasContent && <p className="plan-no-content">{early ? 'Aura saved its progress, but no readable plan was ready yet. Try a shorter goal or fewer days.' : run.state === 'cancelled' ? 'Your existing tasks and preferences are still saved. Start again whenever you’re ready.' : run.state === 'failed' ? run.request.skill === 'code_analysis' ? codeFailureMessage(run) : modelFailureMessage(run.error_code) ?? (run.request.skill === 'assessment' ? 'Aura could not finish checking this quiz. Try a narrower topic or fewer questions.' : run.request.skill === 'research_brief' ? run.error_code === 'invalid_action' ? 'Aura could not finish formatting this research brief. Try again.' : 'Aura could not finish this research brief. Try a narrower topic or retry.' : 'Your material is safe. Try creating the plan again.') : 'This run did not return a readable plan. You can try creating it again.'}</p>}
         {!working && (early || ['failed', 'cancelled'].includes(run.state)) && <div className="plan-recovery"><button className="plan-primary" type="button" disabled={!canRegenerate} onClick={() => regenerate()}>{run.state === 'failed' ? 'Retry' : run.state === 'cancelled' ? 'Start again' : 'Try again'}</button>{early && <button type="button" disabled={!canRegenerate} onClick={() => regenerate(true)}>Make it simpler</button>}</div>}

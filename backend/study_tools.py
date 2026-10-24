@@ -12,8 +12,8 @@ from difflib import SequenceMatcher
 from functools import partial
 from typing import Any, Literal
 from uuid import UUID, uuid4
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, StrictInt, model_validator
 from psycopg2.extras import Json
 from backend.ai.llm import LLM
 from backend.auth_db import get_auth_connection
@@ -21,6 +21,9 @@ from backend.auth_routes import get_current_student
 from backend.learning import learner_profile, record_result, select_learning_plan
 from backend.ai.numerical import generate_numerical, grade_numeric
 from backend.ai.misconceptions import classify_misconception
+
+from backend.material_groups import selected_ids, require_materials
+from backend.generation_jobs import guard
 
 router = APIRouter(prefix="/study", tags=["Study tools"])
 log = logging.getLogger(__name__)
@@ -179,6 +182,13 @@ def select_passages(
 
 
 class GenerateRequest(BaseModel):
+    material_ids: list[StrictInt] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="after")
+    def valid_materials(self):
+        selected_ids(self.source_id, self.material_ids)
+        return self
+
     course_id: int = Field(gt=0)
     source_id: int = Field(gt=0)
     kind: Literal["notes", "summary", "flashcards", "assessment"]
@@ -254,6 +264,17 @@ def source_passages(
     excluded_chunk_ids: set[int] | None = None,
     excerpt_length: int = 1100,
 ) -> tuple[str, list[JsonObject], int]:
+    if isinstance(source_id, list):
+        combined, titles, total = [], [], 0
+        for source in source_id:
+            title, rows, size = source_passages(cursor, course_id, source, focus, used_chunks,
+                passage_limit=max(1, passage_limit // len(source_id)), excluded_chunk_ids=excluded_chunk_ids,
+                excerpt_length=excerpt_length)
+            titles.append(title); total += size
+            for row in rows:
+                row['id'] = len(combined) + 1
+                combined.append(row)
+        return ' · '.join(titles), combined, total
     cursor.execute(
         "SELECT source_name FROM sources WHERE source_id = %s AND course_id = %s",
         (source_id, course_id),
@@ -787,7 +808,7 @@ def generate_practice(
                         _, fresh, _ = source_passages(
                             cursor,
                             request.course_id,
-                            request.source_id,
+                            selected_ids(request.source_id, request.material_ids),
                             request.focus,
                             used_chunks,
                             excluded_chunk_ids={int(c["chunk_id"]) for c in citations},
@@ -1016,6 +1037,8 @@ def generate_tool(
     student_id = student["student_id"]
     with database() as connection:
         with connection.cursor() as cursor:
+            ids = selected_ids(request.source_id, request.material_ids)
+            if request.material_ids: require_materials(cursor, student_id, request.course_id, ids)
             profile = learner_profile(cursor, student_id, request.course_id, request.source_id)
             request, learning_plan = select_learning_plan(request, profile)
             cursor.execute(
@@ -1056,7 +1079,7 @@ def generate_tool(
             title, citations, total = source_passages(
                 cursor,
                 request.course_id,
-                request.source_id,
+                selected_ids(request.source_id, request.material_ids),
                 request.focus,
                 used_chunks if request.kind in ("assessment", "flashcards") else None,
                 excerpt_length=(
@@ -1070,7 +1093,7 @@ def generate_tool(
         if learning_plan.get("target_topic"):
             for item in items:
                 item["topic"] = learning_plan["target_topic"]
-        payload = {"source_id": request.source_id, "course_id": request.course_id,
+        payload = {"material_ids": selected_ids(request.source_id, request.material_ids), "source_id": request.source_id, "course_id": request.course_id,
             "source_title": title, "focus": request.focus, "items": items, "citations": citations,
             "coverage": {"selected_passages": len(citations), "available_passages": total},
             "verification": "model_checked_formula_and_deterministic_calculation",
@@ -1080,6 +1103,7 @@ def generate_tool(
         artifact_id = uuid4()
         with database() as connection:
             with connection.cursor() as cursor:
+                guard(cursor)
                 cursor.execute("""INSERT INTO aura_study_artifacts(id,student_id,course_id,source_id,kind,payload)
                     VALUES (%s,%s,%s,%s,%s,%s) RETURNING created_at""",
                     (str(artifact_id),student_id,request.course_id,request.source_id,'assessment',Json(payload)))
@@ -1216,6 +1240,7 @@ DATA: """
         for item in items:
             item["topic"] = learning_plan["target_topic"]
     payload = {
+        "material_ids": selected_ids(request.source_id, request.material_ids),
         "source_id": request.source_id,
         "course_id": request.course_id,
         "source_title": title,
@@ -1240,6 +1265,7 @@ DATA: """
     artifact_id = uuid4()
     with database() as connection:
         with connection.cursor() as cursor:
+            guard(cursor)
             cursor.execute(
                 """INSERT INTO aura_study_artifacts(id, student_id, course_id, source_id, kind, payload)
                               VALUES (%s, %s, %s, %s, %s, %s) RETURNING created_at""",
@@ -1322,6 +1348,7 @@ def material_visibility(
 def artifacts(
     course_id: int,
     source_id: int | None = None,
+    material_ids: list[int] = Query(default=[]),
     student: JsonObject = Depends(get_current_student),
 ) -> JsonObject:
     with database() as connection:
@@ -1333,7 +1360,12 @@ def artifacts(
                               AND (%s::integer IS NULL OR a.source_id = %s) ORDER BY a.created_at DESC LIMIT 60""",
                 (student["student_id"], course_id, source_id, source_id),
             )
-            return {"artifacts": [public_artifact(*row) for row in cursor.fetchall()]}
+            rows = cursor.fetchall()
+            if material_ids:
+                selected_ids(source_id, material_ids)
+                require_materials(cursor, student['student_id'], course_id, material_ids)
+                rows = [row for row in rows if set(row[2].get('material_ids', [row[2]['source_id']])) == set(material_ids)]
+            return {"artifacts": [public_artifact(*row) for row in rows]}
 
 
 def grade_answers(
@@ -1472,9 +1504,11 @@ def submit(
             if existing is not None:
                 return existing[0]
             payload = row[0]
+            if len(payload.get('material_ids', [])) > 1: require_materials(cursor, student['student_id'], payload['course_id'], payload['material_ids'])
             result = grade_answers(
                 payload["items"], request.answers, payload["citations"]
             )
+            guard(cursor)
             result["mastery_updates"] = record_result(
                 cursor, student["student_id"], str(artifact_id), payload, result
             )

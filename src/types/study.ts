@@ -25,6 +25,7 @@ export interface Citation {
   citationNumber?: number
   materialId: string
   sourceId: string
+  sourceName?: string
   location: SourceLocation
   excerpt?: string
   isDemo: boolean

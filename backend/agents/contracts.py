@@ -208,7 +208,11 @@ class Decision(Strict):
     action: Annotated[Union[Search, WebSearch, ReadMemory, WriteMemory, ReadTasks, CreateTask, CreateStudyPlan, CreateAssessment, ExecuteCode, Finish], Field(discriminator='tool')]
 
 
+from backend.material_groups import selected_ids
+
+
 class RunInput(Strict):
+    material_ids: list[int] = Field(default_factory=list, max_length=5)
     course_id: int = Field(gt=0)
     source_id: int | None = Field(default=None, gt=0)
     skill: Literal['study_plan', 'research_brief', 'assessment', 'code_analysis']
@@ -221,6 +225,7 @@ class RunInput(Strict):
 
     @model_validator(mode='after')
     def nonblank(self):
+        selected_ids(self.source_id, self.material_ids)
         if not self.goal.strip():
             raise ValueError('Describe the agent task.')
         days = requested_days(self.goal)

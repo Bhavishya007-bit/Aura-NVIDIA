@@ -282,7 +282,7 @@ test('refresh reopens active runs; cancel retains completed step checkmarks', as
   await act(async () => root.unmount()); root = createRoot(document.getElementById('root'))
   await mount(AgentPanel, props())
   assert.match(visibleText(), /Working on your plan/)
-  await click(button('Cancel'))
+  await click(button('Stop'))
   assert(requests.some(r => r.path === '/agents/runs/run-a/cancel' && r.method === 'POST'))
   assert(button('Start again'))
 })
@@ -318,21 +318,21 @@ test('workspace keeps Agents identity but shows Study Plan, real extension and w
   materials.push({ source_id: 8, source_name: 'Biology revision.pdf', source_type: 'pdf', status: 'success' })
   await mount(StudyWorkspace, { user: { id: '1', fullName: 'Sam Rivera', email: 'sam@example.test' }, courses: [{ id: '6', title: 'Biology' }], courseId: '6', coursesLoading: false, coursesError: '', theme: 'dark', onCourseChange() {}, onThemeChange() {}, onChatHome() {}, onSignOut() {}, signingOut: false, sessionNotice: '' })
   assert.equal(document.querySelector('h1').textContent, 'Study Plan')
-  assert.match(document.querySelector('.sw-using').textContent, /Using: Biological membranes.ppt/)
-  assert.equal(document.querySelector('.sw-material-select small').textContent, 'PPT')
+  assert.match(document.querySelector('.aura-using').textContent, /Using.*Biological membranes.ppt/)
+  assert.equal(document.querySelector('.aura-material-option small').textContent, 'PPT')
   assert(!document.querySelector('.sw-heading .sw-eyebrow').textContent.includes('Biological membranes'))
   await click(button('Change'))
   assert.equal(document.activeElement, document.querySelector('.sw-material-search input'))
-  await click(document.querySelectorAll('.sw-material-select')[1])
+  await click(document.querySelectorAll('.aura-material-option input')[0]); await click(document.querySelectorAll('.aura-material-option input')[1])
   assert.equal(new URL(window.location.href).searchParams.get('source'), '8')
-  assert.match(document.querySelector('.sw-using').textContent, /Biology revision.pdf/)
+  assert.match(document.querySelector('.aura-using').textContent, /Biology revision.pdf/)
 })
 test('source/topic deep links reach existing tools and retain focus after reload', async () => {
   window.history.replaceState(null, '', '/?view=study&tab=Flashcards&source=7&topic=Membrane%20proteins')
   await mount(StudyWorkspace, { user: { id: '1', fullName: 'Sam Rivera' }, courses: [], courseId: '6', coursesLoading: false, coursesError: '', theme: 'dark', onCourseChange() {}, onThemeChange() {}, onChatHome() {}, onSignOut() {}, signingOut: false, sessionNotice: '' })
   assert.equal(document.querySelector('h1').textContent, 'Flashcards')
   assert.equal(document.querySelector('.sw-focus input').value, 'Membrane proteins')
-  assert(document.querySelector('.sw-material-row.is-selected'))
+  assert(document.querySelector('.aura-material-option.is-selected'))
 })
 test('full app honors the prefilled study goal on a direct link', async () => {
   window.history.replaceState(null, '', '/?view=study&tab=Agents&source=7&goal=Prepare%20for%20my%20exam')
@@ -379,7 +379,7 @@ test('generation failures do not expose stale provider advice and retain materia
   assert.match(document.querySelector('[role=alert]').textContent, /could not create and verify/)
   assert(!visibleText().includes('Ollama'))
   assert.equal(document.querySelector('.sw-focus input').value, 'Membrane proteins')
-  assert.match(document.querySelector('.sw-using').textContent, /Biological membranes.ppt/)
+  assert.match(document.querySelector('.aura-using').textContent, /Biological membranes.ppt/)
   assert(button('Generate').disabled === false)
 })
 
@@ -449,8 +449,9 @@ test('quiz outcome uses its own goals and preserves the existing start payload',
   assert(!visibleText().includes('Days available'))
   await click(button('Check the fundamentals'))
   await input(document.getElementById('plan-goal'), 'Create 5 questions about membrane proteins')
-  const selects = document.querySelectorAll('.plan-option-fields select')
-  await input(selects[0], '2'); await input(selects[1], 'advanced')
+  await click(document.querySelector('[aria-label="2 questions"]'))
+  await click(document.querySelector('[aria-label="Quiz difficulty"]'))
+  await click([...document.querySelectorAll('[role=option]')].find(item => item.textContent.startsWith('Advanced')))
   await click(button('Create my quiz'))
   const body = requests.find(r => r.method === 'POST' && r.path === '/agents/runs').body
   assert.deepEqual(Object.keys(body).sort(), ['course_id', 'source_id', 'goal', 'skill', 'allow_memory_write'].sort())
@@ -858,7 +859,7 @@ test('Overview opens the exact saved artifact without generating new output', as
   await click(document.querySelector('.study-home-saved>div>button'))
   assert.equal(document.querySelector('h1').textContent, 'Notes')
   assert.match(document.querySelector('.sw-reading').textContent, /Membranes contain lipids/)
-  assert.equal(document.querySelector('[aria-label="Saved version"]').value, 'notes-a')
+  assert.equal(document.querySelector('[aria-label="Saved version"]').getAttribute('role'), 'combobox')
   assert(!requests.some(r => r.method === 'POST'))
 })
 test('Overview disables study actions until the selected upload is ready', async () => {
@@ -867,4 +868,103 @@ test('Overview disables study actions until the selected upload is ready', async
   assert(button('Ask Aura').disabled)
   assert(button('Make a study plan').disabled)
   assert.match(document.querySelector('.study-home-hint').textContent, /being prepared/)
+})
+
+
+test('Stop aborts Chat, restores the editable question and ignores a late answer', async()=>{
+  const original=globalThis.fetch;let resolveAnswer,signal
+  globalThis.fetch=async(url,options={})=>new URL(url).pathname==='/chat' ? new Promise(resolve=>{resolveAnswer=resolve;signal=options.signal}) : original(url,options)
+  await mount(ChatHome,homeProps());await input(document.querySelector('#aura-question'),'Explain hash tables')
+  await click(document.querySelector('[aria-label="Send question"]'))
+  assert(document.querySelector('[aria-label="Stop generation"]'))
+  await click(document.querySelector('[aria-label="Stop generation"]'));assert(signal.aborted)
+  await act(async()=>{resolveAnswer(new Response(JSON.stringify({answer:'LATE ANSWER',sources:[]})));await tick();await tick()})
+  assert(!visibleText().includes('LATE ANSWER'));assert.match(visibleText(),/Stopped/)
+  assert.equal(document.querySelector('#aura-question').value,'Explain hash tables')
+})
+test('Esc stops a study request without removing the previous saved artifact',async()=>{
+  const original=globalThis.fetch;let signal,resolveWork
+  globalThis.fetch=async(url,options={})=>new URL(url).pathname==='/study/tools' ? new Promise(resolve=>{signal=options.signal;resolveWork=resolve}) : original(url,options)
+  window.history.replaceState(null,'','/?view=study&tab=Notes&source=7')
+  await mount(StudyWorkspace,{user:{id:'1',fullName:'Sam'},courses:[],courseId:'6',theme:'dark',onCourseChange(){},onThemeChange(){},onChatHome(){},onSignOut(){}})
+  await click(button('Generate'))
+  await act(async()=>{window.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await tick()})
+  assert(signal.aborted);assert.match(visibleText(),/Stopped/)
+  await act(async()=>{resolveWork(new Response('{}'));await tick()})
+  assert(!visibleText().includes('invalid JSON'))
+})
+test('material selection keeps five-item limit, disables processing and saves reusable study sets',async()=>{
+  materials=Array.from({length:7},(_,i)=>({source_id:7+i,source_name:`Lecture ${i+1}.pdf`,source_type:'pdf',status:i===6?'processing':'success'}))
+  await mount(ChatHome,homeProps())
+  assert(document.querySelectorAll('.aura-material-option input')[6].disabled)
+  await click(document.querySelector('.aura-selection-toolbar input'))
+  assert.equal(document.querySelectorAll('.aura-material-option input:checked').length,5)
+  await input(document.querySelector('.aura-set-editor input'),'DBMS revision');await click(button('Save set'))
+  assert.match(document.querySelector('.aura-study-sets').textContent,/DBMS revision/)
+  await click(document.querySelector('.aura-selection-toolbar input'))
+  await click(document.querySelector('.aura-set-select'));assert.equal(document.querySelectorAll('.aura-material-option input:checked').length,5)
+  assert.match(visibleText(),/one material at a time/)
+  assert(!requests.some(r=>r.path==='/chat'))
+})
+test('styled menus support arrows, Enter and Escape without changing a value on dismissal',async()=>{
+  await mount(AgentPanel,props())
+  const trigger=document.querySelector('[aria-label="Plan depth"]')
+  await click(trigger)
+  await act(async()=>{trigger.dispatchEvent(new window.KeyboardEvent('keydown',{key:'End',bubbles:true}));await tick()});
+  await act(async()=>{trigger.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await tick()})
+  assert.match(trigger.textContent,/Deep/)
+  await click(trigger)
+  await act(async()=>{trigger.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Home',bubbles:true}));trigger.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await tick()})
+  assert.match(trigger.textContent,/Deep/);assert.equal(trigger.getAttribute('aria-expanded'),'false')
+})
+
+test('advertised generation jobs use server cancellation and keep material arrays',async()=>{
+  const original=globalThis.fetch;let launch,stopped=false
+  globalThis.fetch=async(url,options={})=>{
+    const path=new URL(url).pathname
+    if(path==='/study/capabilities')return new Response(JSON.stringify({multi_chat:true,multi_study:true,multi_agents:true,study_jobs:true}))
+    if(path==='/study/generation-jobs') {launch=JSON.parse(options.body);return new Response(JSON.stringify({id:'job-a',course_id:6,state:'queued',result:null}))}
+    if(path==='/study/generation-jobs/job-a/cancel'){stopped=true;return new Response(JSON.stringify({id:'job-a',course_id:6,state:'cancelled',result:null}))}
+    if(path==='/study/generation-jobs/job-a')return new Response(JSON.stringify({id:'job-a',course_id:6,state:stopped?'cancelled':'running',result:null}))
+    return original(url,options)
+  }
+  materials.push({source_id:8,source_name:'Transcript.pdf',source_type:'pdf',status:'success'})
+  await mount(ChatHome,homeProps())
+  await click(document.querySelector('.aura-selection-toolbar input'))
+  await input(document.querySelector('#aura-question'),'Compare the two materials')
+  await click(document.querySelector('[aria-label="Send question"]'))
+  assert.deepEqual(launch.payload.material_ids,[7,8]);assert.equal(launch.operation,'chat')
+  await click(document.querySelector('[aria-label="Stop generation"]'))
+  assert(stopped);assert.match(visibleText(),/Cancelled/)
+  assert(!requests.some(r=>r.path==='/chat'))
+})
+
+test('refresh resumes a saved generation by ID without starting a second job',async()=>{
+  localStorage.setItem('aura.chat.v1:1:6:generation',JSON.stringify({job:{id:'saved-job',course:'6',operation:'chat',payload:{question:'Saved question',course_id:6,source_id:7,material_ids:[7]}}}))
+  const original=globalThis.fetch;let reads=0,creates=0
+  globalThis.fetch=async(url,options={})=>{
+    const path=new URL(url).pathname
+    if(path==='/study/capabilities')return new Response(JSON.stringify({multi_chat:true,study_jobs:true}))
+    if(path==='/study/generation-jobs') {creates++;throw new Error('Must not create a duplicate job')}
+    if(path==='/study/generation-jobs/saved-job'){reads++;return new Response(JSON.stringify({id:'saved-job',course_id:6,state:'completed',result:{answer:'Restored explanation',sources:[],citation_validation:{valid:false}}}))}
+    return original(url,options)
+  }
+  await mount(ChatHome,homeProps());await act(async()=>{await tick();await tick()})
+  assert.equal(creates,0);assert.equal(reads,1);assert.match(visibleText(),/Restored explanation/)
+  assert.match(document.querySelector('.aura-using').textContent,/Biological membranes/)
+})
+
+test('a stopped streamed answer preserves received text with no invented citations',async()=>{
+  const original=globalThis.fetch
+  globalThis.fetch=async(url,options={})=>{
+    if(new URL(url).pathname==='/chat')return new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('event: delta\r\ndata: {"text":"A hash table maps keys to positions."}\r\n\r\n'))}}),{headers:{'Content-Type':'text/event-stream'}})
+    return original(url,options)
+  }
+  await mount(ChatHome,homeProps());await input(document.querySelector('#aura-question'),'Explain hash tables')
+  await click(document.querySelector('[aria-label="Send question"]'))
+  assert.match(visibleText(),/A hash table maps keys to positions/)
+  await click(document.querySelector('[aria-label="Stop generation"]'))
+  assert.match(visibleText(),/Stopped/);assert.match(visibleText(),/A hash table maps keys to positions/)
+  assert.equal(document.querySelectorAll('.aura-home__citation').length,0)
+  assert.match(localStorage.getItem('aura.chat.v1:1:6'),/A hash table maps keys to positions/)
 })

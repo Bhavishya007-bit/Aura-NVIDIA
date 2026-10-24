@@ -1,3 +1,5 @@
+import { generationRequest, resumeGeneration } from './generationJobs'
+import type { JobOptions, SavedGeneration } from './generationJobs'
 import {
   requestApi,
   requireRecord,
@@ -154,6 +156,7 @@ function requireBackendId(value: string, label: string): number {
 }
 export async function askTutor(
   request: TutorRequest & { history?: Array<{ role: 'user' | 'assistant'; content: string }> },
+  options: JobOptions & { resume?: SavedGeneration; onText?: (text: string) => void; combinedMaterials?: boolean } = {},
 ): Promise<TutorResponse> {
   const courseId = requireBackendId(request.courseId, 'Course')
   const sourceIds = request.materialIds?.map(id => requireBackendId(id, 'Source')) ?? []
@@ -185,17 +188,21 @@ export async function askTutor(
       response_mode?: string
     }
   }
-  const response = await requestApi(
+  const transport = options.enabled ? <T,>(_path: string, init: { body?: BodyInit | null }, decode: (value: unknown) => T) => options.resume ? resumeGeneration(options.resume, decode, options) : generationRequest('chat', JSON.parse(String(init.body)), decode, { ...options, course: request.courseId }) : requestApi
+  const response = await transport(
     'chat',
     {
       method: 'POST',
+      signal: options.signal,
+      onText: options.onText,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         question: request.question,
         top_k: 3,
         course_id: courseId,
         source_id: sourceId,
-        ...(sourceIds.length > 1 ? { source_ids: sourceIds } : {}),
+        material_ids: sourceIds.length ? sourceIds : sourceId ? [sourceId] : [],
+        ...(sourceIds.length > 1 && !options.combinedMaterials ? { source_ids: sourceIds } : {}),
         history: request.history?.slice(-8) ?? [],
         answer_mode: request.answerMode,
         depth: request.depth,
@@ -217,10 +224,11 @@ export async function askTutor(
       return record as unknown as BackendChatResponse
     },
   )
-  if (sourceIds.length > 1 && (response.sources?.length !== sourceIds.length ||
+  if (!options.combinedMaterials && sourceIds.length > 1 && (response.sources?.length !== sourceIds.length ||
       response.sources.some((source, index) => String(source?.source_id) !== String(sourceIds[index])))) {
     throw new ApiResponseError('Aura could not confirm that all attached screenshots were used. Restart the updated backend and retry the question.')
   }
+  if (options.combinedMaterials && sourceIds.length && response.sources?.some(source => !sourceIds.includes(Number(source.source_id)))) throw new ApiResponseError('Aura could not confirm the sources for this selection. Please retry.')
   const citations: Citation[] = (response.sources ?? []).map(
     (source, index) => {
       const sourceRecord = requireRecord(source, 'chat source')
@@ -249,6 +257,7 @@ export async function askTutor(
         citationNumber: index + 1,
         materialId: String(source.source_id),
         sourceId: String(source.source_id),
+        sourceName: source.source_name,
         location,
         excerpt: source.content,
         isDemo: false,

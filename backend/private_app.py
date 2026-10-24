@@ -109,7 +109,11 @@ class ChatMessage(BaseModel):
     content: str = Field(min_length=1, max_length=12000)
 
 
+from backend.material_groups import selected_ids as group_ids, require_materials, GroupRetriever
+
+
 class PrivateChatRequest(BaseModel):
+    material_ids: list[StrictInt] = Field(default_factory=list, max_length=5)
     question: str = Field(min_length=1, max_length=12000)
     top_k: int = Field(default=3, ge=1, le=10)
     include_related_background: bool = True
@@ -122,6 +126,9 @@ class PrivateChatRequest(BaseModel):
 
     @model_validator(mode='after')
     def attached_sources(self):
+        group_ids(self.source_id, self.material_ids)
+        if self.material_ids and self.source_ids and self.material_ids != self.source_ids:
+            raise ValueError('Material selection must match attached sources.')
         if any(n < 1 for n in self.source_ids) or len(set(self.source_ids)) != len(self.source_ids):
             raise ValueError('Attachments must be distinct positive source IDs.')
         if self.source_ids and self.source_id is not None and self.source_id not in self.source_ids:
@@ -283,16 +290,20 @@ def create_private_app(legacy):
         if credentials is None:
             raise HTTPException(401, "Sign in to use the tutor.", headers={"WWW-Authenticate": "Bearer"})
         student = get_current_student(credentials)
+        return chat_for_student(body, student)
+
+    def chat_for_student(body, student):
         if body.course_id is None:
             raise HTTPException(422, "Choose a study workspace first.")
         image_selected = False
-        selected_ids = body.source_ids or ([body.source_id] if body.source_id is not None else [])
+        selected_ids = body.material_ids or body.source_ids or ([body.source_id] if body.source_id is not None else [])
         if body.source_id is None and len(selected_ids) == 1:
             body.source_id = selected_ids[0]
         selected_types = []
         with database() as connection:
             with connection.cursor() as cursor:
                 require_course(cursor, body.course_id, student["student_id"])
+                if body.material_ids: require_materials(cursor, student['student_id'], body.course_id, selected_ids)
                 for selected_id in selected_ids:
                     require_source(
                         cursor, selected_id, student["student_id"], body.course_id
@@ -307,9 +318,9 @@ def create_private_app(legacy):
                     selected_types.append(selected_type[0] if selected_type else None)
                 image_selected = len(selected_ids) == 1 and selected_types == ['image']
 
-        if len(selected_ids) > 1:
-            if any(kind != 'image' for kind in selected_types):
-                raise HTTPException(422, 'Attach screenshots together, or select one document for this question.')
+        if len(selected_ids) > 1 and not body.material_ids and any(kind != 'image' for kind in selected_types):
+            raise HTTPException(422, 'Attach screenshots together, or select one document for this question.')
+        if len(selected_ids) > 1 and all(kind == 'image' for kind in selected_types):
             return images_tutor_answer(selected_ids, body.question, student['student_id'],
                                        history=[m.model_dump() for m in body.history])
 
@@ -322,9 +333,11 @@ def create_private_app(legacy):
             with connection.cursor() as cursor:
                 profile = learner_profile(cursor, student["student_id"], body.course_id, body.source_id)
 
+        group = GroupRetriever(legacy.get_retriever(), student['student_id'], selected_ids) if len(selected_ids) > 1 else None
+
         class OwnedRetriever:
             def document_context(self, **kwargs):
-                return legacy.get_retriever().document_context(
+                return (group or legacy.get_retriever()).document_context(
                     owner_student_id=student['student_id'], **kwargs)
 
             def reading_warnings(self, course_id, source_id):
@@ -341,15 +354,15 @@ def create_private_app(legacy):
                 return row[0] if row and isinstance(row[0], list) else []
 
             def concept_context(self, query, **kwargs):
-                return legacy.get_retriever().concept_context(query, owner_student_id=student["student_id"], **kwargs)
+                return (group or legacy.get_retriever()).concept_context(query, owner_student_id=student["student_id"], **kwargs)
 
             def overview(self, **kwargs):
-                return legacy.get_retriever().overview(
+                return (group or legacy.get_retriever()).overview(
                     owner_student_id=student["student_id"], **kwargs
                 )
 
             def search(self, query, **kwargs):
-                return legacy.get_retriever().search(
+                return (group or legacy.get_retriever()).search(
                     query, owner_student_id=student["student_id"], **kwargs
                 )
 
@@ -385,5 +398,15 @@ def create_private_app(legacy):
     install_agents(app, legacy.LLM)
     from backend.study_rhythm import install_study_rhythm
     install_study_rhythm(app)
+    from uuid import UUID
+    from backend.generation_jobs import install_generation
+    from backend.study_tools import GenerateRequest, SubmitRequest, generate_tool, submit
+    class GradeJob(SubmitRequest):
+        artifact_id: UUID
+    install_generation(app, {
+        'chat': (PrivateChatRequest.model_validate, lambda data, student: chat_for_student(PrivateChatRequest.model_validate(data), student)),
+        'generate': (GenerateRequest.model_validate, lambda data, student: generate_tool(GenerateRequest.model_validate(data), student)),
+        'grade': (GradeJob.model_validate, lambda data, student: submit(UUID(data['artifact_id']), SubmitRequest.model_validate(data), student)),
+    })
     return app
 

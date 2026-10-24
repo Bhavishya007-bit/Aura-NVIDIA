@@ -14,6 +14,8 @@ from backend.agents.web import MAX_WEB_SEARCHES, WebSearchUnavailable, search_we
 
 log = logging.getLogger(__name__)
 
+from backend.material_groups import selected_ids, require_materials
+
 ACTIVE = ('queued', 'running')
 
 
@@ -146,6 +148,7 @@ class Store:
 
     def create(self, student, request):
         with self.cursor(student, request.course_id, request.source_id) as cur:
+            if request.material_ids: require_materials(cur, student, request.course_id, request.material_ids)
             if request.skill == 'code_analysis':
                 from backend.agents.sandbox import backend_name
                 if not backend_name():
@@ -275,14 +278,25 @@ class Store:
                     for day in action.days]
                 output = {'plan': action.model_dump(), 'tasks': tasks}
             elif action.tool == 'document_search':
-                cur.execute('''SELECT ch.chunk_id,ch.content,ch.page_number,ch.slide_number,s.source_name
+                selection = selected_ids(request.source_id, request.material_ids)
+                if len(selection) > 1:
+                    require_materials(cur, student, course, selection)
+                    cur.execute('''SELECT ch.chunk_id,ch.content,ch.page_number,ch.slide_number,s.source_name,s.source_id
+                        FROM sources s JOIN courses c ON c.course_id=s.course_id
+                        CROSS JOIN LATERAL (SELECT * FROM chunks x WHERE x.source_id=s.source_id
+                            AND btrim(COALESCE(x.content,''))<>''
+                            ORDER BY ts_rank_cd(to_tsvector('simple',x.content),plainto_tsquery('simple',%s)) DESC,x.chunk_id LIMIT 2) ch
+                        WHERE s.source_id=ANY(%s) AND s.course_id=%s AND s.owner_student_id=%s AND c.owner_student_id=%s
+                        ORDER BY s.source_id,ch.chunk_id''', (action.query, selection, course, student, student))
+                else:
+                    cur.execute('''SELECT ch.chunk_id,ch.content,ch.page_number,ch.slide_number,s.source_name,s.source_id
                     FROM chunks ch JOIN sources s ON s.source_id=ch.source_id JOIN courses c ON c.course_id=s.course_id
                     WHERE s.course_id=%s AND s.owner_student_id=%s AND c.owner_student_id=%s
                     AND (%s::integer IS NULL OR s.source_id=%s) AND btrim(COALESCE(ch.content,''))<>''
                     ORDER BY ts_rank_cd(to_tsvector('simple',ch.content),plainto_tsquery('simple',%s)) DESC,ch.chunk_id LIMIT 4''',
                     (course, student, student, run['source_id'], run['source_id'], action.query))
                 output = {'passages': [{'reference': 'D'+str(row['chunk_id']), 'text': row['content'][:900],
-                    'title': row['source_name'], 'page': row['page_number'], 'slide': row['slide_number']}
+                    'title': row['source_name'], 'source_id': row['source_id'], 'page': row['page_number'], 'slide': row['slide_number']}
                     for row in cur.fetchall()], 'source': 'uploaded_material', 'untrusted_data': True}
                 if request.skill == 'assessment':
                     output['previous_questions'] = [item['prompt'][:600] for item in assessment_history(cur, run)[:10]]
@@ -411,7 +425,7 @@ class Store:
                 raise HTTPException(409, 'The quiz needs a successful source check before saving.')
             cur.execute('''INSERT INTO aura_study_artifacts(id,student_id,course_id,source_id,kind,payload)
                 VALUES(%s,%s,%s,%s,'assessment',%s)''',
-                (str(run['id']), run['student_id'], run['course_id'], run['source_id'], Json(payload)))
+                (str(run['id']), run['student_id'], run['course_id'], run['source_id'], Json({**payload, 'material_ids': selected_ids(request.source_id, request.material_ids)})))
             result = assessment_result(run, action)
             step.update(state='completed', observation=result['assessment'])
             cur.execute('''UPDATE aura_agent_runs SET steps=steps || %s::jsonb,state='completed',result=%s,
