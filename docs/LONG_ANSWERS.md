@@ -1,5 +1,54 @@
 # Length and format follow-ups
 
+## Short source-only result after the routing fix
+
+The 937-word follow-up is a checked-point result with no background section.
+Its prose repeats the same hash-table definitions, and it does not meet the
+2,000-word request. There are no matching backend logs, so the response does not
+identify whether background was disabled, blocked by source-only mode, rejected
+by review, or interrupted by the provider. Do not call it a successful length fix.
+
+Code inspection found a separate configuration inconsistency: the source writer
+uses `for_summary()`, but the background writer previously bypassed it. Background
+writing now applies the same `NEBIUS_SUMMARY_REASONING_EFFORT` setting without
+mutating the base, coverage or reviewer clients. The quality profile sets `none`;
+explicit operator choices such as `low` or `provider` are still respected.
+
+A truncated background writing response can use the already permitted second
+writing attempt. It requests the complete final text again and can reserve only
+measured reasoning overhead within the existing operator token ceiling. Partial
+provider text is neither published nor submitted to the reviewer. Truncation
+twice still withholds background. A review failure never restarts the writer or
+rerolls a negative verdict. No source/accuracy checks or budgets were removed.
+
+Long-summary logs now distinguish `summary_background=skipped` with fixed reasons
+(`disabled`, `source_only`, `excerpt_only`, `no_checked_summary`, `length_met`,
+`no_remaining_budget`) from `start`, `rejected`, `generated` and `withheld`.
+Unavailable calls record the stage (`configuration`, `generation`, `validation`,
+`review`) and a fixed failure category. These diagnostics never include student
+text, keys, filenames, reviewer comments or arbitrary provider error bodies.
+They establish what actually ran before any further quality or model changes.
+
+The wire-level regressions in `evaluation.check_background_reasoning` use real
+request serialization and response parsing with authored HTTP responses. They
+check a 937+1,063-word shape, reasoning settings, bounded truncation recovery,
+review failure, source-only/disabled policy and redaction. They do not establish
+live Nemotron accuracy or imply that adding arbitrary prose meets teaching goals.
+For the intended summary-plus-background behavior, enable the existing profile
+and restart the backend:
+
+```powershell
+python scripts/configure_model_quality.py --apply
+uvicorn backend.main:app --reload
+```
+
+`--apply` makes no model request and keeps credentials/database settings. It
+selects the profile's documented Ultra configuration and enables separately
+labelled, model-reviewed background; it does not bypass explicit source-only
+requests. If the next answer is still short, inspect the matching
+`summary_background=` lines and provider logs, rather than infer a cause from
+the word count alone.
+
 ## Broken PDF wording and selected-file binding
 
 `Summarize the P indf 2000 words.` did not match the document-summary

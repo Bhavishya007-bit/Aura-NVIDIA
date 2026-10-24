@@ -363,14 +363,23 @@ class SourceAwareTutor:
                     decision = self._unknown('A source-based overview was produced from readable samples; whole-file coverage has not been established.')
         # A source-only overview remains source-only. The opt-in quality profile
         # can add a separately labelled lesson, never fabricated slide contents.
-        if (overview and mode == 'intelligence' and self.response_request['target_words']
-            and self.response_request['target_words'] >= 1200
-            and os.getenv('AURA_SUMMARY_BACKGROUND', '').lower() == 'true'
-            and sections and source_validation.get('response_mode') != 'extractive'
-            and not length_check('\n'.join(s.text for s in sections), self.response_request)['valid']):
-            extra = background_lesson(client, question, '\n'.join(s.text for s in sections), self.response_request, depth=depth)
-            if extra:
-                sections.append(extra)
+        if overview and self.response_request['target_words'] and self.response_request['target_words'] >= 1200:
+            source_text = '\n'.join(s.text for s in sections)
+            reason = ('source_only' if mode != 'intelligence' else
+                      'disabled' if os.getenv('AURA_SUMMARY_BACKGROUND', '').strip().lower() != 'true' else
+                      'no_checked_summary' if not sections else
+                      'excerpt_only' if source_validation.get('response_mode') == 'extractive' else
+                      'length_met' if length_check(source_text, self.response_request)['valid'] else
+                      'no_remaining_budget' if word_count(source_text) > self.response_request['target_words'] - 100 else None)
+            if reason:
+                log.info('summary_background=skipped reason=%s source_words=%s target_words=%s',
+                         reason, word_count(source_text), self.response_request['target_words'])
+            else:
+                log.info('summary_background=start source_words=%s target_words=%s',
+                         word_count(source_text), self.response_request['target_words'])
+                extra = background_lesson(client, question, source_text, self.response_request, depth=depth)
+                if extra:
+                    sections.append(extra)
         # Unknown coverage is never labelled not covered.
         if mode == "intelligence" and not overview and decision.status != "fully_covered":
             try:

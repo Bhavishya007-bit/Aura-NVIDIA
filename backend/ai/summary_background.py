@@ -7,6 +7,7 @@ import re
 from backend.ai.answer_contract import AnswerSection, CITATIONS
 from backend.ai.answer_quality import wrong_script
 from backend.ai.background_review import review_background
+from backend.ai.llm import LLMConnectionError, LLMResponseError
 from backend.ai.response_request import response_request, length_check, length_distance
 
 log = logging.getLogger(__name__)
@@ -87,11 +88,21 @@ def background_lesson(client, question, source_text, request, *, depth='standard
                'checked_overview': overview,
                'combined_word_target': request['target_words'], 'source_words': source_words,
                'purpose': 'Additional explanation outside the uploaded material, clearly labelled.'}
-    writer = client.with_output_budget(req['token_budget']) if hasattr(client, 'with_output_budget') else client
+    try:
+        writer = client.with_output_budget(req['token_budget']) if hasattr(client, 'with_output_budget') else client
+        configure = getattr(type(writer), 'for_summary', None)
+        if callable(configure):
+            writer = configure(writer)
+    except Exception as error:
+        log.warning('summary_background=unavailable stage=configuration failure_code=invalid_configuration error_type=%s',
+                    type(error).__name__)
+        return None
     best, rejected = None, set()
     for attempt in range(2):
+        stage = 'generation'
         try:
             raw = writer.generate(json.dumps(payload), max_retries=1, system_prompt=SYSTEM).strip()
+            stage = 'validation'
             if wrong_script(raw, question):
                 raise ValueError('Wrong language')
             # Reject fabricated citations before trimming or review.
@@ -104,6 +115,7 @@ def background_lesson(client, question, source_text, request, *, depth='standard
             key = ' '.join(text.split())
             if key in rejected:
                 break  # Do not reroll a negative verdict on unchanged prose.
+            stage = 'review'
             verdict = review_background(client, question, overview, text, depth)
             if not verdict.acceptable:
                 rejected.add(key)
@@ -120,10 +132,28 @@ def background_lesson(client, question, source_text, request, *, depth='standard
             payload.update(prior_draft=text, feedback={'actual_words': length_check(text, req)['actual_words'],
                 'target_words': remaining, 'instruction': 'Rewrite this whole background section to the target. Add substantive explanation, not repetition.'})
         except Exception as error:
-            log.warning('summary_background=unavailable attempt=%s error_type=%s', attempt+1, type(error).__name__)
+            code = ('output_truncated' if isinstance(error, LLMResponseError) and error.failure_code == 'output_truncated'
+                    else 'model_timeout' if isinstance(error, LLMConnectionError) and error.failure_code == 'model_timeout'
+                    else 'model_connection_failed' if isinstance(error, LLMConnectionError)
+                    else 'invalid_model_response' if isinstance(error, LLMResponseError)
+                    else 'invalid_background' if stage == 'validation'
+                    else 'review_unavailable' if stage == 'review' else 'generation_unavailable')
+            log.warning('summary_background=unavailable attempt=%s stage=%s failure_code=%s error_type=%s',
+                        attempt+1, stage, code, type(error).__name__)
+            if stage == 'generation' and code == 'output_truncated' and attempt == 0:
+                # Reuse the existing second writing attempt, never publish or
+                # feed partial provider output to the reviewer. Only measured
+                # reasoning overhead can increase the operator-bounded budget.
+                if error.reasoning_tokens and hasattr(writer, 'with_output_budget'):
+                    writer = writer.with_output_budget(error.max_tokens + error.reasoning_tokens)
+                payload['feedback'] = {
+                    'failure_code': 'output_truncated', 'target_words': remaining,
+                    'instruction': 'Write the complete final lesson directly within the target. Omit planning and commentary; use complete short paragraphs.'}
+                continue
             break
     if best:
         log.info('summary_background=generated actual_words=%s target_words=%s total_words=%s model_review=passed verified=False',
                  length_check(best[0].text, req)['actual_words'], remaining, best[1]['actual_words'])
         return best[0]
+    log.info('summary_background=withheld reason=no_approved_draft')
     return None
