@@ -1,7 +1,7 @@
 {
   "version": "phase4-eval-v1",
   "mode": "controlled_offline",
-  "checked_at": "2026-10-23T15:24:36.658295+00:00",
+  "checked_at": "2026-10-24T02:32:17.286654+00:00",
   "checks": [
     {
       "category": "agent_tasks",
@@ -146,22 +146,22 @@
     "Human agreement and live teaching quality remain unmeasured until real outputs are collected and reviewed."
   ],
   "calibration": {
-    "reviewed": 0,
+    "reviewed": 30,
     "required": 30,
-    "agreement": null,
-    "kappa": null,
+    "agreement": 0.4,
+    "kappa": 0.10000000000000005,
     "ready": false,
     "confusion_matrix": {
       "fully_covered": {
-        "fully_covered": 0,
+        "fully_covered": 2,
         "partially_covered": 0,
         "not_covered": 0,
         "unknown": 0
       },
       "partially_covered": {
-        "fully_covered": 0,
-        "partially_covered": 0,
-        "not_covered": 0,
+        "fully_covered": 8,
+        "partially_covered": 10,
+        "not_covered": 10,
         "unknown": 0
       },
       "not_covered": {
@@ -171,7 +171,7 @@
         "unknown": 0
       }
     },
-    "false_absence_rate": null,
+    "false_absence_rate": 0.3333333333333333,
     "notice": "Do not trust an LLM judge yet: collect 30 live outputs and have a person label them. Targets: agreement ≥80%, Cohen kappa ≥0.60, false not-covered rate ≤5% on covered questions."
   }
 }
