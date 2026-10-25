@@ -11,6 +11,8 @@ The official [hackathon rules](https://nebiusglobalaihackathon.devpost.com/rules
 
 ## Entrant actions before submitting
 
+**Repository visibility:** the connected `Bhavishya007-bit/Aura-NVIDIA` repository was private when this package was prepared. Releases inherit repository visibility. Review the source and history, then make the repository public (or publish the reviewed source and ZIP in a public submission repository). A private release URL is not accessible to judges. The packaging workflow does not change repository visibility.
+
 1. Create a **dedicated judging credential** in the Token Factory project you intend to fund. Verify NVIDIA Nemotron Ultra access with the existing model-quality smoke check. Do not distribute a personal account password or put a provider key in the release, README, video, GitHub issue or frontend variables.
 2. Put the dedicated credential **only in the private Devpost testing instructions**. It is entered into the judge's local backend config; it is never bundled with the download. Treat this as privileged access: anyone holding an API key can use it directly, bypassing Aura's local token caps. Use provider-enforced restrictions/budgets if your account supports them; do not claim Aura's local limits cap the provider account. If the provider does not permit this credential-sharing method, arrange a compliant protected relay before submission instead.
 3. Keep that credential valid and funded for the entire judging period. Recheck the official dates/rules at submission; the rules inspected on October 25 list judging through December 15, 2026 at noon Pacific. Do not rely on promotional credit expiry without checking your actual account.

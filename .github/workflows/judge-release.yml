@@ -75,7 +75,7 @@ jobs:
           docker compose --env-file judge/.env.judge -f judge/compose.yaml down
           docker compose --env-file judge/.env.judge -f judge/compose.yaml up -d --wait --wait-timeout 180 db app
           test "$(docker compose --env-file judge/.env.judge -f judge/compose.yaml exec -T db psql -U aura_judge -d aura_judge -Atc 'SELECT id FROM judge_restart_probe')" = 1
-      - name: Publish a public downloadable test build
+      - name: Publish the downloadable test build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -87,7 +87,9 @@ jobs:
 
           This prerelease passes extracted-package Linux container, browser, and restart-persistence checks. It does not certify Windows launcher execution, live model quality or human judge calibration. Vision requires an optional model download. Code & Data execution uses the separate native setup described in the quickstart.
 
-          Entrant: complete private model access and the clean-machine walkthrough in docs/JUDGE_SUBMISSION.md before submitting this test build to judges.
+          Releases inherit repository visibility. If this repository is private, this download is private too.
+
+          Entrant: make the reviewed source and download public, complete private model access, and perform the clean-machine walkthrough in docs/JUDGE_SUBMISSION.md before submitting this test build to judges.
           NOTES
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" /tmp/aura-release/Aura-Judge-Build.zip /tmp/aura-release/SHA256SUMS.txt --clobber
