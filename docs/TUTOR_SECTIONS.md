@@ -41,6 +41,8 @@ The next live reply showed two false acceptances: a sourced load-factor definiti
 
 Both individual and batch citation verification enforce the source check. Both ordinary tutor and long-summary background share the deletion check through `review_background`. Writer/reviewer prompts also require clause-by-clause support and distinguish an algorithm family from an implementation choice. No route, payload, database field or dependency changed.
 
+Soft line wraps are joined within each sentence before these checks; blank lines still delimit blocks. An additional regression generates the actual six-page demo PDF and reads its collision page with PyMuPDF, covering the line break between “load factor” and “describes.” Wrapped background prose is tested too. These do not rely solely on the unwrapped source constant.
+
 The [Chalmers/Gothenburg course textbook, section 11.5](https://chalmersgu-data-structure-courses.github.io/dsabook/html/section-11.5.html) describes lazy deletion with tombstones and reinsertion of the rest of a linear-probing cluster as distinct strategies. Alternatives must be compatible with the probing scheme; the change does not prescribe one deletion strategy for every implementation.
 
 `evaluation/check_teaching_claims.py` includes the actual reported sentences and synthetic source notes, deliberately approving model fixtures, batch record/citation checks, positive source definitions, explicit causal evidence, qualified deletion statements and bounded correction/withholding. Passing these cases shows the recognised mistakes are blocked independently of an approving model. It does not establish general fact-checking accuracy or resolve human judge calibration. A fresh local answer is still required after rebuilding.

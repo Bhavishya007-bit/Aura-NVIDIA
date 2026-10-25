@@ -12,7 +12,10 @@ def plain(text):
 
 
 def sentences(text):
-    return [plain(s).strip(' \t.!?;:"“”') for s in re.split(r"(?<=[.!?])\s+|\n+", text)]
+    # Soft line wraps must not split a sentence from a PDF or Markdown writer.
+    return [
+        plain(s).strip(' \t.!?;:"“”') for s in re.split(r"(?<=[.!?])\s+|\n\s*\n", text)
+    ]
 
 
 EFFECT = re.compile(

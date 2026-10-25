@@ -77,6 +77,6 @@ Run the same start command next time. Existing credentials and the separate `aur
 - **Model request fails:** check internet connectivity and ask the entrant to verify the privately supplied Token Factory key has model access and remaining credits. Do not post the key or `.env.judge` in an issue.
 - **Server diagnostics:** from the `judge` directory run `docker compose --env-file .env.judge -f compose.yaml logs --tail 60 app`. Review logs before sharing; do not send environment dumps or `docker compose config` output containing credentials.
 - **Read the local login again:** rerun the start script. It preserves your settings and prints only the local demo login.
-- **Tutor source support or explanation quality:** see [the source-retention and teaching checks](docs/TUTOR_SECTIONS.md). After pulling source changes, rebuild the Docker app; an already-running image does not update from Git pull alone. Test a new question and inspect its citations.
+- **Tutor source support or explanation quality:** see [the current tutor quality checks](docs/TUTOR_SECTIONS.md). After pulling source changes, rebuild the Docker app; an already-running image does not update from Git pull alone. Test a new question and inspect its citations.
 
 See [docs/JUDGE_SUBMISSION.md](docs/JUDGE_SUBMISSION.md) for the entrant's release and private testing-access checklist. The public package never contains a provider key.

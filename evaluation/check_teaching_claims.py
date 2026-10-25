@@ -1,6 +1,9 @@
 """Known false acceptances remain rejected even when the model approves them."""
 
 import json
+from pathlib import Path
+import tempfile
+import textwrap
 import unittest
 from unittest.mock import Mock
 
@@ -8,7 +11,7 @@ from backend.ai.background_review import review_background
 from backend.ai.citation_grounding import CitationGrounding
 from backend.ai.teaching_checks import background_issues, source_claim_issue
 from backend.ai.tutor_sections import tutor_background
-from backend.production.demo import SECTIONS
+from backend.production.demo import SECTIONS, write_demo_pdf
 from evaluation.check_background_review import ACCEPT
 from evaluation.check_phase2 import FakeLLM
 
@@ -28,6 +31,21 @@ QUALIFIED = (
 
 
 class SourceClauseChecks(unittest.TestCase):
+    def test_actual_pdf_extraction_line_wrap_does_not_hide_the_added_clause(self):
+        import pymupdf
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "authored-demo.pdf"
+            write_demo_pdf(path)
+            with pymupdf.open(path) as document:
+                evidence = document[1].get_text()
+        self.assertIn("load factor\ndescribes", evidence)
+        self.assertFalse(
+            CitationGrounding(FakeLLM(supported=True)).verify_claim(
+                ADDED_CLAUSE, evidence
+            )["supported"]
+        )
+
     def test_actual_reported_extra_clause_is_not_approved_by_a_positive_model(self):
         client = FakeLLM(supported=True)
         verdict = CitationGrounding(client).verify_claim(ADDED_CLAUSE, NOTES)
@@ -92,6 +110,10 @@ class SourceClauseChecks(unittest.TestCase):
 
 
 class DeletionClaimChecks(unittest.TestCase):
+    def test_soft_wrapped_background_still_rejects_a_universal_requirement(self):
+        self.assertTrue(background_issues(textwrap.fill(UNIVERSAL, width=32)))
+        self.assertEqual(background_issues(textwrap.fill(QUALIFIED, width=32)), [])
+
     def client(self):
         client = Mock()
         client.with_output_budget.return_value = client
