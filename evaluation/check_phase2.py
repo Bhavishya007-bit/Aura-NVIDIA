@@ -64,6 +64,8 @@ class FakeLLM:
 
     def generate_json(self, data, max_retries=2, system_prompt=None):
         self.calls.append((self.task, "json", system_prompt, data))
+        if 'AURA_BACKGROUND_REVIEW:' in data:
+            return {'accurate': True, 'relevant': True, 'appropriately_scoped': True, 'issues': []}
         if system_prompt:
             value = self.decisions.pop(0) if len(self.decisions) > 1 else self.decisions[0]
             if isinstance(value, Exception): raise value
@@ -156,8 +158,10 @@ class PipelineChecks(unittest.TestCase):
 
     def test_unsupported_sourced_claim_is_not_published(self):
         r = self.run_tutor(sourced="The membrane is made of gold [1].", supported=False)
-        self.assertEqual(r["sections"], [])
-        self.assertFalse(r["citation_validation"]["valid"])
+        self.assertNotIn('made of gold', r['answer'])
+        self.assertEqual(r['citation_validation']['source_validation']['response_mode'], 'extractive')
+        self.assertIn('exact excerpts', r['answer'])
+        self.assertIn('lipid bilayer', r['sections'][0]['text'])
 
     def test_clear_question_has_no_clarification(self):
         self.assertIsNone(self.run_tutor()["clarifying_question"])

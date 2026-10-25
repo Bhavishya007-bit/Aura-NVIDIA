@@ -18,6 +18,7 @@ from backend.ai.summary_answer import SummaryDraft, SummaryDraftError, summary_c
 from backend.ai.summary_background import background_lesson
 from backend.ai.summary_intent import generic_material_summary, normalize_summary_request
 from backend.ai.response_request import response_request, resolve_format_followup, length_check, length_distance, word_count
+from backend.ai.tutor_sections import recover_tutor, tutor_background
 
 log = logging.getLogger(__name__)
 PROMPTS = Path(__file__).with_name("prompts") / "v1"
@@ -266,6 +267,13 @@ class SourceAwareTutor:
             if not best_checked[1]['length_validation']['valid']:
                 best_checked[1]['stage'] = 'requested_length_not_met'
             return best_checked
+        if not overview:
+            recovered, recovered_validation = recover_tutor(
+                sources, checks, decision, question, self.response_request)
+            if recovered:
+                log.info('tutor_source=recovered response_mode=%s', recovered_validation['response_mode'])
+                recovered_validation['length_validation'] = length_check(recovered.text, self.response_request)
+                return recovered, recovered_validation
         return None, validation
 
     def answer(self, question, top_k=3, course_id=None, source_id=None, history=None):
@@ -393,20 +401,18 @@ class SourceAwareTutor:
                 if extra:
                     sections.append(extra)
         # Unknown coverage is never labelled not covered.
+        background_unavailable = False
         if mode == "intelligence" and not overview and decision.status != "fully_covered":
-            try:
-                extra = client.generate(json.dumps({"missing_parts": decision.missing_parts,
+            extra = tutor_background(client, {"missing_parts": decision.missing_parts,
                     "coverage_status": decision.status, "depth_policy": policy,
                     "response_request": self.response_request,
                     "conversation_context": self.conversation_context,
-                    "profile_style": self.rag.learning_style, "question": question}),
-                    max_retries=1, system_prompt=prompt("beyond_material.txt")).strip()
-                section = AnswerSection(kind="beyond", text=extra, provenance="model_knowledge", verified=False)
-                sections.append(section)
-            except Exception as error:
-                # Reject fabricated document citations rather than stripping them
-                # and presenting the same unsupported text with a cleaner label.
-                log.warning("background_answer=unavailable error_type=%s", type(error).__name__)
+                    "profile_style": self.rag.learning_style, "question": question},
+                prompt("beyond_material.txt"), '\n\n'.join(s.text for s in sections), depth)
+            if extra:
+                sections.append(extra)
+            else:
+                background_unavailable = True
         notices = []
         if overview and sections and source_validation.get('sections_missing', 0):
             notice = 'Some parts of your material could not be included in this checked summary.'
@@ -425,6 +431,12 @@ class SourceAwareTutor:
         elif decision.status == "unknown":
             notices.append("I found this topic in your material, but couldn't verify a full explanation from the available text and labels."
                            if mention_found else "I couldn't determine whether your material covers this question. This does not mean it is absent.")
+        if not overview and sections and source_validation.get('response_mode') == 'extractive':
+            notices.append("I couldn't verify a complete explanation, so here are exact excerpts from your material.")
+        elif not overview and sections and source_validation.get('response_mode') == 'checked_points':
+            notices.append('Here are the source-backed points I could verify; this is a partial explanation.')
+        if background_unavailable:
+            notices.append("I couldn't check the additional explanation this time. Please retry.")
         if reading_warnings and decision.status != "fully_covered":
             notices.append("Some parts of this file could not be read completely. Review its reading notices; image or diagram details may need a clearer upload.")
         length = length_check('\n'.join(s.text for s in sections), self.response_request) if sections else None

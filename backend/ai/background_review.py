@@ -34,7 +34,13 @@ The checked_overview proves only what was linked to the material; its simplified
 or mistaken statements must not be inherited as general factual guarantees.
 accurate: Reject a technical error, invented empirical number, impossible worked
 example, invalid derivation or a guaranteed claim that needs assumptions. Check
-numeric examples by following their stated rules. Distinguish average/expected,
+technical aliases as well as the main definition. In hash-table terminology,
+open addressing is also called closed hashing; do not equate it with closed
+addressing. A fixed load-factor threshold does not guarantee a bound on probe
+lengths without assumptions about hashing, probing and key distribution. Do not
+approve broad claims about predictable worst-case performance from a small
+worked example.
+Check numeric examples by following their stated rules. Distinguish average/expected,
 amortized and worst-case costs; storage layout from collision policy; a type's
 mutability from its hash/equality contract. Do not trust an example just because
 it is labelled hypothetical. If uncertain about implementation details, require
