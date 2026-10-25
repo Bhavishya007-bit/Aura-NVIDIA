@@ -2,7 +2,7 @@
 
 ## Current release status
 
-The deployment code and production safeguards are implemented. A public deployment is **not yet created**: this workspace has no configured Nebius CLI, hosting credentials, managed PostgreSQL URL or Token Factory key. No paid infrastructure has been provisioned. Token Factory model credits are not assumed to cover AI Cloud compute or database hosting.
+The deployment code and production safeguards are implemented. A public deployment is **not yet created**. Render is connected, its “My Workspace” was confirmed, and read-only discovery found no services or databases. The user explicitly chose **free hosting only**. No paid resources have been created. There is no configured Nebius compute project, managed PostgreSQL URL or server-side Token Factory key in this execution workspace. Token Factory model credits are not assumed to cover AI Cloud compute or database hosting.
 
 The GitHub **Production container smoke** workflow builds the real image, initializes a fresh PostgreSQL database with pgvector, starts the non-root app, checks anonymous API protection and opens a fresh logged-out Chromium browser. This is a container verification; it is not the required final test against a public URL. The latter remains pending until the account and URL exist.
 
@@ -32,6 +32,18 @@ The image contains the compiled Vite frontend and full FastAPI backend. It runs 
 The app still uses Qwen embeddings, OCR, LibreOffice for old presentations, and Whisper for audio. The Docker image includes their libraries/system tools. Embedding/transcription models download lazily into `/data/models`. Diagram/image reading additionally needs a reachable vision service; the app image does not contain a running Ollama server. The optional `vision` compose profile supplies a private service. Its port is not published to the internet.
 
 A CPU host needs enough RAM for the real embedding model and any vision model. Start by evaluating a 16 GB host for the complete CPU demo, then measure actual memory/latency. This is a planning starting point, not a measured capacity guarantee. A tiny free web-service instance is not assumed sufficient.
+
+## Free-only hosting constraint
+
+The connected Render workspace is ready for account operations, but the current full stack is not a viable free Render web-service deployment unchanged. Render's free web compute plan provides 512 MB RAM; the local Qwen embedding and optional vision models need substantially more. Persistent disks are available on paid services, so original uploads/previews would otherwise disappear on restart. A free static frontend alone would not provide a working tutor API.
+
+No underprovisioned or incomplete public service has been created merely to obtain a URL. Finishing a free deployment requires an existing sufficiently sized always-on host, compute credits that cover the actual container service, or a separately agreed architecture change to external model/storage services. Do not substitute Token Factory inference credits for confirmed compute credits. The final public smoke and judging-period availability checks remain pending.
+
+Verified provider references:
+
+- https://render.com/docs/compute-plans
+- https://render.com/docs/disks
+- https://render.com/docs/free
 
 ## Create the production configuration
 
