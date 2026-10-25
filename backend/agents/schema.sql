@@ -45,3 +45,6 @@ CREATE TABLE IF NOT EXISTS aura_agent_runs (
 );
 CREATE INDEX IF NOT EXISTS aura_runs_owner ON aura_agent_runs(student_id,course_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS aura_runs_queue ON aura_agent_runs(state,created_at);
+ALTER TABLE aura_agent_tasks ADD COLUMN IF NOT EXISTS scheduled_for date;
+ALTER TABLE aura_agent_tasks ADD COLUMN IF NOT EXISTS completed_at timestamptz;
+ALTER TABLE aura_agent_runs ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT FALSE;

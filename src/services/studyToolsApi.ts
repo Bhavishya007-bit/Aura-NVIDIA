@@ -12,14 +12,16 @@ export type Material = { id: string; title: string; type: string; status: string
 export type ToolCitation = { id: number; chunk_id: number; source_id: number; title: string; location: string; excerpt: string; page?: number | null; slide?: number | null; seconds?: number | null; referenceIds?: number[] }
 export type ToolItem = {
   id: string; title?: string; text?: string; question?: string; answer?: string
-  prompt?: string; kind?: 'mcq' | 'short_answer' | 'numerical'; topic?: string; difficulty?: string
+  prompt?: string; kind?: 'mcq' | 'multiple_choice' | 'multiple_select' | 'short_answer' | 'numerical'; topic?: string; difficulty?: string
+  card_type?: 'term_definition' | 'question_answer' | 'cloze'
+  options?: Array<{id:string;text:string}>
   choices?: Array<{ id: string; text: string }>; citation_ids: number[]
 }
 export type Misconception = { category: string; status: 'possible'; hint: string; method: string; student_quote?: string; source_quote?: string; citation_ids: number[] }
 export type AssessmentFeedback = { question_id: string; prompt: string; correct: boolean; submitted_answer: string; expected_answer: string; explanation: string; topic: string; citation_ids: number[]; misconception?: Misconception; numerical_feedback?: { hint: string; converted_answer?: number } }
 export type TopicPerformance = { topic: string; score: number; correct: number; total: number }
 export type AssessmentReport = { score: number; question_count: number; correct_count: number; feedback: AssessmentFeedback[]; topics: TopicPerformance[]; recommended_action: string; completed_at?: string; mastery_updates?: Array<{ topic: string; before: number; after: number; evidence_count: number }>; learning_mode?: LearningMode }
-export type Artifact = { id: string; kind: ToolKind; created_at: string; result: AssessmentReport | null; payload: { source_id: number; material_ids?: number[]; course_id: number; source_title: string; focus: string; items: ToolItem[]; citations: ToolCitation[]; coverage: { selected_passages: number; available_passages: number }; fulfillment?: { requested: number; created: number; partial: boolean }; notice?: string; learning?: LearningPlan } }
+export type Artifact = { id: string; kind: ToolKind; created_at: string; result: AssessmentReport | null; payload: { generation_version?: number; scoring?: string; edit_revision?: number; user_edited?: boolean; source_id: number; material_ids?: number[]; course_id: number; source_title: string; focus: string; items: ToolItem[]; citations: ToolCitation[]; coverage: { selected_passages?: number; available_passages?: number; covered?: number; total?: number; missing_sections?: {id:string;title:string}[]; user_edited?: boolean; coverage_checked?: boolean }; fulfillment?: { requested: number; created: number; partial: boolean }; notice?: string; learning?: LearningPlan } }
 export type ScorePoint = { score: number; question_count: number; correct_count: number; completed_at?: string | null }
 export type PracticeProgress = { learning?: LearningProfile; correct_count?: number; score_history?: ScorePoint[]; assessment_count: number; question_count: number; topics: TopicPerformance[]; recent_results: AssessmentReport[] }
 
@@ -46,8 +48,8 @@ export function report(value: unknown): AssessmentReport {
   if (typeof data.score !== 'number' || !Array.isArray(data.feedback) || !Array.isArray(data.topics) || typeof data.recommended_action !== 'string') invalid('assessment report')
   return data as unknown as AssessmentReport
 }
-export async function listMaterials(courseId: string): Promise<Material[]> {
-  return requestApi(`study/materials?course_id=${encodeURIComponent(courseId)}`, { method: 'GET' }, value => {
+export async function listMaterials(courseId: string, managed = false): Promise<Material[]> {
+  return requestApi(`study/materials${managed ? "/managed" : ""}?course_id=${encodeURIComponent(courseId)}`, { method: 'GET' }, value => {
     const data = requireRecord(value, 'materials')
     if (!Array.isArray(data.sources)) invalid('materials')
     return data.sources.map(value => {

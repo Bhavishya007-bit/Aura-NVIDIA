@@ -140,7 +140,7 @@ class Store:
 
     def task_done(self, student, course, task_id, done):
         with self.cursor(student, course) as cur:
-            cur.execute('UPDATE aura_agent_tasks SET done=%s WHERE id=%s AND student_id=%s AND course_id=%s RETURNING id,title,details,done,created_at', (done, task_id, student, course))
+            cur.execute('UPDATE aura_agent_tasks SET done=%s,completed_at=CASE WHEN %s THEN COALESCE(completed_at,NOW()) ELSE NULL END WHERE id=%s AND student_id=%s AND course_id=%s RETURNING id,title,details,done,created_at,scheduled_for,completed_at', (done, done, task_id, student, course))
             row = cur.fetchone()
             if row is None:
                 raise HTTPException(404, 'Task not found.')
@@ -168,9 +168,9 @@ class Store:
     def runs(self, student, course, run_id=None):
         with self.cursor(student, course) as cur:
             cur.execute('''SELECT * FROM aura_agent_runs WHERE student_id=%s AND course_id=%s
-                AND (%s::uuid IS NULL OR id=%s)
+                AND (%s::uuid IS NULL OR id=%s) AND (%s::uuid IS NOT NULL OR NOT archived)
                 ORDER BY CASE WHEN state IN ('queued','running') THEN 0 ELSE 1 END,created_at DESC LIMIT 20''',
-                (student, course, run_id, run_id))
+                (student, course, run_id, run_id, run_id))
             rows = [dict(row) for row in cur.fetchall()]
             if run_id and not rows:
                 raise HTTPException(404, 'Agent run not found.')

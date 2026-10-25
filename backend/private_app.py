@@ -144,7 +144,7 @@ def create_private_app(legacy):
         allow_origins=["*"],
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "X-Aura-Resume-Token"],
     )
 
     @app.middleware("http")
@@ -403,10 +403,22 @@ def create_private_app(legacy):
     from backend.study_tools import GenerateRequest, SubmitRequest, generate_tool, submit
     class GradeJob(SubmitRequest):
         artifact_id: UUID
+    def generation_contract(data):
+        if data.get('generation_version') == 2:
+            from backend.study_v2.contracts import StudyRequest
+            return StudyRequest.model_validate(data)
+        return GenerateRequest.model_validate(data)
+    def generation_handler(data, student):
+        if data.get('generation_version') == 2:
+            from backend.study_v2.engine import generate
+            return generate(data, student, legacy.get_retriever().embedding_model.embed_documents)
+        return generate_tool(GenerateRequest.model_validate(data), student)
     install_generation(app, {
         'chat': (PrivateChatRequest.model_validate, lambda data, student: chat_for_student(PrivateChatRequest.model_validate(data), student)),
-        'generate': (GenerateRequest.model_validate, lambda data, student: generate_tool(GenerateRequest.model_validate(data), student)),
+        'generate': (generation_contract, generation_handler),
         'grade': (GradeJob.model_validate, lambda data, student: submit(UUID(data['artifact_id']), SubmitRequest.model_validate(data), student)),
     })
+    from backend.study_v2.product import install as install_study_product
+    install_study_product(app)
     return app
 

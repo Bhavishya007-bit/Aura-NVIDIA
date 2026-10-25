@@ -14,7 +14,7 @@ const artifactDestination = (kind: Artifact['kind']): Destination => ({
   notes: 'Notes', summary: 'Summary', flashcards: 'Flashcards', assessment: 'Assessment',
 })[kind] as Destination
 
-export default function StudyOverview({ material, ready, busy, canUpload, artifacts, loading, error, onNavigate, onUpload, onOpenArtifact }: Props) {
+export default function StudyOverview({ material, ready, busy, artifacts, loading, error, onNavigate, onOpenArtifact }: Props) {
   const [more, setMore] = useState(false)
   return <div className="study-home">
     <section className="study-home-hero" aria-labelledby="study-home-title">
@@ -26,7 +26,7 @@ export default function StudyOverview({ material, ready, busy, canUpload, artifa
         {material && <div className="study-home-file"><span>{fileType(material.title, material.type)}</span><strong title={material.title}>{material.title}</strong></div>}
         <div className="study-home-actions">
           {material ? <button className="sw-primary" type="button" disabled={!ready || busy} onClick={() => onNavigate('Tutor')}>Ask Aura <span aria-hidden="true">↗</span></button>
-            : <button className="sw-primary" type="button" disabled={!canUpload || busy} onClick={onUpload}>Add your first material <span aria-hidden="true">＋</span></button>}
+            : <p className="study-home-hint">Use <strong>Add material</strong> in the Materials panel to get started.</p>}
           {material && <button type="button" className="study-home-plan" disabled={!ready || busy} onClick={() => onNavigate('Agents')}>Make a study plan <span aria-hidden="true">→</span></button>}
         </div>
         {material && !ready && <p className="study-home-hint" role="status">{material.status === 'processing' ? 'Your material is being prepared. You can start as soon as it is ready.' : 'This material needs attention before you can study it. Choose another file or check its preparation status.'}</p>}

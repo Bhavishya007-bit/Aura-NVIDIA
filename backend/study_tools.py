@@ -12,7 +12,9 @@ from difflib import SequenceMatcher
 from functools import partial
 from typing import Any, Literal
 from uuid import UUID, uuid4
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field, StrictInt, model_validator
 from psycopg2.extras import Json
 from backend.ai.llm import LLM
@@ -182,6 +184,7 @@ def select_passages(
 
 
 class GenerateRequest(BaseModel):
+    generation: dict | None = None
     material_ids: list[StrictInt] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
@@ -1008,6 +1011,10 @@ def public_artifact(
         item.pop("fingerprint", None)
     if kind == "assessment":
         for item in public["items"]:
+            if public.get('generation_version') == 2:
+                item['options'] = [{'id': option['id'], 'text': option['text']} for option in item.get('options', [])]
+                for key in ('correct_option_ids','model_answer','rubric_keywords','value','unit','tolerance'):
+                    item.pop(key, None)
             for key in (
                 "correct_choice_id",
                 "answer",
@@ -1032,8 +1039,15 @@ def public_artifact(
 
 @router.post("/tools", status_code=201)
 def generate_tool(
-    request: GenerateRequest, student: JsonObject = Depends(get_current_student)
+    request: GenerateRequest, student: JsonObject = Depends(get_current_student), _http_request: Request = None
 ) -> JsonObject:
+    if request.generation is not None:
+        if _http_request is None: raise HTTPException(422,'Start advanced generation through the study API.')
+        from backend.generation_jobs import JobInput
+        settings={**request.generation,'generation_version':2,'course_id':request.course_id,'source_id':request.source_id,
+                  'material_ids':request.material_ids or [request.source_id],'kind':request.kind}
+        created=_http_request.app.state.start_generation(JobInput(course_id=request.course_id,operation='generate',payload=settings),student)
+        return JSONResponse(jsonable_encoder(created),status_code=202)
     student_id = student["student_id"]
     with database() as connection:
         with connection.cursor() as cursor:

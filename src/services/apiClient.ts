@@ -117,6 +117,7 @@ async function readErrorMessage(response: Response): Promise<string> {
   if (typeof body !== 'object' || body === null) return `Aura API request failed (HTTP ${response.status}).`
   const detail = (body as Record<string, unknown>).detail
   if (typeof detail === 'string') return detail
+  if (typeof detail === 'object' && detail !== null && typeof (detail as Record<string,unknown>).message === 'string') return String((detail as Record<string,unknown>).message)
   if (Array.isArray(detail)) {
     const messages = detail.flatMap(item => {
       if (typeof item !== 'object' || item === null) return []

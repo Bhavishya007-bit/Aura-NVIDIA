@@ -102,3 +102,9 @@ test('secondary text and accent design tokens meet at least 4.5:1 in both themes
   const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05)
   for (const [text, surfaces] of [['#bdc3bc', ['#252a28', '#1e2221', '#3c3027', '#191d1c']], ['#f3b184', ['#252a28', '#1e2221', '#3c3027']], ['#62665f', ['#fffefa', '#f7f6f2', '#f6e6d9']], ['#a34b24', ['#fffefa', '#f7f6f2', '#f6e6d9']], ['#2c1b10', ['#efac7e']]]) for (const surface of surfaces) assert(contrast(text, surface) >= 4.5, `${text} on ${surface}`)
 })
+
+test('Study v2 cream/terracotta and heatmap text colors pass AA contrast',()=>{
+ const lum=hex=>hex.match(/[a-f\d]{2}/gi).map(s=>parseInt(s,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0)
+ const ratio=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05)
+ for(const [text,surfaces] of [['#696158',['#faf7f2','#fffefa','#f6e5d9']],['#b94a28',['#faf7f2','#fffefa']],['#9e3d1f',['#f6e5d9']],['#c2bbb0',['#222522']],['#30251f',['#f3efe6','#f2dfd1','#ebc1aa','#dfa087']]])for(const surface of surfaces)assert(ratio(text,surface)>=4.5,`${text} on ${surface}`)
+})

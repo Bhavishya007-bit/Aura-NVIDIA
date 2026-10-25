@@ -48,6 +48,9 @@ export function updateTask(course: string, id: string, done: boolean) {
 export function getAgentRuns(course: string): Promise<AgentRun[]> {
   return requestApi(`agents/runs${query(course)}`, { method: 'GET' }, items<AgentRun>)
 }
+export function getAgentRun(course: string,id: string): Promise<AgentRun> {
+  return requestApi(`agents/runs/${encodeURIComponent(id)}${query(course)}`,{method:'GET'},value=>decode(value) as unknown as AgentRun)
+}
 export function startAgent(course: string, source: string, goal: string, skill: string, allowMemoryWrite: boolean, inputs: CodeInput[] = [], materials?: string[]) {
   return requestApi('agents/runs', { method: 'POST', ...json({ course_id: Number(course), source_id: source ? Number(source) : null, ...(materials ? { material_ids: numericIds(materials) } : {}), goal, skill, allow_memory_write: allowMemoryWrite, ...(skill === 'code_analysis' ? { inputs } : {}) }) }, decode)
 }

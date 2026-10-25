@@ -139,7 +139,8 @@ def offline_report():
         except ValueError: return True
         return False
     check('provenance','uncited_sourced_claim_rejected',missing_citation)
-    return {'version':'phase4-eval-v1','mode':'controlled_offline','checked_at':datetime.now(timezone.utc).isoformat(),
+    from evaluation.study_generation_metrics import summarize as generation_metrics
+    return {'generation_metrics':generation_metrics([]),'version':'phase4-eval-v1','mode':'controlled_offline','checked_at':datetime.now(timezone.utc).isoformat(),
         'checks':checks,'summary':[{'category':category,'passed':sum(c['passed'] for c in checks if c['category']==category),
             'total':sum(c['category']==category for c in checks)} for category in dict.fromkeys(c['category'] for c in checks)],
         'limitations':['Model decisions and external tools are simulated. These are orchestration and provenance checks, not live-model quality scores.',

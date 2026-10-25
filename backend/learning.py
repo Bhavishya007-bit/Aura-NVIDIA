@@ -27,9 +27,9 @@ def topic_key(topic: str) -> str:
 def update_probability(prior: float, correct: bool, question_kind: str, diagnostic=False) -> float:
     if not math.isfinite(prior) or not 0 <= prior <= 1 or type(correct) is not bool:
         raise ValueError("Invalid learner observation.")
-    if question_kind not in {"mcq", "short_answer", "numerical"}:
+    if question_kind not in {"mcq", "multiple_choice", "multiple_select", "short_answer", "numerical"}:
         raise ValueError("Unsupported learner question type.")
-    guess = 0.25 if question_kind == "mcq" else 0.05
+    guess = 0.25 if question_kind in {"mcq", "multiple_choice"} else 0.05
     slip = 0.10
     likelihood_known = 1 - slip if correct else slip
     likelihood_unknown = guess if correct else 1 - guess
@@ -84,7 +84,8 @@ def record_result(cursor, student_id: int, artifact_id: str, payload: dict, resu
             WHERE student_id=%s AND course_id=%s AND topic_key=%s FOR UPDATE""",
             (student_id, course_id, key),
         )
-        prior, count, correct_count = cursor.fetchone()
+        observed = cursor.fetchone()
+        prior, count, correct_count = (observed['mastery'],observed['evidence_count'],observed['correct_count']) if isinstance(observed,dict) else observed
         posterior = update_probability(prior, entry["correct"], item["kind"], event_kind == "diagnostic")
         cursor.execute(
             """INSERT INTO aura_learning_evidence
@@ -92,7 +93,7 @@ def record_result(cursor, student_id: int, artifact_id: str, payload: dict, resu
              correct,prior_mastery,posterior_mastery,observed_at)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,COALESCE(%s,NOW()))
             ON CONFLICT DO NOTHING RETURNING question_id""",
-            (student_id, course_id, source_id, str(artifact_id), item["id"], key,
+            (student_id, course_id, item["citations"][0]["material_id"] if payload.get("generation_version")==2 and item.get("citations") else source_id, str(artifact_id), item["id"], key,
              event_kind, entry["correct"], prior, posterior, observed_at),
         )
         if cursor.fetchone() is None:
@@ -201,3 +202,4 @@ def install_learning(app, database) -> None:
         async with previous(application):
             yield
     app.router.lifespan_context = lifespan
+

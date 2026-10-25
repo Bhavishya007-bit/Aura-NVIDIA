@@ -10,7 +10,7 @@ import { build, stop } from '../../node_modules/esbuild/lib/main.js'
 const require = createRequire(import.meta.url)
 const { JSDOM } = require(require.resolve('jsdom', { paths: [process.env.AURA_UI_TEST_MODULES || process.cwd()] }))
 const scratch = await mkdtemp(`${tmpdir()}/aura-plan-dom-`)
-const result = await build({ stdin: { contents: `export { createElement, act } from 'react'; export { createRoot } from 'react-dom/client'; export { default as AgentPanel } from './src/components/AgentPanel'; export { default as AccountMenu } from './src/components/AccountMenu'; export { default as StudyWorkspace } from './src/components/StudyWorkspace'; export { default as App } from './src/App'; export { default as TeachingText } from './src/components/TeachingText'; export { default as TutorReply } from './src/components/TutorReply'; export { default as StudyRhythm } from './src/components/StudyRhythm'; export { default as EvaluationSummary } from './src/components/EvaluationSummary'; export { default as ChatHome } from './src/components/ChatHome';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', loader: { '.css': 'empty' }, define: { 'import.meta.env.VITE_API_BASE_URL': '"http://127.0.0.1:8000"', 'process.env.NODE_ENV': '"test"' }, write: false })
+const result = await build({ stdin: { contents: `export { createElement, act } from 'react'; export { default as StudyToolV2 } from './src/components/StudyToolV2'; export { default as ProgressV2 } from './src/components/ProgressV2'; export { default as TodayV2 } from './src/components/TodayV2'; export { default as PreviousPlansV2 } from './src/components/PreviousPlansV2'; export { createRoot } from 'react-dom/client'; export { default as AgentPanel } from './src/components/AgentPanel'; export { default as AccountMenu } from './src/components/AccountMenu'; export { default as StudyWorkspace } from './src/components/StudyWorkspace'; export { default as App } from './src/App'; export { default as TeachingText } from './src/components/TeachingText'; export { default as TutorReply } from './src/components/TutorReply'; export { default as StudyRhythm } from './src/components/StudyRhythm'; export { default as EvaluationSummary } from './src/components/EvaluationSummary'; export { default as ChatHome } from './src/components/ChatHome';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', loader: { '.css': 'empty' }, define: { 'import.meta.env.VITE_API_BASE_URL': '"http://127.0.0.1:8000"', 'process.env.NODE_ENV': '"test"' }, write: false })
 await writeFile(`${scratch}/components.mjs`, result.outputFiles[0].text)
 // React inspects input-event support at import time. Give it a real DOM before loading.
 const bootstrap = new JSDOM('<!doctype html><div></div>')
@@ -18,7 +18,7 @@ globalThis.window = bootstrap.window; globalThis.document = bootstrap.window.doc
 // Avoid Node MessagePorts keeping React's browser scheduler alive after tests.
 const channels = []
 globalThis.MessageChannel = class extends NodeMessageChannel { constructor() { super(); channels.push(this) } }
-const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App, TeachingText, TutorReply, StudyRhythm, EvaluationSummary, ChatHome } = await import(pathToFileURL(`${scratch}/components.mjs`))
+const { createElement: h, act, createRoot, AgentPanel, AccountMenu, StudyWorkspace, App, TeachingText, TutorReply, StudyRhythm, EvaluationSummary, ChatHome, StudyToolV2, ProgressV2, TodayV2, PreviousPlansV2 } = await import(pathToFileURL(`${scratch}/components.mjs`))
 let dom, root, requests, jobs, tasks, memories, enabled, materials, failLoads, generationUnavailable, webAvailable, assessmentAvailable, codeAvailable, savedArtifacts, rhythm, rhythmUnavailable, preparationJobs, failedImageFiles, chatReply, holdImagePreparation, legacyImageReply
 const goal = 'Create a 3-day plan'
 const baseRun = (overrides = {}) => ({ id: 'run-a', source_id: 7, state: 'completed', request: { skill: 'study_plan', goal }, tokens_used: 1200, created_at: '2026-10-23T08:00:00Z', started_at: '2026-10-23T08:00:01Z', updated_at: '2026-10-23T08:00:21Z', steps: [{ tool: 'document_search', state: 'completed', plan: ['RAW INTERNAL NARRATION'], observation: { passages: [{ reference: 'D9', slide: 18 }] } }], result: { text: 'Review the membrane.\n\nDay 1: Membrane proteins\nRead and recall.\nReferences: D9', references: ['D9'], verified: false, structured_plan: { overview: 'Review the membrane.', days: [{ day: 1, title: 'Membrane proteins', details: 'Read and recall.', references: ['D9'] }] }, task_ids: ['task-a'] }, ...overrides })
@@ -967,4 +967,88 @@ test('a stopped streamed answer preserves received text with no invented citatio
   assert.match(visibleText(),/Stopped/);assert.match(visibleText(),/A hash table maps keys to positions/)
   assert.equal(document.querySelectorAll('.aura-home__citation').length,0)
   assert.match(localStorage.getItem('aura.chat.v1:1:6'),/A hash table maps keys to positions/)
+})
+
+
+// Study v2 additive contracts use authored API fixtures, never a real learner/model.
+const v2Artifact=(kind,items,extra={})=>({id:'v2-artifact',kind,created_at:'2026-10-24T10:00:00Z',payload:{generation_version:2,source_id:7,material_ids:[7,9],source_title:'Membranes.pdf',items,citations:[{id:1,source_id:7,title:'Membranes.pdf',location:'Page 2',excerpt:'Authored source facts'}],coverage:{covered:1,total:1,missing_sections:[]},...extra}})
+const v2Props=(kind,active)=>({courseId:'6',materialIds:['7','9'],kind,ready:true,storageKey:'v2:test',focus:'',active,onArtifact(){},onOpen(){},onUpdated(){}})
+const respond=value=>new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}})
+const settleV2=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,290));await tick()})
+test('v2 notes have section controls instead of an item count, with editing and export',async()=>{
+ let saved
+ const active=v2Artifact('notes',[{id:'section-1',title:'Membrane structure',text:'Source-backed notes about membrane structure and proteins.',citation_ids:[1]}])
+ globalThis.fetch=async(url,options={})=>{saved=JSON.parse(options.body);return respond(active)}
+ await mount(StudyToolV2,v2Props('notes',active))
+ assert.equal(document.querySelector('input[type=number]'),null)
+ assert.match(document.body.textContent,/Covers all sections/)
+ assert(button('Download Markdown'));assert(button('Print / Save PDF'))
+ await click(button('Edit notes'));await input(document.querySelector('textarea'),'My revised study notes about the membrane.')
+ await click(button('Save notes'));assert.equal(saved.sections[0].text,'My revised study notes about the membrane.')
+ assert.match(document.body.textContent,/Notes saved/)
+})
+test('v2 assessment uses multiple-select checkboxes, question navigation and saved attempts',async()=>{
+ const questions=[1,2].map(n=>({id:'q'+n,kind:'multiple_select',prompt:'Select supported facts '+n,topic:'Membranes',citation_ids:[1],options:['A','B','C','D'].map(id=>({id,text:'Statement '+id}))}))
+ let draft={id:'attempt-a',revision:0,answers:{},position:0,scoring:'partial',resume_token:'authored-token'},saved
+ globalThis.fetch=async(url,options={})=>{
+  if(String(url).includes('capacity'))return respond({max_supported:6,reason:'Authored topics'})
+  if(options.method==='PATCH'){saved=JSON.parse(options.body);draft={...draft,...saved,revision:1};return respond(draft)}
+  return respond(draft)
+ }
+ await mount(StudyToolV2,v2Props('assessment',v2Artifact('assessment',questions)))
+ await settleV2();assert.match(document.body.textContent,/Select all that apply/)
+ assert.equal(document.querySelectorAll('.v2-test input[type=checkbox]').length,4)
+ await click(document.querySelector('.v2-test input[type=checkbox]'))
+ await click(button('Next'));assert.match(document.querySelector('.v2-test h2').textContent,/facts 2/)
+ await click(button('Save & resume later'));assert.deepEqual(saved.answers.q1,['A']);assert.equal(saved.position,1)
+ assert.equal(saved.resume_token,'authored-token');assert.equal(saved.scoring,'partial')
+ assert.equal(document.querySelector('input[type=number]').max,'50')
+ assert.match(document.body.textContent,/supports about 6 distinct questions/)
+ await mount('div');await mount(StudyToolV2,v2Props('assessment',v2Artifact('assessment',questions)))
+ assert.match(document.querySelector('.v2-test h2').textContent,/facts 2/)
+ await click(button('Previous'));assert.equal(document.querySelector('.v2-test input[type=checkbox]').checked,true)
+})
+test('v2 flashcards have 100-card cap, cloze reveal, source names and append action',async()=>{
+ globalThis.fetch=async()=>respond({max_supported:8,reason:'Authored estimate'})
+ await mount(StudyToolV2,v2Props('flashcards',v2Artifact('flashcards',[{id:'c1',card_type:'cloze',question:'Membranes contain a {{c1::bilayer}}.',answer:'bilayer',citation_ids:[1]}])))
+ assert.equal(document.querySelector('input[type=number]').max,'100')
+ assert(button('100'));assert(button('Generate more'));assert.match(document.querySelector('.v2-cards h2').textContent,/_____/)
+ assert(button('Membranes.pdf · Page 2'))
+ await click(button('Reveal answer'));assert.match(document.body.textContent,/bilayer/)
+ assert(button('Study again'));assert(button('I remembered'))
+})
+test('v2 Progress shows unknown metrics honestly and renders measured heatmap/history',async()=>{
+ const data={overall_mastery:null,study_streak:0,quiz_average:null,time_this_week_seconds:null,cards_due:0,topics:[{topic:'Hashing',mastery:.32,evidence_count:3,last_practiced_at:'2026-10-24'}],recommended_next:null,quizzes:[],history:[{label:'Today',items:[{id:'quiz-a',kind:'quiz',title:'Hashing practice',created_at:'2026-10-24T10:00:00Z',result:{score:50}}]}],notice:'Estimated from checked answers.'}
+ globalThis.fetch=async()=>respond(data)
+ let selected
+ await mount(ProgressV2,{courseId:'6',onPractice:(...args)=>{selected=args}})
+ assert.match(document.body.textContent,/Not measured yet/);assert.match(document.body.textContent,/Not recorded/)
+ assert.match(document.querySelector('.v2-topic-tile').textContent,/32%/)
+ await click(document.querySelector('.v2-topic-tile'));assert.deepEqual(selected,['Assessment','Hashing'])
+ await click(button('History'));assert.match(document.body.textContent,/Today.*Hashing practice/);assert.match(document.body.textContent,/50%/)
+})
+test('v2 Today shows seven real completion dots and moves unfinished tasks to today',async()=>{
+ let moved
+ globalThis.fetch=async(url,options={})=>{
+  if(String(url).includes('/date?')){moved=JSON.parse(options.body);return respond({})}
+  if(String(url).includes('/week?'))return respond({days:Array.from({length:7},(_,i)=>({date:'2026-10-'+String(18+i),completed:i===3?2:0}))})
+  return respond({items:[{id:'task-a',title:'Review hashing',details:'Recall one idea.',done:false,scheduled_for:null}]})
+ }
+ await mount(TodayV2,{courseId:'6'})
+ assert.equal(document.querySelectorAll('.v2-week-strip button').length,7)
+ await click(button('Move to today'));assert.match(moved.scheduled_for,/^\d{4}-\d{2}-\d{2}$/)
+ assert(button('Yesterday'));assert(button('Tomorrow'))
+})
+test('v2 Previous plans are collapsed, paginated and can be archived',async()=>{
+ let archived=false
+ globalThis.fetch=async(url,options={})=>{
+  if(options.method==='PATCH'){archived=true;return respond({})}
+  const more=String(url).includes('cursor=5')
+  return respond({current:baseRun({id:'current'}),items:[baseRun({id:more?'older-b':'older-a',request:{goal:more?'Older plan B':'Older plan A'}})],next_cursor:more?null:'5'})
+ }
+ await mount(PreviousPlansV2,{courseId:'6',selectedId:'current',onOpen(){},onNew(){}})
+ await settleV2();assert.equal(document.querySelector('details').open,false)
+ document.querySelector('details').open=true
+ await click(button('Show more'));await settleV2();assert.match(document.body.textContent,/Older plan B/)
+ await click(document.querySelector('[aria-label="Archive Older plan A"]'));assert(archived)
 })
