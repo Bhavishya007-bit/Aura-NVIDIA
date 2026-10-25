@@ -1,0 +1,7 @@
+{$AURA_PUBLIC_HOSTNAME:localhost} {
+    encode zstd gzip
+    request_body {
+        max_size 102MB
+    }
+    reverse_proxy app:8000
+}

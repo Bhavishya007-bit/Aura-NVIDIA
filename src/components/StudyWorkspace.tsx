@@ -364,11 +364,11 @@ export default function StudyWorkspace(props: Props) {
       <button className="sw-brand" onClick={props.onChatHome} disabled={!!busy} type="button"><span>A.</span>Aura</button>
       <p className="sw-rail-label">YOUR WORKSPACE</p>
       <nav aria-label="Study tools">{mainTabs.map(navigationItem)}<button type="button" className="sw-more-toggle" aria-expanded={moreTools} aria-controls="sw-extra-tools" onClick={() => setMoreTools(value => !value)}>More study tools <span aria-hidden="true">{moreTools ? '−' : '+'}</span></button><div id="sw-extra-tools" hidden={!moreTools}>{extraTabs.map(navigationItem)}</div></nav>
-      <div className="sw-account"><AccountMenu name={user.fullName} courseId={courseId} onSignOut={props.onSignOut} signingOut={props.signingOut} disabled={!!busy} /></div>
+      <div className="sw-account"><AccountMenu demo={user.isDemo} name={user.fullName} courseId={courseId} onSignOut={props.onSignOut} signingOut={props.signingOut} disabled={!!busy} /></div>
     </aside>
     <div className="sw-shell">
       <header className="sw-topbar"><div><strong>Study workspace</strong><span className="sw-top-subtitle">Your materials and saved practice</span></div>
-        <div className="sw-top-actions"><div className="sw-mobile-account"><AccountMenu name={user.fullName} courseId={courseId} onSignOut={props.onSignOut} signingOut={props.signingOut} disabled={!!busy} /></div><button type="button" onClick={props.onThemeChange} aria-label={theme === 'light' ? 'Use dark theme' : 'Use light theme'}><WorkspaceIcon path={theme === 'light' ? 'M20 15a8 8 0 01-11-11 8 8 0 1011 11z' : 'M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2 M16 12a4 4 0 11-8 0 4 4 0 018 0z'} /></button><button type="button" onClick={props.onChatHome} disabled={!!busy}>Chat home</button></div>
+        <div className="sw-top-actions"><div className="sw-mobile-account"><AccountMenu demo={user.isDemo} name={user.fullName} courseId={courseId} onSignOut={props.onSignOut} signingOut={props.signingOut} disabled={!!busy} /></div><button type="button" onClick={props.onThemeChange} aria-label={theme === 'light' ? 'Use dark theme' : 'Use light theme'}><WorkspaceIcon path={theme === 'light' ? 'M20 15a8 8 0 01-11-11 8 8 0 1011 11z' : 'M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2 M16 12a4 4 0 11-8 0 4 4 0 018 0z'} /></button><button type="button" onClick={props.onChatHome} disabled={!!busy}>Chat home</button></div>
       </header>
       {(props.sessionNotice || props.coursesError) && <p className="sw-error" role="alert">{props.sessionNotice || props.coursesError}</p>}
       <div className="sw-body">

@@ -35,6 +35,8 @@ def db():
 class GenerationStopped(BaseException): pass
 
 def guard(cursor=None):
+    from backend.production.limits import check_enabled
+    check_enabled()
     job = current.get()
     if not job: return
     def check(cur):
@@ -134,7 +136,7 @@ def install_generation(app, handlers):
         except Exception as error:
             log.warning('generation_job=failed error_type=%s', type(error).__name__)
             code=error.detail.get('code') if isinstance(error,HTTPException) and isinstance(error.detail,dict) else None
-            code=code if code in ('daily_token_budget','over_cap','one_job_at_a_time') else 'generation_unavailable'
+            code=code if code in ('daily_token_budget','daily_ai_limit','ai_paused','over_cap','one_job_at_a_time') else 'generation_unavailable'
             with db() as cur:
                 cur.execute("UPDATE aura_generation_jobs SET state=CASE WHEN result IS NOT NULL THEN 'partial' ELSE 'failed' END,error_code=%s,updated_at=NOW() WHERE id=%s AND state='running'", (code,str(row['id'])))
         finally: current.reset(token)

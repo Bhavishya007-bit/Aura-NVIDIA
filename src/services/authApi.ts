@@ -2,7 +2,7 @@ import { requestApi, requireRecord, setApiAuthTokenProvider, setApiUnauthorizedH
 
 const AUTH_TOKEN_KEY = 'aura.authToken'
 export const AUTH_EXPIRED_EVENT = 'aura:auth-expired'
-export type AuthUser = { id: string; fullName: string; email: string }
+export type AuthUser = { id: string; fullName: string; email: string; isDemo?: boolean }
 
 setApiAuthTokenProvider(() => sessionStorage.getItem(AUTH_TOKEN_KEY))
 setApiUnauthorizedHandler(token => {
@@ -53,5 +53,6 @@ function decodeAuthUser(value: unknown): AuthUser {
       typeof record.name !== 'string' || !record.name.trim() || typeof record.email !== 'string') {
     throw new ApiResponseError('The Aura API returned an invalid current-user response.')
   }
-  return { id: String(id), fullName: record.name, email: record.email }
+  return { id: String(id), fullName: record.name, email: record.email, isDemo: record.is_demo === true }
 }
+

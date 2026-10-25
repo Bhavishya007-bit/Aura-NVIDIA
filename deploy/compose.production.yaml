@@ -1,0 +1,41 @@
+# PostgreSQL is managed externally; this does not replace your laptop database.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: aura-web:phase5
+    restart: unless-stopped
+    env_file: .env.production
+    ports:
+      - '127.0.0.1:8000:8000'
+    volumes:
+      - aura_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,uid=10001,gid=10001
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+  # Optional CPU vision service. Model download and inference require RAM and time.
+  vision:
+    profiles: [vision]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - aura_vision:/root/.ollama
+  gateway:
+    profiles: [public]
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      AURA_PUBLIC_HOSTNAME: ${AURA_PUBLIC_HOSTNAME:-localhost}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - aura_tls:/data
+    depends_on: [app]
+volumes:
+  aura_tls:
+  aura_data:
+  aura_vision:

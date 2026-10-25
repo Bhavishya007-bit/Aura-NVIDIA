@@ -80,3 +80,7 @@ node_modules
 /evaluation/results/*.tmp
 
 /.test-deps/
+
+# Production deployment credentials
+/deploy/.env.production
+/deploy/*.secrets

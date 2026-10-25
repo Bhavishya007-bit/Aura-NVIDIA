@@ -60,6 +60,8 @@ export function planDurationMinutes(details: string): number | undefined {
 }
 export const isActive = (run?: AgentRun) => !!run && ['queued', 'running'].includes(run.state)
 export function modelFailureMessage(code?: string | null): string | undefined {
+  if (code === 'daily_ai_limit') return 'The daily AI allowance has been reached. Your saved work remains available. Try again after the daily reset.'
+  if (code === 'ai_paused') return 'AI generation is temporarily paused. Your saved work remains available.'
   if (code === 'model_connection_failed') return 'Aura could not connect to the AI service. Check your connection and try again.'
   if (code === 'model_timeout') return 'The AI service took too long to respond. Please try again.'
   if (code === 'model_or_tool_unavailable') return 'An AI service or study tool was unavailable. Please try again.'

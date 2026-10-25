@@ -19,3 +19,4 @@ class UserResponse(BaseModel):
     student_id: int
     name: str
     email: EmailStr
+    is_demo: bool = False

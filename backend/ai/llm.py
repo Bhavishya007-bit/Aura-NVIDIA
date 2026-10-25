@@ -176,6 +176,8 @@ class LLM:
             finish = None
             input_tokens = output_tokens = reasoning_tokens = None
 
+            from backend.production.limits import reserve,settle
+            reservation=reserve(payload);usage={}
             try:
                 guard()
                 response = requests.post(
@@ -345,6 +347,9 @@ class LLM:
                 raise LLMResponseError(
                     failure_code, max_tokens=payload["max_tokens"], reasoning_tokens=reasoning_tokens,
                 ) from error
+
+            finally:
+                settle(reservation,usage)
 
             time.sleep(retry_delay)
 

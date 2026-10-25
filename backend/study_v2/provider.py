@@ -73,6 +73,11 @@ async def complete(context, instructions, kind, student=None):
     reservation = await run_in_threadpool(
         reserve, len(json.dumps(payload).encode()) + tokens, student
     )
+    from backend.production.limits import reserve as production_reserve,settle as production_settle
+    try:production_reservation=await run_in_threadpool(production_reserve,payload)
+    except BaseException:
+        await run_in_threadpool(settle,reservation,{"prompt_tokens":0,"completion_tokens":0})
+        raise
     text = []
     usage = {}
     started = time.monotonic()
@@ -133,7 +138,8 @@ async def complete(context, instructions, kind, student=None):
         request_task.cancel()
         watcher.cancel()
         await asyncio.gather(request_task, watcher, return_exceptions=True)
-        await run_in_threadpool(settle, reservation, usage)
+        try:await run_in_threadpool(settle, reservation, usage)
+        finally:await run_in_threadpool(production_settle,production_reservation,usage)
         await run_in_threadpool(
             add_usage, usage, client.model_name, time.monotonic() - started
         )

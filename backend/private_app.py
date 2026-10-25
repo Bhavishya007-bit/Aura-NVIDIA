@@ -1,6 +1,7 @@
 """Account-scoped API for the existing local models and extraction pipeline."""
 
 import asyncio
+import os
 import logging
 import time
 from typing import Literal
@@ -141,7 +142,7 @@ def create_private_app(legacy):
     app = FastAPI(title="Aura — private local workspaces")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=([s.strip() for s in os.getenv("AURA_CORS_ORIGINS", "").split(",") if s.strip()] if os.getenv("AURA_ENV")=="production" else ["*"]),
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["Authorization", "Content-Type", "X-Aura-Resume-Token"],
@@ -165,7 +166,7 @@ def create_private_app(legacy):
     @app.get("/health")
     async def health():
         import os
-        return {"status": "ok", "profile": "private-local",
+        return {"status": "ok", "profile": "production" if os.getenv("AURA_ENV")=="production" else "private-local",
                 "tutor_version": "aura-team-multimodal-v7",
                 "vision_configured": bool(os.getenv('OLLAMA_VISION_MODEL', '').strip()),
                 "video_visual_sampling": True}

@@ -11,6 +11,8 @@ load_dotenv(ENV_PATH)
 
 
 def get_auth_connection():
+    if os.getenv("DATABASE_URL"):
+        return psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10)
     connection = psycopg2.connect(
         database=os.getenv("DB_NAME"),
         user=os.getenv("DB_USER"),

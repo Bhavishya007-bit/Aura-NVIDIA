@@ -38,7 +38,7 @@ export async function resumeGeneration<T>(saved: SavedGeneration, decode: (value
       if (options.storageKey) saveWorkspace(options.storageKey, {})
       if (row.state === 'completed' || row.state === 'partial' && row.result) return decode(row.result)
       if (row.state === 'cancelled') throw new DOMException('Cancelled', 'AbortError')
-      throw new ApiResponseError(row.error_code==='daily_token_budget'?'Your daily study-generation allowance is used. Try again after it resets.':'Aura could not finish this work. Your earlier results are kept; please retry.')
+      throw new ApiResponseError(['daily_token_budget','daily_ai_limit'].includes(String(row.error_code))?'Your daily study-generation allowance is used. Try again after it resets.':'Aura could not finish this work. Your earlier results are kept; please retry.')
     }
     await pause(options.signal)
   }

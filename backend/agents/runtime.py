@@ -177,6 +177,12 @@ def usage_tokens(client, reserve, output):
 
 
 def run_agent(store, run, llm_factory, stopping=None):
+    from backend.production.limits import actor
+    token=actor.set(run.get("student_id"))
+    try:return _run_agent(store,run,llm_factory,stopping)
+    finally:actor.reset(token)
+
+def _run_agent(store, run, llm_factory, stopping=None):
     try:
         request = RunInput.model_validate(run['request'])
     except ValidationError:
@@ -471,6 +477,6 @@ def run_agent(store, run, llm_factory, stopping=None):
     except Exception as error:
         log.warning('agent_run=failed error_type=%s', type(error).__name__)
         try:
-            store.record(run, state='failed', error='model_or_tool_unavailable')
+            store.record(run, state='failed', error=(error.detail.get('code') if isinstance(error,HTTPException) and isinstance(error.detail,dict) and error.detail.get('code') in ('daily_ai_limit','ai_paused') else 'model_or_tool_unavailable'))
         except RunStopped:
             pass

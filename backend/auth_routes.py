@@ -1,11 +1,12 @@
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from backend.auth_schemas import RegisterRequest, LoginRequest, UserResponse
 from backend.auth_service import register_student, authenticate_student, student_email_exists
 from backend.auth_security import create_access_token, decode_access_token
 from backend.auth_token_store import revoke_token, is_token_revoked
+from backend.production.security import is_demo
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -60,8 +61,10 @@ def login(request: LoginRequest):
 
 
 def get_current_student(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme), request: Request = None,
 ):
+    if request is not None and getattr(request.state,"production_student",None) is not None:
+        return request.state.production_student
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -116,6 +119,7 @@ def get_current_student(
             "student_id": row[0],
             "name": row[1],
             "email": row[2],
+            "is_demo": is_demo(row[0]),
         }
 
     finally:
@@ -160,3 +164,4 @@ def logout(
     revoke_token(token)
 
     return {"message": "Logout successful."}
+

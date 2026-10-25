@@ -1,0 +1,112 @@
+name: Production container smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - backend/**
+      - database/**
+      - auth-migration.sql
+      - requirements.txt
+      - src/**
+      - scripts/*production*
+      - scripts/smoke*
+      - package*.json
+      - .github/workflows/production.yml
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the tested image to GitHub Container Registry
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: aura_ci
+          POSTGRES_USER: aura_ci
+          POSTGRES_PASSWORD: authored-ci-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U aura_ci -d aura_ci'
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate fallback compose configuration
+        run: |
+          cp deploy/production.env.example deploy/.env.production
+          docker compose --env-file deploy/.env.production -f deploy/compose.production.yaml config --quiet
+      - name: Build release image without credentials
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: aura-production:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start non-root app against a fresh pgvector database
+        run: >-
+          docker run -d --name aura-production-smoke --network host
+          -e DATABASE_URL='postgresql://aura_ci:authored-ci-password@127.0.0.1:5432/aura_ci?sslmode=disable'
+          -e AURA_ALLOW_INSECURE_DATABASE=true
+          -e AUTH_JWT_SECRET=authored-ci-secret-with-more-than-thirty-two-bytes
+          -e NEBIUS_API_KEY=synthetic-no-model-requests
+          -e AURA_DEMO_ENABLED=false
+          -e AURA_ALLOWED_HOSTS=localhost,127.0.0.1
+          -v aura_ci_data:/data aura-production:smoke
+      - name: Wait for database migrations and app readiness
+        run: |
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:8000/ready; then exit 0; fi
+            sleep 2
+          done
+          docker logs aura-production-smoke
+          exit 1
+      - name: Check anonymous HTTP access
+        run: |
+          python -m pip install requests
+          python scripts/smoke_public.py http://127.0.0.1:8000 --allow-local
+          test "$(docker exec aura-production-smoke id -u)" = '10001'
+      - name: Install test-only browser
+        run: |
+          npm install --prefix /tmp/aura-deploy-test-deps --no-save playwright
+          /tmp/aura-deploy-test-deps/node_modules/.bin/playwright install --with-deps chromium
+      - name: Open a fresh logged-out browser
+        env:
+          AURA_UI_TEST_MODULES: /tmp/aura-deploy-test-deps/node_modules
+        run: node scripts/smoke_browser.mjs http://127.0.0.1:8000
+      - name: Sign into GitHub Container Registry
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the tested image
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          release_image="ghcr.io/${REPOSITORY,,}:${GITHUB_SHA}"
+          docker tag aura-production:smoke "$release_image"
+          docker push "$release_image"
+      - name: Show container status
+        if: always()
+        run: docker logs --tail 60 aura-production-smoke || true

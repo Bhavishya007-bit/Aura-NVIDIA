@@ -33,6 +33,7 @@ type Props = {
   courseId: string
   coursesLoading: boolean
   coursesError: string
+  demoAccount?: boolean
   studentName: string
   onCourseChange: (id: string) => void
   onSignOut?: () => void
@@ -60,7 +61,7 @@ function errorMessage(error: unknown): string {
 }
 
 export default function ChatHome({
-  courseId, coursesLoading, coursesError, studentName,
+  courseId, coursesLoading, coursesError, studentName, demoAccount,
   onSignOut, signingOut, sessionNotice, workspaceKey, onOpenWorkspace, onCreateStudyPlan,
 }: Props) {
   const storageKey = `aura.chat.v1:${workspaceKey}:${courseId}`
@@ -390,7 +391,7 @@ export default function ChatHome({
         <nav className="aura-home__nav" aria-label="Aura navigation">
           <button type="button" onClick={onOpenWorkspace} disabled={sending}>Study tools</button>
           {hasConversation && <button type="button" onClick={newConversation} disabled={busy}>New chat</button>}
-          <AccountMenu name={studentName} courseId={courseId} onSignOut={onSignOut} signingOut={signingOut} disabled={sending} />
+          <AccountMenu demo={demoAccount} name={studentName} courseId={courseId} onSignOut={onSignOut} signingOut={signingOut} disabled={sending} />
         </nav>
       </header>
 
