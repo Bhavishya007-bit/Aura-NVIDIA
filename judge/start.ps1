@@ -5,7 +5,10 @@ function Invoke-Docker { & docker @args; if ($LASTEXITCODE -ne 0) { throw 'Docke
 Invoke-Docker info --format '{{.OSType}}'
 Invoke-Docker compose version
 $compose = @('compose', '--env-file', '.env.judge', '-f', 'compose.yaml')
-if (!(Test-Path '.env.judge')) { New-Item '.env.judge' -ItemType File | Out-Null; $fresh = $true } else { $fresh = $false }
+if (!(Test-Path '.env.judge') -or (Get-Item '.env.judge').Length -eq 0) {
+    if (!(Test-Path '.env.judge')) { New-Item '.env.judge' -ItemType File | Out-Null }
+    $fresh = $true
+} else { $fresh = $false }
 try {
     Write-Host 'Building Aura. The first build downloads dependencies and may take several minutes.'
     Invoke-Docker @compose build app

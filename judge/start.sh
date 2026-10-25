@@ -4,7 +4,7 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 docker info --format '{{.OSType}}'
 docker compose version
 fresh=false
-if [[ ! -e .env.judge ]]; then
+if [[ ! -s .env.judge ]]; then
   (umask 077; touch .env.judge)
   fresh=true
 fi
