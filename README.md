@@ -1,5 +1,14 @@
 # Aura — a source-based study tutor
 
+## Hackathon judges: downloadable test build
+
+Start with [JUDGE_QUICKSTART.md](JUDGE_QUICKSTART.md) for the Docker-based download,
+local demo login and synthetic study material. Get the ZIP from [GitHub Releases](https://github.com/Bhavishya007-bit/Aura-NVIDIA/releases).
+Model access is supplied separately in private testing instructions; no provider key
+is bundled. Vision is optional; Code & Data uses the separate native sandbox setup.
+Entrants: complete [the submission handoff](docs/JUDGE_SUBMISSION.md) before submitting.
+The remaining sections document the native developer setup.
+
 Aura uses React/TypeScript, FastAPI and PostgreSQL with pgvector. This NVIDIA
 hackathon version uses Nemotron through Nebius Token Factory for text/JSON
 generation, including its agent runtime. Configure `NEBIUS_API_KEY` and the exact
@@ -58,8 +67,8 @@ The instructions below use **Windows PowerShell** from the repository root.
 ## 1. Get the code
 
 ```powershell
-git clone https://github.com/Bhavishya007-bit/aura.git
-cd aura
+git clone https://github.com/Bhavishya007-bit/Aura-NVIDIA.git
+cd Aura-NVIDIA
 py -3.12 -m venv .venv
 ```
 

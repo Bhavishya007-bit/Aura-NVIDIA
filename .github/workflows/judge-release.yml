@@ -1,0 +1,102 @@
+name: Downloadable judge build
+on:
+  push:
+    branches: [main]
+    paths:
+      - judge/**
+      - scripts/*judge*
+      - evaluation/check_judge_package.py
+      - JUDGE_QUICKSTART.md
+      - docs/JUDGE_SUBMISSION.md
+      - .github/workflows/judge-release.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: judge-build-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      AURA_JUDGE_DEMO_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check secret handling and committed-source packaging
+        run: |
+          python -m unittest evaluation.check_judge_package -v
+          bash -n judge/start.sh judge/stop.sh
+          python scripts/package_judge.py --ref "$GITHUB_SHA" --output /tmp/aura-release
+          cd /tmp/aura-release
+          sha256sum --check SHA256SUMS.txt
+          unzip -q Aura-Judge-Build.zip -d /tmp/aura-extracted
+      - name: Configure the extracted package with offline-only test settings
+        working-directory: /tmp/aura-extracted/Aura-Judge-Build
+        run: |
+          python -c "from scripts.configure_judge import create; create('judge', 'synthetic-ci-no-model-requests')"
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml config --quiet
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the extracted release, without credentials in image layers
+        uses: docker/build-push-action@v6
+        with:
+          context: /tmp/aura-extracted/Aura-Judge-Build
+          load: true
+          tags: aura-judge:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Boot the package against its own database
+        working-directory: /tmp/aura-extracted/Aura-Judge-Build
+        run: |
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml up -d --wait --wait-timeout 180 db app
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml exec -T app sh -c 'test "$(id -u)" = 10001 && test ! -f /app/judge/.env.judge'
+          python -m pip install requests
+          python scripts/smoke_public.py http://127.0.0.1:8888 --allow-local
+      - name: Install test-only browser
+        run: |
+          npm install --prefix /tmp/aura-judge-browser --no-save playwright
+          /tmp/aura-judge-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Open the extracted build in a fresh browser
+        env:
+          AURA_UI_TEST_MODULES: /tmp/aura-judge-browser/node_modules
+        run: node scripts/smoke_browser.mjs http://127.0.0.1:8888
+      - name: Check restart persistence
+        working-directory: /tmp/aura-extracted/Aura-Judge-Build
+        run: |
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml exec -T db psql -U aura_judge -d aura_judge -c 'CREATE TABLE judge_restart_probe (id integer PRIMARY KEY); INSERT INTO judge_restart_probe VALUES (1);'
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml down
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml up -d --wait --wait-timeout 180 db app
+          test "$(docker compose --env-file judge/.env.judge -f judge/compose.yaml exec -T db psql -U aura_judge -d aura_judge -Atc 'SELECT id FROM judge_restart_probe')" = 1
+      - name: Publish a public downloadable test build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="judge-build-${GITHUB_SHA:0:12}"
+          cat > /tmp/aura-release-notes.md <<'NOTES'
+          Download **Aura-Judge-Build.zip**, extract it, and read **JUDGE_QUICKSTART.md**.
+
+          Includes the full source, Windows/macOS/Linux launchers, isolated local PostgreSQL, original synthetic notes, and a checksum. Requires Docker with Compose 2.24+, internet and a privately supplied Token Factory judging credential. No provider keys or student documents are bundled.
+
+          This prerelease passes extracted-package Linux container, browser, and restart-persistence checks. It does not certify Windows launcher execution, live model quality or human judge calibration. Vision requires an optional model download. Code & Data execution uses the separate native setup described in the quickstart.
+
+          Entrant: complete private model access and the clean-machine walkthrough in docs/JUDGE_SUBMISSION.md before submitting this test build to judges.
+          NOTES
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" /tmp/aura-release/Aura-Judge-Build.zip /tmp/aura-release/SHA256SUMS.txt --clobber
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --prerelease --title "Aura judge test build ${GITHUB_SHA:0:7}" --notes-file /tmp/aura-release-notes.md /tmp/aura-release/Aura-Judge-Build.zip /tmp/aura-release/SHA256SUMS.txt
+          fi
+      - name: Diagnostics and cleanup
+        if: always()
+        working-directory: /tmp/aura-extracted/Aura-Judge-Build
+        run: |
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml logs --tail 40 app || true
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml --profile vision down --volumes || true

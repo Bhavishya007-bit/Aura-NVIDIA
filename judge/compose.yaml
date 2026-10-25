@@ -1,0 +1,52 @@
+name: aura-judge
+services:
+  db:
+    image: pgvector/pgvector:0.8.6-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aura_judge
+      POSTGRES_USER: aura_judge
+      POSTGRES_PASSWORD: ${AURA_JUDGE_DB_PASSWORD:-setup-required}
+    volumes: [judge_database:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U aura_judge -d aura_judge']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  app:
+    image: aura-judge:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env.judge
+        required: false
+    environment:
+      DATABASE_URL: postgresql://aura_judge:${AURA_JUDGE_DB_PASSWORD:-setup-required}@db:5432/aura_judge?sslmode=disable
+      AURA_ALLOW_INSECURE_DATABASE: 'true'
+      AURA_ENV: production
+      AURA_ALLOWED_HOSTS: localhost,127.0.0.1
+      AURA_ALLOW_REGISTRATION: 'true'
+      AURA_DEMO_ENABLED: ${AURA_JUDGE_DEMO_ENABLED:-true}
+      AURA_CODE_BACKEND: disabled
+      OLLAMA_BASE_URL: http://vision:11434
+      OLLAMA_VISION_MODEL: ${AURA_JUDGE_VISION_MODEL:-}
+    ports: ['127.0.0.1:8888:8000']
+    volumes: [judge_data:/data]
+    read_only: true
+    tmpfs: ['/tmp:size=1g,uid=10001,gid=10001']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      db:
+        condition: service_healthy
+  vision:
+    profiles: [vision]
+    image: ollama/ollama:0.13.5
+    restart: unless-stopped
+    volumes: [judge_vision:/root/.ollama]
+volumes:
+  judge_database:
+  judge_data:
+  judge_vision:
