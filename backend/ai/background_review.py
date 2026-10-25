@@ -4,6 +4,7 @@ import json
 from pydantic import Field, model_validator
 from backend.ai.answer_contract import StrictModel
 from backend.ai.llm import generate_verification_json
+from backend.ai.teaching_checks import background_issues
 
 
 class BackgroundReview(StrictModel):
@@ -45,6 +46,12 @@ amortized and worst-case costs; storage layout from collision policy; a type's
 mutability from its hash/equality contract. Do not trust an example just because
 it is labelled hypothetical. If uncertain about implementation details, require
 removal or qualification rather than approve a confident assertion.
+Distinguish a general algorithm family from one implementation. Open addressing
+does not universally require tombstones for deletion. Tombstones implement lazy
+deletion; linear probing can instead reinsert the remainder of the affected
+cluster. Alternatives depend on the probing scheme. A valid explanation may
+say tombstones are common or used by the specific implementation being discussed;
+do not reject such qualified statements merely because they mention tombstones.
 relevant: It develops the student's topic with useful explanation, not a recap
 of checked_overview, padding or unrelated advanced jargon.
 appropriately_scoped: Match the requested depth; beginner/standard requests do
@@ -65,6 +72,10 @@ to six concrete corrections, preserving the original task and source boundaries.
 
 
 def review_background(client, question, overview, text, depth):
+    issues = background_issues(text)
+    if issues:
+        return BackgroundReview(accurate=False, relevant=True,
+                                appropriately_scoped=False, issues=issues)
     reviewer = client.with_output_budget(2048, exact=True) if hasattr(client, 'with_output_budget') else client
     payload = {'question': question, 'depth': depth, 'checked_overview': overview,
                'draft': text, 'external_sources_available': False,

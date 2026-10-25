@@ -21,6 +21,10 @@ When only a requested example or application is missing, still explain the
 supported definitions and mechanisms. Do not try to satisfy the missing part
 inside this source section: the application may explain it separately. Avoid
 unsupported performance guarantees, thresholds and implementation details.
+Keep each claim atomic. A sourced definition must not gain an added causal
+clause ("which affects...", "therefore...", "so...") unless the cited passages
+also establish that relationship. If the file only defines load factor as table
+fullness, stop at that definition; do not cite it for collision/performance effects.
 Do not add provenance headings: the application supplies them. Do not include a
 Sources section, clarification, or follow-up options in this text.
 For an overview, describe the actual supplied content and avoid claiming that

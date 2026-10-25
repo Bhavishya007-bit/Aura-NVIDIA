@@ -3,6 +3,7 @@ import re
 import logging
 
 from backend.ai.llm import LLM, generate_verification_json
+from backend.ai.teaching_checks import source_claim_issue
 
 log = logging.getLogger(__name__)
 
@@ -106,6 +107,9 @@ class CitationGrounding:
         )
 
     def verify_claim(self, claim: str, source: str) -> dict:
+        issue = source_claim_issue(claim, source)
+        if issue:
+            return {'supported': False, 'reason': issue}
         if self._literal_support(claim, source):
             return {"supported": True, "reason": "The claim is a literal excerpt of the cited evidence."}
         prompt = f"""You check whether evidence supports one claim.
@@ -116,6 +120,13 @@ Return supported=true only when ALL factual parts of the claim follow from
 the evidence. Mere topic similarity is not support. Contradictions and extra
 unsupported details mean supported=false. Multiple cited passages may support
 different parts of the same claim together.
+Audit every added clause independently, including a trailing "which affects",
+"therefore", or "so" explanation. A citation supporting a definition does not
+automatically support the causal effect appended to that definition. For example,
+"load factor describes how full the table is" alone cannot support "which affects
+collision likelihood and performance". Do not supply a true textbook fact from
+your own knowledge to fill an evidentiary gap. Reject the whole combined claim
+when any clause is unsupported; a repair can separate its supported definition.
 
 CLAIM:
 {claim}
@@ -163,6 +174,8 @@ Return JSON only.
                 'Return supported=true only if ALL factual parts, qualifications, directions '
                 'and quantities follow from that claim\'s supplied evidence. Do not use '
                 'outside knowledge or evidence assigned to a different claim. '
+                'Audit each clause separately: supporting a definition does not establish '
+                'an appended causal or performance explanation, even if it is generally true. '
                 'Return exactly one result for every supplied integer id, no missing or extra IDs. '
                 'The id identifies the claim record; do not use citation numbers from the evidence as claim ids. '
                 'Keep each reason below 40 words. JSON shape: '
@@ -183,7 +196,11 @@ Return JSON only.
                 parsed[row['id']] = {'supported': row['supported'], 'reason': str(row.get('reason', ''))[:500]}
             if set(parsed) != set(range(1, len(items)+1)):
                 return reject('claim_id_mismatch', len(rows))
-            return {item['id']: parsed[number] for number, item in enumerate(items, 1)}
+            checked = {}
+            for number, item in enumerate(items, 1):
+                issue = source_claim_issue(item['claim'], item['evidence'])
+                checked[item['id']] = {'supported': False, 'reason': issue} if issue else parsed[number]
+            return checked
         except Exception:
             return reject('verification_request_failed')
 

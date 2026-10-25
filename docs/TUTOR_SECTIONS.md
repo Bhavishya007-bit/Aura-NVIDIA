@@ -29,3 +29,18 @@ If model logs show provider HTTP 401, check the private `NEBIUS_API_KEY` and its
 `evaluation/check_tutor_sections.py` uses the actual authored synthetic collision notes with controlled model/verifier responses. It tests source retention, citation IDs, unsupported and off-topic draft removal, bounded background correction, unchanged rejection, missing/malformed review and forbidden document citations in background.
 
 These tests verify enforcement, not that the live model always recognizes an error. Retest the reported question using the real local provider credential, inspect the citations and the hypothetical example, and record its actual source-check diagnostics if synthesis still falls back to excerpts. The long-answer length issue and human coverage calibration remain separate open quality work.
+
+## Follow-up: unsupported clauses and deletion strategies
+
+The next live reply showed two false acceptances: a sourced load-factor definition acquired an extra claim about collision/performance effects, and background text said open addressing requires tombstones for deletion.
+
+`backend/ai/teaching_checks.py` adds two deliberately limited English checks:
+
+- When all cited load-factor sentences match a recognised table-fullness-only definition, and the cited text contains no explicit causal/performance statement, an added causal claim is rejected. The standalone definition remains usable. Explicit causal evidence and other wording still go through semantic verification; the check never establishes coverage or approves a claim.
+- Recognised unqualified statements that open addressing requires/needs tombstones are rejected before a model vote. Common qualifiers, negations, explicit corrections and implementation/lazy-deletion scoping are left to the reviewer. A rejected background gets the existing single revision opportunity, with no silent factual rewriting.
+
+Both individual and batch citation verification enforce the source check. Both ordinary tutor and long-summary background share the deletion check through `review_background`. Writer/reviewer prompts also require clause-by-clause support and distinguish an algorithm family from an implementation choice. No route, payload, database field or dependency changed.
+
+The [Chalmers/Gothenburg course textbook, section 11.5](https://chalmersgu-data-structure-courses.github.io/dsabook/html/section-11.5.html) describes lazy deletion with tombstones and reinsertion of the rest of a linear-probing cluster as distinct strategies. Alternatives must be compatible with the probing scheme; the change does not prescribe one deletion strategy for every implementation.
+
+`evaluation/check_teaching_claims.py` includes the actual reported sentences and synthetic source notes, deliberately approving model fixtures, batch record/citation checks, positive source definitions, explicit causal evidence, qualified deletion statements and bounded correction/withholding. Passing these cases shows the recognised mistakes are blocked independently of an approving model. It does not establish general fact-checking accuracy or resolve human judge calibration. A fresh local answer is still required after rebuilding.

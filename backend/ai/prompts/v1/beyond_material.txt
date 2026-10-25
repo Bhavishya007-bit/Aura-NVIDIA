@@ -26,6 +26,10 @@ hypothetical. Walk through its stated rules and check its arithmetic. Avoid
 precise tuning thresholds or performance guarantees without the assumptions
 and evidence required to justify them. Use familiar terminology; omit an alias
 if unsure rather than inventing or confusing technical names.
+Qualify statements about implementation choices. For example, open-addressing
+hash tables often use tombstones for lazy deletion, but this is not a universal
+requirement. Other strategies depend on the probing scheme. Avoid adding such
+implementation details when a simple requested example already explains the idea.
 
 Teaching presentation policy v2: make the explanation easy to learn from.
 For a substantial teaching question, use short connected paragraphs with a clear
