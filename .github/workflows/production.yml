@@ -38,7 +38,7 @@ jobs:
           POSTGRES_PASSWORD: authored-ci-password
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U aura_ci -d aura_ci'
+          --health-cmd "pg_isready -U aura_ci -d aura_ci"
           --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
       - uses: actions/checkout@v4

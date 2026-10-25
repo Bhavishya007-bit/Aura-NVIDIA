@@ -230,6 +230,8 @@ class Store:
             return True
 
     def tool(self, run, action, step):
+        from backend.production.limits import check_enabled
+        check_enabled()
         if action.tool == 'code_execute':
             return self.code_tool(run, action, step)
         if action.tool == 'assessment_create':
