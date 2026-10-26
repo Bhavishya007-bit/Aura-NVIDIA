@@ -12,6 +12,7 @@ on:
       - src/**
       - scripts/*production*
       - scripts/smoke*
+      - scripts/check_responsive.mjs
       - package*.json
       - .github/workflows/production.yml
   workflow_dispatch:
@@ -92,6 +93,18 @@ jobs:
         env:
           AURA_UI_TEST_MODULES: /tmp/aura-deploy-test-deps/node_modules
         run: node scripts/smoke_browser.mjs http://127.0.0.1:8000
+      - name: Check responsive chat and every study tool
+        env:
+          AURA_UI_TEST_MODULES: /tmp/aura-deploy-test-deps/node_modules
+        run: node scripts/check_responsive.mjs http://127.0.0.1:8000
+      - name: Save responsive layout screenshots and measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-production-responsive-layout
+          path: /tmp/aura-layout-results
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Sign into GitHub Container Registry
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         uses: docker/login-action@v3

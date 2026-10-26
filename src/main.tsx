@@ -6,4 +6,6 @@ import './palette-previews.css'
 import './responsive.css'
 import './reference-theme.css'
 import './ui-polish.css'
+import './layout.css'
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)
+

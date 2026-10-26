@@ -5,6 +5,9 @@ on:
     paths:
       - judge/**
       - scripts/*judge*
+      - scripts/check_responsive.mjs
+      - src/layout.css
+      - src/main.tsx
       - evaluation/check_judge_package.py
       - JUDGE_QUICKSTART.md
       - docs/JUDGE_SUBMISSION.md
@@ -77,6 +80,19 @@ jobs:
         env:
           AURA_UI_TEST_MODULES: /tmp/aura-judge-browser/node_modules
         run: node scripts/smoke_browser.mjs http://127.0.0.1:8888
+      - name: Check responsive chat and every study tool
+        env:
+          AURA_UI_TEST_MODULES: /tmp/aura-judge-browser/node_modules
+        working-directory: /tmp/aura-extracted/Aura-Judge-Build
+        run: node scripts/check_responsive.mjs http://127.0.0.1:8888
+      - name: Save responsive layout screenshots and measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-judge-responsive-layout
+          path: /tmp/aura-layout-results
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Check restart persistence
         working-directory: /tmp/aura-extracted/Aura-Judge-Build
         run: |

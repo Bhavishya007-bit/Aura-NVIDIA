@@ -1,0 +1,133 @@
+/* Shared viewport tokens. Keep reading comfortable without a laptop-sized shell
+   on desktop monitors. Component colours and application behaviour stay intact. */
+.aura-home,
+.aura-study {
+  --aura-gutter: clamp(16px, 3vw, 64px);
+  --aura-reading-size: clamp(16px, calc(13.5px + .18vw), 18px);
+  --aura-chat-width: clamp(832px, 72vw, 1312px);
+  --aura-answer-width: 1040px;
+  --aura-workspace-width: 1460px;
+  min-inline-size: 0;
+}
+
+/* Chat home and an active conversation share the same fluid alignment. */
+.aura-home .aura-home__main {
+  width: min(calc(100% - 2 * var(--aura-gutter)), var(--aura-chat-width));
+  min-width: 0;
+}
+.aura-home .aura-home__header {
+  padding: clamp(12px, 1.4vw, 24px) var(--aura-gutter);
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.aura-home .aura-home__brand { font-size: clamp(24px, 1.3vw, 32px) !important; }
+.aura-home .aura-home__nav { min-width: 0; flex-wrap: wrap; gap: clamp(4px, .7vw, 16px); }
+.aura-home .aura-home__nav > button { font-size: 14px; min-height: 40px; }
+.aura-home .aura-account { max-width: 240px; }
+.aura-home .aura-account strong { font-size: 14px; }
+.aura-home .aura-account__items { min-width: min(225px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
+.aura-home .aura-home__materials { max-width: none; width: 100%; padding: 14px 18px; }
+.aura-home .aura-home__materials > summary { font-size: 14px; }
+.aura-home .aura-using { font-size: 14px; }
+.aura-home .aura-home__message { min-width: 0; }
+.aura-home .aura-home__message--tutor { max-width: var(--aura-answer-width); margin-inline: auto; }
+.aura-home .aura-home__message--student { max-width: min(85%, 72ch); }
+.aura-home .aura-home__message-text,
+.aura-home .aura-teaching-text,
+.aura-study .aura-teaching-text {
+  font-size: var(--aura-reading-size);
+  max-width: 100%;
+  min-width: 0;
+}
+.aura-home .aura-home__speaker { font-size: 14px; }
+.aura-home .aura-home__grounding,
+.aura-home .aura-home__source-heading { font-size: 13px; }
+.aura-home .aura-home__composer textarea { font-size: var(--aura-reading-size); max-height: min(24dvh, 180px); }
+.aura-home .aura-home__send,
+.aura-home .aura-home__plus { min-width: 44px; min-height: 44px; }
+.aura-home--conversation .aura-home__materials {
+  flex-shrink: 0;
+  max-height: min(30dvh, 360px);
+  overflow: auto;
+  margin-bottom: 8px;
+}
+.aura-home--conversation .aura-using { max-height: min(17dvh, 120px); overflow: auto; margin-bottom: 8px; }
+.aura-home--conversation .aura-home__conversation { padding: 24px 16px 12px; scrollbar-width: thin; }
+.aura-home--conversation .aura-home__composer-area { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+
+/* Wide study workspaces use their available space; text and controls can shrink
+   within grid tracks instead of making the whole page scroll horizontally. */
+.aura-study .sw-main { max-width: var(--aura-workspace-width); }
+.aura-study .sw-shell,
+.aura-study .sw-body,
+.aura-study .sw-tutor,
+.aura-study .sw-main > *,
+.aura-study .sw-transcript,
+.aura-study .sw-composer textarea { min-width: 0; }
+.aura-study .sw-chat-entry { max-width: var(--aura-answer-width); }
+.aura-study .sw-chat-entry > p { font-size: var(--aura-reading-size); }
+.aura-study .sw-composer textarea { font-size: max(16px, var(--aura-reading-size)); }
+.aura-study .sw-reading { width: 100%; max-width: var(--aura-answer-width); margin-inline: auto; }
+.aura-study .study-v2-tool,
+.aura-study .progress-v2 { max-width: 100%; }
+.aura-study .sw-main > .aura-using { max-width: none; }
+.aura-study .sw-topbar { min-width: 0; }
+.aura-study .sw-top-actions { min-width: 0; flex-wrap: wrap; }
+.aura-home .aura-teaching-table,
+.aura-study .aura-teaching-table { width: 100%; min-width: 0; }
+.aura-home .aura-teaching-code pre,
+.aura-study .aura-teaching-code pre { max-width: 100%; }
+
+@media (min-width: 1600px) {
+  .aura-study .sw-rail { width: 224px; flex-basis: 224px; }
+  .aura-study .sw-rail nav button { font-size: 14px; min-height: 46px; }
+  .aura-study .sw-body { grid-template-columns: clamp(248px, 12vw, 288px) minmax(0, 1fr); }
+  .aura-study .sw-main { padding-inline: clamp(32px, 3vw, 56px); }
+  .aura-study .sw-main > .sw-heading { max-width: none; }
+  .aura-study .sw-heading h1 { font-size: 32px; }
+  .aura-study .study-plan { max-width: 1280px; }
+  .aura-study .sw-topbar { font-size: 14px; }
+  .aura-study .sw-top-actions > button { font-size: 14px; }
+  .aura-home .aura-home__materials > summary,
+  .aura-home .aura-home__nav > button { font-size: 15px; }
+}
+
+@media (max-width: 800px) {
+  .aura-study[data-tab=Tutor] { display: flex; flex-direction: column; }
+  .aura-study[data-tab=Tutor] .sw-rail { flex: 0 0 auto; }
+  .aura-study[data-tab=Tutor] .sw-shell { flex: 1 1 0; }
+  .aura-study[data-tab=Tutor] .sw-body { display: flex; flex-direction: column; }
+  .aura-study[data-tab=Tutor] .sw-materials { max-height: min(30dvh, 230px); flex-shrink: 0; }
+  .aura-study[data-tab=Tutor][data-materials-collapsed=false] .sw-materials { max-height: 100dvh; }
+  .aura-study[data-tab=Tutor] .sw-main > .aura-using { max-height: 100px; overflow: auto; }
+  .aura-study .sw-main { padding-inline: 16px; }
+}
+
+@media (max-width: 600px) {
+  .aura-home .aura-home__header { padding: 12px 16px; }
+  .aura-home .aura-home__nav { flex: 1 1 100%; justify-content: space-between; gap: 4px; }
+  .aura-home .aura-home__nav > button { font-size: 13px; padding: 8px 6px; }
+  .aura-home .aura-home__nav .aura-account { max-width: min(46%, 180px); margin-left: auto; }
+  .aura-home .aura-account strong { font-size: 13px; }
+  .aura-home .aura-home__materials { padding: 10px 12px; }
+  .aura-home .aura-home__materials > summary { min-height: 24px; }
+  .aura-home .aura-home__message--student { max-width: 94%; padding: 12px 14px; }
+  .aura-home--conversation .aura-home__conversation { padding: 16px 2px 8px; }
+  .aura-home .aura-material-chip > span { max-width: min(220px, 56vw); }
+  .aura-home .aura-home__composer-hint { min-width: 0; }
+}
+
+/* Landscape phones, split windows and high browser zoom need vertical scrolling
+   rather than a fixed-height frame that can hide the input behind its controls. */
+@media (max-height: 560px) {
+  .aura-home--conversation,
+  .aura-study[data-tab=Tutor] { height: auto; min-height: 100dvh; overflow: visible; }
+  .aura-home--conversation .aura-home__main,
+  .aura-study[data-tab=Tutor] .sw-shell,
+  .aura-study[data-tab=Tutor] .sw-body,
+  .aura-study[data-tab=Tutor] .sw-main { overflow: visible; }
+  .aura-home--conversation .aura-home__conversation,
+  .aura-study[data-tab=Tutor] .sw-transcript { flex: none; height: 55dvh; min-height: 160px; overflow: auto; }
+  .aura-study[data-tab=Tutor] .sw-tutor { flex: none; overflow: visible; }
+  .aura-home .aura-home__header { padding-block: 8px; }
+}
