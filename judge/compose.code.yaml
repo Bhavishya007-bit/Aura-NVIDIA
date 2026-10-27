@@ -3,6 +3,7 @@ services:
   app:
     environment:
       AURA_CODE_BACKEND: docker
+      AURA_LOCAL_CODE_SERVICE: 'true'
       AURA_DOCKER_IMAGE: aura-code:1
       DOCKER_HOST: tcp://code:2375
     networks: [default, code_control]

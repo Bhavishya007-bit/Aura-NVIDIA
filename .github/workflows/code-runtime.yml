@@ -28,7 +28,7 @@ jobs:
           sh -n judge/code/start.sh
           docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml config --quiet
       - name: Start the isolated execution service
-        run: docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml up -d --build app
+        run: docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml up -d --build --wait --wait-timeout 600 app
       - name: Execute Python with CSV input and verify the downloaded artifact
         run: docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml exec -T app python scripts/check_code_runtime.py --smoke
       - name: Logs and cleanup

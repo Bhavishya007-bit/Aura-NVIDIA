@@ -85,7 +85,7 @@ def validate():
             raise RuntimeError(f"{key} must be a positive integer.") from None
         if value < 1:
             raise RuntimeError(f"{key} must be a positive integer.")
-    if os.getenv("AURA_CODE_BACKEND", "disabled") == "docker":
+    if os.getenv("AURA_CODE_BACKEND", "disabled") == "docker" and not local_code_service():
         raise RuntimeError(
             "Do not mount the host Docker socket into the public app. Use the isolated Nebius sandbox backend or disable code execution."
         )
@@ -94,3 +94,14 @@ def validate():
         or os.getenv("AURA_DEMO_PASSWORD", "").startswith("replace_")
     ):
         raise RuntimeError("Set AURA_DEMO_PASSWORD to at least 16 characters.")
+
+
+def local_code_service():
+    """Explicit laptop-only daemon; never allow a mounted host socket."""
+    return (
+        flag("AURA_LOCAL_CODE_SERVICE")
+        and bool(hosts())
+        and set(hosts()).issubset({"localhost", "127.0.0.1"})
+        and os.getenv("DOCKER_HOST") == "tcp://code:2375"
+        and not os.path.exists("/var/run/docker.sock")
+    )

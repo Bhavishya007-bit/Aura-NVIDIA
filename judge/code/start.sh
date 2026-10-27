@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-dockerd-entrypoint.sh --host=unix:///var/run/docker.sock --host=tcp://0.0.0.0:2375 --tls=false &
+dockerd-entrypoint.sh &
 daemon=$!
 trap 'kill "$daemon" 2>/dev/null || true' INT TERM EXIT
 export DOCKER_HOST=unix:///var/run/docker.sock

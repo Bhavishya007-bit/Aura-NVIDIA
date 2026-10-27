@@ -48,6 +48,16 @@ class ConfigChecks(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Docker socket"):
                 config.validate()
 
+    def test_local_code_service_requires_explicit_narrow_configuration(self):
+        env = {"AURA_LOCAL_CODE_SERVICE": "true", "AURA_ALLOWED_HOSTS": "localhost,127.0.0.1", "DOCKER_HOST": "tcp://code:2375"}
+        with patch.dict(os.environ, env, clear=True), patch("os.path.exists", return_value=False):
+            self.assertTrue(config.local_code_service())
+            for key, value in [("AURA_LOCAL_CODE_SERVICE", "false"), ("AURA_ALLOWED_HOSTS", "aura.example.org"), ("DOCKER_HOST", "unix:///var/run/docker.sock")]:
+                with self.subTest(key=key), patch.dict(os.environ, {key: value}):
+                    self.assertFalse(config.local_code_service())
+            with patch("os.path.exists", return_value=True):
+                self.assertFalse(config.local_code_service())
+
     def test_smoke_rejects_non_https_public_urls_and_url_credentials(self):
         from scripts.smoke_public import smoke
 

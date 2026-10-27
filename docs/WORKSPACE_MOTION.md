@@ -22,3 +22,5 @@ This optional setup uses a **privileged Docker-in-Docker service**, intended for
 Files: `Dockerfile` (Docker CLI only), `judge/code/Dockerfile`, `judge/code/start.sh`, `judge/compose.code.yaml`, `judge/enable-code.ps1`. Existing sandbox contracts, cancellation and artifact validation are reused. The setup needs a real local Docker run; frontend capability visibility alone is not an execution test.
 
 Manual checks: dark/light Progress on mobile and 2K, keyboard table disclosure/practice actions, reduced motion, a populated quiz history and empty history, then run “Compare linear and binary search, print comparison counts and save results.json” under Code & data. Verify captured output, download, Stop and cancellation. Do not deploy the local execution overlay to a public host.
+
+Startup fixes: the execution image normalizes Windows CRLF scripts; the explicit local-service flag only permits the fixed internal daemon address with localhost-only allowed hosts and no host socket. Setup waits for application health before its execution smoke check and prints daemon logs on startup failure.
