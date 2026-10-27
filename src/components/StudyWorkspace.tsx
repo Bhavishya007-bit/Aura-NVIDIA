@@ -17,7 +17,7 @@ import type { Course } from '../types/study'
 import type { AuthUser } from '../services/authApi'
 import { askTutor } from '../services/studyApi'
 import { ApiHttpError } from '../services/apiClient'
-import { queueMaterials } from '../services/preparationApi'
+import { queueMaterials, uploadValidationError } from '../services/preparationApi'
 import type { PreparationJob, UploadEntry } from '../services/preparationApi'
 import PreparationStatus from './PreparationStatus'
 import UploadBatchStatus from './UploadBatchStatus'
@@ -398,7 +398,7 @@ export default function StudyWorkspace(props: Props) {
           <MaterialChips materials={materials} selected={selectedIds} onChange={changeSelection} disabled={!!busy || generation.active} onChangeOpen={changeMaterial} />
           {selectedIds.length > 1 && (tab === 'Tutor' ? !canChatGroup : tab !== 'Agents' && !canUseGroup) && <p className="sw-status" role="status">{multiMaterialNotice}</p>}
           {error && <p className="sw-error" role="alert">{error}</p>}
-          <UploadBatchStatus simple={tab === 'Agents'} entries={uploadEntries} busy={!!busy} onRetry={() => void upload(uploadEntries.filter(entry => entry.state === 'failed').map(entry => entry.file))} />
+          <UploadBatchStatus simple={tab === 'Agents'} entries={uploadEntries} busy={!!busy} onRetry={() => void upload(uploadEntries.filter(entry => entry.state === 'failed' && !uploadValidationError(entry.file)).map(entry => entry.file))} />
           <PreparationStatus simple={tab === 'Agents'} pendingIds={preparationIds} courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={job => { setPreparationIds(current => current.filter(id => id !== job.id)); setReload(value => value + 1) }} />
           {busy && !generation.active && <div className="sw-status" role="status"><span className="sw-spinner" aria-hidden="true" />{busy}</div>}
           <GenerationStatus active={generation.active} cancelling={generation.state === 'cancelling'} stopped={generation.state === 'stopped' || generation.state === 'cancelled' ? generation.state : undefined} label={busy} slow={generation.slow} notice={generation.notice} onStop={() => void stopGeneration()} onKeepWaiting={generation.keepWaiting} />

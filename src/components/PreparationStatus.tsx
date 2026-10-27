@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { listPreparation, preparationLabels, retryPreparation } from '../services/preparationApi'
+import { listPreparation, preparationLabel, retryPreparation } from '../services/preparationApi'
 import type { PreparationJob } from '../services/preparationApi'
 import './PreparationStatus.css'
 
@@ -63,8 +63,8 @@ export default function PreparationStatus({ courseId, refreshKey, pendingId, pen
   return <section className="aura-preparation" aria-label="Material preparation">
     {error && <p className="aura-preparation-error" role="alert">{simple ? 'Could not check your material yet. Aura will try again.' : error}</p>}
     {visible.map(job => <div key={job.id} className="aura-preparation-item">
-      <div><strong>{job.filename}</strong><span role="status">{simple ? job.state === 'ready' ? 'Ready to study' : job.state === 'failed' ? 'Needs attention' : 'Preparing your material' : preparationLabels[job.stage] ?? 'Preparing material'}{!simple && job.percentage !== null && job.state === 'processing' ? ` · ${job.percentage}% of this step` : ''}</span></div>
-      {job.state === 'processing' && <progress max={100} value={job.percentage ?? undefined} aria-label={simple ? 'Preparing your material' : preparationLabels[job.stage] ?? 'Preparing material'} />}
+      <div><strong>{job.filename}</strong><span role="status">{simple ? job.state === 'ready' ? 'Ready to study' : job.state === 'failed' ? 'Needs attention' : 'Preparing your material' : preparationLabel(job)}{!simple && job.percentage !== null && job.state === 'processing' ? ` · ${job.percentage}% of this step` : ''}</span></div>
+      {job.state === 'processing' && <progress max={100} value={job.percentage ?? undefined} aria-label={simple ? 'Preparing your material' : preparationLabel(job)} />}
       {job.state === 'ready' && !!job.result?.warnings?.length && <>
         <p>Ready with reading limitations. Some image or diagram details may be missing.</p>
         {!simple && <details><summary>Reading notices</summary><ul>{job.result.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}

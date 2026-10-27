@@ -44,6 +44,18 @@ export async function startPreparation(courseId: string, file: File, signal?: Ab
   })
 }
 
+export function uploadValidationError(file: File): string | null {
+  if (!/\.(pdf|docx|ppt|pptx|jpg|jpeg|png|mp4|mp3|wav|m4a|ogg|flac|aac|mpeg|mpga)$/i.test(file.name)) return 'Unsupported file type. Choose a PDF, DOCX, presentation, JPEG/PNG image, supported audio file or MP4.'
+  if (file.size === 0) return 'This file is empty. Choose a file with content.'
+  if (file.size > 100 * 1024 * 1024) return 'This file exceeds the 100 MiB upload limit. Compress it, split it into shorter clips, or upload its transcript. Retrying the same file will not help.'
+  return null
+}
+
+export function preparationLabel(job: Pick<PreparationJob, 'stage' | 'filename'>): string {
+  if (job.stage === 'reading_image' && /\.mp4$/i.test(job.filename)) return 'Reading a video frame'
+  return preparationLabels[job.stage] ?? 'Preparing material'
+}
+
 export type UploadEntry = { file: File; state: 'waiting' | 'uploading' | 'queued' | 'failed'; error?: string; job?: PreparationJob }
 export async function queueMaterials(courseId: string, files: File[], onUpdate: (entries: UploadEntry[]) => void, onQueued: (job: PreparationJob, first: boolean) => void, signal?: AbortSignal): Promise<UploadEntry[]> {
   if (!files.length || files.length > 5) throw new Error('Choose between 1 and 5 files per batch.')
@@ -54,9 +66,8 @@ export async function queueMaterials(courseId: string, files: File[], onUpdate: 
   for (const entry of entries) {
     if (signal?.aborted) break
     try {
-      if (!/\.(pdf|docx|ppt|pptx|jpg|jpeg|png|mp4|mp3|wav|m4a|ogg|flac|aac|mpeg|mpga)$/i.test(entry.file.name)) throw new Error('Unsupported file type. Choose a PDF, DOCX, presentation, JPEG/PNG image, supported audio file or MP4.')
-      if (entry.file.size === 0) throw new Error('This file is empty.')
-      if (entry.file.size > 100 * 1024 * 1024) throw new Error('This file exceeds 100 MiB.')
+      const validationError = uploadValidationError(entry.file)
+      if (validationError) throw new Error(validationError)
       entry.state = 'uploading'; emit()
       const job = await startPreparation(courseId, entry.file, signal)
       if (signal?.aborted) break
@@ -86,6 +97,9 @@ export async function retryPreparation(id: string): Promise<PreparationJob> {
 
 export const preparationLabels: Record<string, string> = {
   reading_image: 'Reading your image',
+  reading_video_frames: 'Reading video frames',
+  transcribing: 'Transcribing speech',
+  reading_audio: 'Reading audio',
   queued: 'File uploaded · Waiting to prepare', reading: 'Reading your material',
   reading_pages: 'Reading pages and images', reading_slides: 'Reading slides and images',
   reading_slide_images: 'Reading complete slide images',

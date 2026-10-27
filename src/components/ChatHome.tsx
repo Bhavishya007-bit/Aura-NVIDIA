@@ -6,7 +6,7 @@ import TutorReply from './TutorReply'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { askTutor, generateSourceEmbeddings } from '../services/studyApi'
-import { queueMaterials } from '../services/preparationApi'
+import { queueMaterials, uploadValidationError } from '../services/preparationApi'
 import type { PreparationJob, UploadEntry } from '../services/preparationApi'
 import PreparationStatus from './PreparationStatus'
 import UploadBatchStatus from './UploadBatchStatus'
@@ -437,7 +437,7 @@ export default function ChatHome({
         </section>}
 
         <div className="aura-home__composer-area">
-          {studentName && <UploadBatchStatus entries={uploadEntries} busy={sending || uploadEntries.some(entry => entry.state === 'waiting' || entry.state === 'uploading')} onRetry={() => void uploadFiles(uploadEntries.filter(entry => entry.state === 'failed').map(entry => entry.file), true)} />}
+          {studentName && <UploadBatchStatus entries={uploadEntries} busy={sending || uploadEntries.some(entry => entry.state === 'waiting' || entry.state === 'uploading')} onRetry={() => void uploadFiles(uploadEntries.filter(entry => entry.state === 'failed' && !uploadValidationError(entry.file)).map(entry => entry.file), true)} />}
           {studentName && <PreparationStatus pendingIds={[...new Set([...preparationIds, ...imageAttachments.flatMap(item => item.jobId ? [item.jobId] : [])])]} courseId={courseId} refreshKey={preparationRefresh} pendingId={preparationId} onReady={preparationReady} onFailed={preparationFailed} />}
           {coursesError && <div className="aura-home__error" role="alert">Aura couldn't connect. Please refresh and try again.</div>}
           {coursesLoading && <p className="aura-home__loading" role="status">Getting Aura ready…</p>}

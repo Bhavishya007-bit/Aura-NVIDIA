@@ -5,7 +5,7 @@ import av
 from .audio import ingest_audio
 from .image import ingest_image
 from .utils import generate_unit_id
-from backend.preparation_progress import report
+from backend.preparation_progress import report, preparation_progress
 
 
 def ingest_video(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
@@ -61,7 +61,9 @@ def ingest_video(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
                 seen.add(round(seconds, 2))
                 buffer = io.BytesIO()
                 selected.to_image().save(buffer, format='PNG')
-                extracted, frame_warnings = ingest_image(buffer.getvalue(), f'{filename}-frame-{index}.png')
+                # Nested image OCR/vision must not replace video-wide progress.
+                with preparation_progress(None):
+                    extracted, frame_warnings = ingest_image(buffer.getvalue(), f'{filename}-frame-{index}.png')
                 warnings.extend(f'Frame {seconds:.1f}s: {w}' for w in frame_warnings)
                 for unit in extracted:
                     unit['unit_id'] = generate_unit_id(filename, 'video_frame', f'{seconds:.3f}-{unit["extraction_status"]}')
@@ -76,3 +78,4 @@ def ingest_video(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
     except Exception as error:
         warnings.append(f'Visual frame extraction failed ({type(error).__name__}); any extracted speech is preserved.')
     return units, list(dict.fromkeys(warnings))
+
