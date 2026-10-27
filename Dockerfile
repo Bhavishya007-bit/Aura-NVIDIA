@@ -12,7 +12,10 @@ FROM python:3.12-slim-bookworm AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 AURA_ENV=production \
     AURA_EMBEDDING_DEVICE=cpu AURA_EMBEDDING_BATCH_SIZE=4 AURA_EMBEDDING_THREADS=2 \
     HF_HOME=/data/models AURA_STATIC_DIR=/app/dist PORT=8000
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Some networks block plain HTTP package mirrors. Keep TLS verification enabled.
+RUN python -c "from pathlib import Path; paths = [Path('/etc/apt/sources.list'), *Path('/etc/apt/sources.list.d').glob('*.sources'), *Path('/etc/apt/sources.list.d').glob('*.list')]; [p.write_text(p.read_text().replace('http://deb.debian.org', 'https://deb.debian.org')) for p in paths if p.is_file()]" \
+    && apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o APT::Update::Error-Mode=any update \
+    && apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 install -y --no-install-recommends \
     libreoffice-impress fonts-liberation ffmpeg libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
