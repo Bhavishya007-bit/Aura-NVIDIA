@@ -13,3 +13,11 @@ docker compose --env-file judge/.env.judge -f judge/compose.yaml logs --tail=100
 Share the warning/error lines around that attempt, without `.env` contents or API keys. Native users should copy the corresponding Uvicorn terminal warnings instead. Source verification should not be disabled just to hide a generation failure.
 
 Validation: production frontend build, 90 existing frontend tests, three upload/label regression tests, Python syntax compilation and a progress-callback suppression/restoration check passed. Live generation for the teammate's document still requires their logs and material context.
+
+## DOCX study-item citation fix
+
+The v2 study-item citation contract previously required a slide, page or timestamp even for Word passages, although DOCX extraction preserves paragraphs and does not invent page numbers. This could reject otherwise valid flashcards/assessment items.
+
+Word evidence with no physical location now explicitly uses `document_excerpt: true` in the internal generated-item citation schema. Verification still requires the actual material and passage IDs, checks that the stored source is DOCX, and rejects this flag for page/slide/timestamp evidence or another file type. Existing citations retain their prior fields; the optional flag defaults to false. Public citation labels say “Document excerpt”. No database migration or fabricated Word page number is introduced.
+
+Ten local checks covering Word excerpt identity, wrong-source rejection, mixed-location rejection and existing scoring passed. This addresses a confirmed DOCX-specific validation bug, but the teammate's particular document still needs a live Generate attempt; other provider or extraction failures require logs.

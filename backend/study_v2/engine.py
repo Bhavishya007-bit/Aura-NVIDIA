@@ -33,7 +33,7 @@ def as_artifact(job, request, items, chunks, notices, coverage=None):
                     else (
                         f"{int(c['seconds'])//60}:{int(c['seconds'])%60:02d}"
                         if c.get("seconds") is not None
-                        else "Material"
+                        else "Document excerpt" if str(c["source_name"]).lower().endswith(".docx") else "Material"
                     )
                 )
             ),
@@ -196,7 +196,7 @@ def instructions(request, allocation, existing):
         ],
         "card_type": request.card_type,
         "focus": request.focus,
-        "rules": "Each item must have a real supplied citation with material_id, chunk_id and slide/page. Do not cite a different source location. For numerical items use a supported formula, state all hypothetical inputs and correct unit/tolerance. Each option needs its explanation. No copied near-duplicates or padding.",
+        "rules": "Each item must cite a supplied material_id and chunk_id. Copy the exact supplied slide, page or timestamp_seconds when available. For DOCX evidence marked document_excerpt=true, use document_excerpt=true and leave slide/page/timestamp_seconds null; Word paragraphs do not have reliable page numbers. Never invent a page or slide. Do not cite a different source location. For numerical items use a supported formula, state all hypothetical inputs and correct unit/tolerance. Each option needs its explanation. No copied near-duplicates or padding.",
     }
 
 
@@ -246,7 +246,7 @@ async def batches(request, student, embed):
         async with semaphore:
             wanted = {i for a in allocation for i in a["concept"]["chunk_ids"]}
             evidence = [
-                {**c, "material_id": c["source_id"], "content": c["content"][:3500]}
+                {**c, "material_id": c["source_id"], "document_excerpt": str(c["source_name"]).lower().endswith(".docx") and all(c.get(key) is None for key in ("slide", "page", "seconds")), "content": c["content"][:3500]}
                 for c in chunks
                 if c["chunk_id"] in wanted
             ]

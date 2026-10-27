@@ -22,10 +22,15 @@ class Citation(Strict):
     page: int | None = Field(default=None, gt=0)
     timestamp_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
+    document_excerpt: bool = False
+
     @model_validator(mode="after")
     def location(self):
-        if self.slide is None and self.page is None and self.timestamp_seconds is None:
-            raise ValueError("A slide or page is required.")
+        physical = self.slide is not None or self.page is not None or self.timestamp_seconds is not None
+        if self.document_excerpt and physical:
+            raise ValueError("A document excerpt cannot invent a physical location.")
+        if not physical and not self.document_excerpt:
+            raise ValueError("A slide, page, timestamp or document excerpt is required.")
         return self
 
 
@@ -168,6 +173,13 @@ def verified_citations(item, chunks):
     for ref in item.citations:
         actual = by_id.get(ref.chunk_id)
         if not actual or actual["source_id"] != ref.material_id:
+            return False
+        if ref.document_excerpt:
+            if not str(actual.get("source_name", "")).lower().endswith(".docx") or any(actual.get(key) is not None for key in ("slide", "page", "seconds")):
+                return False
+            continue
+        # Physical sources still require the exact supplied location.
+        if ref.slide != actual.get("slide") or ref.page != actual.get("page") or ref.timestamp_seconds != actual.get("seconds"):
             return False
         if ref.slide is not None and actual.get("slide") != ref.slide:
             return False
