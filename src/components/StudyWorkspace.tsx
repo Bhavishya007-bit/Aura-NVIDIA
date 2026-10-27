@@ -1,3 +1,4 @@
+import './WorkspaceMotion.css'
 import { Skeleton } from './ui'
 import StudyToolV2 from './StudyToolV2'
 import ProgressV2 from './ProgressV2'

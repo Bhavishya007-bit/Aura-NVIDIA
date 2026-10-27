@@ -1,0 +1,38 @@
+name: Local Python execution smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - judge/code/**
+      - judge/compose.code.yaml
+      - backend/agents/sandbox*.py
+      - .github/workflows/code-runtime.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AURA_JUDGE_DEMO_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure synthetic local settings
+        run: |
+          python -c "from scripts.configure_judge import create; create('judge', 'synthetic-ci-no-model-requests')"
+          sh -n judge/code/start.sh
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml config --quiet
+      - name: Start the isolated execution service
+        run: docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml up -d --build app
+      - name: Execute Python with CSV input and verify the downloaded artifact
+        run: docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml exec -T app python scripts/check_code_runtime.py --smoke
+      - name: Logs and cleanup
+        if: always()
+        run: |
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml logs --tail=60 app code
+          docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml down

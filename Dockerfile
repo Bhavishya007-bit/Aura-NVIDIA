@@ -8,6 +8,8 @@ COPY src ./src
 COPY public ./public
 RUN VITE_API_BASE_URL=/api npm run build
 
+FROM docker:28-cli AS code-client
+
 FROM python:3.12-slim-bookworm AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 AURA_ENV=production \
     AURA_EMBEDDING_DEVICE=cpu AURA_EMBEDDING_BATCH_SIZE=4 AURA_EMBEDDING_THREADS=2 \
@@ -19,6 +21,7 @@ RUN python -c "from pathlib import Path; paths = [Path('/etc/apt/sources.list'),
     libreoffice-impress fonts-liberation ffmpeg libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+COPY --from=code-client /usr/local/bin/docker /usr/local/bin/docker
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir 'torch==2.8.0' --index-url https://download.pytorch.org/whl/cpu \
     && python -m pip install --no-cache-dir -r requirements.txt

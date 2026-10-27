@@ -1,0 +1,31 @@
+# Optional LOCAL-only execution service. The base judge build stays unchanged.
+services:
+  app:
+    environment:
+      AURA_CODE_BACKEND: docker
+      AURA_DOCKER_IMAGE: aura-code:1
+      DOCKER_HOST: tcp://code:2375
+    networks: [default, code_control]
+    depends_on:
+      code:
+        condition: service_healthy
+  code:
+    build:
+      context: ..
+      dockerfile: judge/code/Dockerfile
+    image: aura-code-service:local
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: ''
+    networks: [code_control, code_downloads]
+    healthcheck:
+      test: [CMD-SHELL, 'test -f /tmp/aura-code-ready && docker -H unix:///var/run/docker.sock image inspect aura-code:1 >/dev/null']
+      interval: 5s
+      timeout: 5s
+      retries: 90
+      start_period: 30s
+networks:
+  code_control:
+    internal: true
+  code_downloads: {}
