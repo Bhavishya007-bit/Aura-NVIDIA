@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
-import AuthPage from './components/AuthPage'
-import ChatHome from './components/ChatHome'
-import StudyWorkspace from './components/StudyWorkspace'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { Skeleton } from './components/ui'
+const LandingPage = lazy(() => import('./pages/LandingPage'))
+const JudgesPage = lazy(() => import('./pages/JudgesPage'))
+const AuthPage = lazy(() => import('./components/AuthPage'))
+const ChatHome = lazy(() => import('./components/ChatHome'))
+const StudyWorkspace = lazy(() => import('./components/StudyWorkspace'))
 import { listCourses } from './services/studyApi'
 import type { Course } from './types/study'
 import { AUTH_EXPIRED_EVENT, clearAuthToken, getCurrentUser, hasAuthToken, logoutAccount } from './services/authApi'
@@ -72,6 +75,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('aura.theme', theme)
     document.documentElement.style.colorScheme = theme
+    document.documentElement.dataset.theme = theme
   }, [theme])
   useEffect(() => {
     let cancelled = false
@@ -101,13 +105,14 @@ export default function App() {
     catch { setSessionNotice('Could not sign out. Please retry.') }
     finally { setSigningOut(false) }
   }
+  if (path === '/welcome' || path === '/judges' || (!user && !authChecking && !restoreError && path === '/')) return <Suspense fallback={<main className="public-loading"><Skeleton label="Loading Aura" /></main>}>{path === '/judges' ? <JudgesPage /> : <LandingPage theme={theme} onThemeChange={() => setTheme(value => value === 'light' ? 'dark' : 'light')} signedIn={!!user} />}</Suspense>
   if (authChecking || restoreError || (user && coursesLoading)) return <main className="aura-auth" data-theme={theme}><section className="auth-card" aria-live="polite"><h1>{authChecking ? 'Signing you in…' : coursesLoading ? 'Loading your workspace…' : 'Connection interrupted'}</h1>{restoreError && <><p role="alert">{restoreError}</p><button type="button" onClick={() => setRestoreAttempt(value => value + 1)}>Retry</button><button type="button" onClick={() => { clearAuthToken(); setRestoreError(''); setUser(null); setHomeOpen(true); navigate('/login', true) }}>Back to sign in</button></>}</section></main>
   if (!user || path === '/login' || path === '/signup') return <AuthPage key={path} mode={path === '/signup' ? 'signup' : 'login'} theme={theme} initialError={authError} onNavigate={next => { setAuthError(''); if (next === '/') { setHomeOpen(true); setPendingWorkspace(false) }; navigate(next) }} onSuccess={account => {
     setUser(account); setAuthError(''); restoreNavigation(account)
     if (pendingWorkspace) { setHomeOpen(false); setPendingWorkspace(false) }
     navigate('/', true)
   }} />
-  if (homeOpen) return <ChatHome key={`${courseId}:${user.id}`} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} studentName={user.fullName} demoAccount={user.isDemo} workspaceKey={user.id} onCourseChange={setCourseId} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} onOpenWorkspace={openWorkspace} onCreateStudyPlan={(goal, source) => { const url = new URL(window.location.href); url.searchParams.set('view', 'study'); url.searchParams.set('tab', 'Agents'); url.searchParams.set('goal', goal); if (source) url.searchParams.set('source', source); window.history.replaceState(null, '', url); setHomeOpen(false) }} />
+  if (homeOpen) return <ChatHome theme={theme} onThemeChange={() => setTheme(value => value === 'light' ? 'dark' : 'light')} key={`${courseId}:${user.id}`} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} studentName={user.fullName} demoAccount={user.isDemo} workspaceKey={user.id} onCourseChange={setCourseId} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} onOpenWorkspace={openWorkspace} onCreateStudyPlan={(goal, source) => { const url = new URL(window.location.href); url.searchParams.set('view', 'study'); url.searchParams.set('tab', 'Agents'); url.searchParams.set('goal', goal); if (source) url.searchParams.set('source', source); window.history.replaceState(null, '', url); setHomeOpen(false) }} />
   return <StudyWorkspace key={`${user.id}:${courseId}`} user={user} courses={courses} courseId={courseId} coursesLoading={coursesLoading} coursesError={coursesError} theme={theme} onCourseChange={setCourseId} onThemeChange={() => setTheme(value => value === 'light' ? 'dark' : 'light')} onChatHome={() => { window.history.replaceState(null, '', '/'); setHomeOpen(true) }} onSignOut={() => void signOut()} signingOut={signingOut} sessionNotice={sessionNotice} />
 }
 

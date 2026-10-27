@@ -26,7 +26,7 @@ export default function TeachingText({ text, renderReference }: { text: string; 
       if (index < lines.length) index++
       blocks.push(<figure key={key} className="aura-teaching-code">{language && <figcaption>{language}</figcaption>}<pre tabIndex={0}><code>{code.join('\n')}</code></pre></figure>); continue
     }
-    if (/^#{1,6}\s/.test(line)) { blocks.push(<h3 key={key}>{format(line.replace(/^#{1,6}\s+/, ''))}</h3>); index++; continue }
+    if (/^#{1,6}\s/.test(line)) { blocks.push(<h3 key={key} className={/From your material/i.test(line) ? 'aura-teaching-provenance' : /Beyond your material/i.test(line) ? 'aura-teaching-provenance is-background' : undefined}>{format(line.replace(/^#{1,6}\s+/, ''))}</h3>); index++; continue }
     if (/^(From your material|Beyond your material[^:]*):$/.test(line)) { blocks.push(<h3 key={key} className={line.startsWith('Beyond') ? 'aura-teaching-provenance is-background' : 'aura-teaching-provenance'}>{line.slice(0, -1)}</h3>); index++; continue }
     if (/^\s*[-*+]\s/.test(line) || /^\s*\d+[.)]\s/.test(line)) {
       const ordered = /^\s*\d+[.)]\s/.test(line), items: ReactNode[] = []

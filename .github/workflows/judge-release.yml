@@ -6,6 +6,9 @@ on:
       - judge/**
       - scripts/*judge*
       - scripts/check_responsive.mjs
+      - scripts/check_landing.mjs
+      - public/**
+      - index.html
       - src/layout.css
       - src/main.tsx
       - evaluation/check_judge_package.py
@@ -85,6 +88,11 @@ jobs:
           AURA_UI_TEST_MODULES: /tmp/aura-judge-browser/node_modules
         working-directory: /tmp/aura-extracted/Aura-Judge-Build
         run: node scripts/check_responsive.mjs http://127.0.0.1:8888
+      - name: Check public pages and keyboard navigation
+        working-directory: /tmp/aura-extracted/Aura-Judge-Build
+        env:
+          AURA_UI_TEST_MODULES: /tmp/aura-judge-browser/node_modules
+        run: node scripts/check_landing.mjs http://127.0.0.1:8888
       - name: Save responsive layout screenshots and measurements
         if: always()
         uses: actions/upload-artifact@v4

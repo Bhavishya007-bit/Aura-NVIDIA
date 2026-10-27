@@ -1,3 +1,5 @@
+import { Moon, Sun } from 'lucide-react'
+import { IconButton, Skeleton, Toast } from './ui'
 import { savedGeneration } from '../services/generationJobs'
 import type { SavedGeneration } from '../services/generationJobs'
 import TutorReply from './TutorReply'
@@ -29,6 +31,8 @@ import { multiMaterialNotice } from '../services/generationSupport'
 import { ApiResponseError } from '../services/apiClient'
 
 type Props = {
+  theme?: 'light' | 'dark'
+  onThemeChange?: () => void
   courses: Course[]
   courseId: string
   coursesLoading: boolean
@@ -61,9 +65,10 @@ function errorMessage(error: unknown): string {
 }
 
 export default function ChatHome({
-  courseId, coursesLoading, coursesError, studentName, demoAccount,
+  courseId, coursesLoading, coursesError, studentName, demoAccount, theme = 'light', onThemeChange,
   onSignOut, signingOut, sessionNotice, workspaceKey, onOpenWorkspace, onCreateStudyPlan,
 }: Props) {
+  const [actionNotice, setActionNotice] = useState('')
   const storageKey = `aura.chat.v1:${workspaceKey}:${courseId}`
   const [pendingJob] = useState(() => savedGeneration(`${storageKey}:generation`))
   const [openCitation, setOpenCitation] = useState<ToolCitation | null>(null)
@@ -383,19 +388,21 @@ export default function ChatHome({
   }
 
   return (
-    <div className={`aura-home ${hasConversation ? 'aura-home--conversation' : ''}`}>
+    <div data-theme={theme} className={`aura-home ${hasConversation ? 'aura-home--conversation' : ''}`}>
       <header className="aura-home__header">
         <button type="button" className="aura-home__brand" onClick={newConversation} disabled={busy} aria-label="Aura — new conversation">
-          <span className="aura-home__mark" aria-hidden="true">✦</span>Aura
+          <span className="aura-home__mark" aria-hidden="true">A.</span>Aura
         </button>
         <nav className="aura-home__nav" aria-label="Aura navigation">
           <button type="button" onClick={onOpenWorkspace} disabled={sending}>Study tools</button>
           {hasConversation && <button type="button" onClick={newConversation} disabled={busy}>New chat</button>}
+          <IconButton label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={onThemeChange}>{theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}</IconButton>
           <AccountMenu demo={demoAccount} name={studentName} courseId={courseId} onSignOut={onSignOut} signingOut={signingOut} disabled={sending} />
         </nav>
       </header>
 
       <main className="aura-home__main">
+        {actionNotice && <Toast>{actionNotice}</Toast>}
         {sessionNotice && <p className="aura-home__error" role="alert">{sessionNotice}</p>}
         {!hasConversation && <section className="aura-home__intro">
           <span className="aura-home__eyebrow">YOUR SPACE TO UNDERSTAND</span>
@@ -403,24 +410,25 @@ export default function ChatHome({
           <p>Bring your study materials. Ask a question.<br />Make the difficult things a little clearer.</p>
         </section>}
 
-        <details className="aura-home__materials"><summary>Materials · {effectiveIds.length} selected</summary><MaterialPicker materials={materialOptions} selected={effectiveIds} onChange={changeMaterials} storageKey={`aura.sets.v1:${workspaceKey}:${courseId}`} disabled={busy || generation.active} loading={materialsLoading} />{materialsLoading && <p role="status">Loading materials…</p>}{materialsError && <p role="alert">{materialsError} <button type="button" onClick={() => setMaterialRefresh(value => value + 1)}>Refresh</button></p>}</details>
+        <details className="aura-home__materials"><summary>Materials · {effectiveIds.length} selected</summary><MaterialPicker materials={materialOptions} selected={effectiveIds} onChange={changeMaterials} storageKey={`aura.sets.v1:${workspaceKey}:${courseId}`} disabled={busy || generation.active} loading={materialsLoading} />{materialsLoading && <Skeleton label="Loading materials" lines={2} />}{materialsError && <p role="alert">{materialsError} <button type="button" onClick={() => setMaterialRefresh(value => value + 1)}>Refresh</button></p>}</details>
         <MaterialChips materials={materialOptions} selected={effectiveIds} onChange={changeMaterials} disabled={busy || generation.active} />
         {!groupSupported && <p className="aura-home__loading" role="status">{multiMaterialNotice}</p>}
         {hasConversation && <section className="aura-home__conversation" aria-label="Conversation" aria-busy={sending}>
           {entries.map(entry => <article key={entry.message.id} className={`aura-home__message aura-home__message--${entry.message.role}`}>
-            <div className="aura-home__speaker">{entry.message.role === 'student' ? 'You' : '✦ Aura'}</div>
+            <div className="aura-home__speaker">{entry.message.role === 'student' ? 'You' : 'Aura'}</div>
             <div className="aura-home__message-text">{entry.message.role === 'tutor' ? <TutorReply text={entry.message.content} clarification={entry.clarifyingQuestion} followUps={entry.followUpOptions} onFollowUp={value => { setQuestion(value); composer.current?.focus() }} /> : entry.message.content}</div>
             {entry.message.role === 'student' && Array.isArray(entry.attachments) && <ul className="aura-home__sent-images" aria-label="Materials sent with this question">{entry.attachments.filter(item => item && typeof item.filename === 'string').map((item, index) => <li key={index}>{imageFilename(item.filename) ? `Image ${index+1}: ` : ''}{item.filename}</li>)}</ul>}
             {entry.message.role === 'student' && <button type="button" className="aura-home__plan-link" disabled={sending} onClick={() => { setQuestion(entry.message.content); composer.current?.focus() }}>Edit &amp; resend</button>}
+            {entry.message.role === 'tutor' && <div className="aura-home__message-actions"><button type="button" onClick={() => { void navigator.clipboard.writeText(entry.message.content).then(() => setActionNotice('Answer copied.')).catch(() => setActionNotice('Could not copy. Select the answer text to copy it manually.')) }}>Copy</button><button type="button" disabled={!canSend || entry.scope !== chatScope} title={entry.scope !== chatScope ? 'Select the original materials to regenerate this answer.' : undefined} onClick={() => { const i = entries.indexOf(entry); const previous = entries.slice(0, i).reverse().find(e => e.message.role === 'student'); if (previous) void sendQuestion(previous.message.content, true) }}>Regenerate</button></div>}
             {entry.stopped && <span className="aura-stopped">■ Stopped</span>}
             {entry.message.role === 'student' && onCreateStudyPlan && /\b(?:study plan|revision plan|exam|prepare for|study goal|\d+[- ]day plan)\b/i.test(entry.message.content) && <button className="aura-home__plan-link" type="button" onClick={() => onCreateStudyPlan(entry.message.content, uploaded?.sourceId)}>Turn this into a study plan ↗</button>}
             {entry.message.role === 'tutor' && entry.answerMode && <small>{entry.answerMode === 'visual' ? 'Visual interpretation — check against the image' : entry.answerMode === 'excerpt' ? 'Quoted source excerpts — explanation unavailable' : entry.answerMode === 'source_plus_background' ? 'Source-backed section + separately labelled background' : entry.answerMode === 'general_background' ? 'General background — outside your material' : (entry.answerMode === 'source' || entry.grounded) ? 'Source checked' : 'Answer could not be verified'}</small>}
             {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).length > 0 && <details className="aura-home__sources">
               <summary className="aura-home__source-heading">Sources</summary>
-              {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).map(citation => <button key={`${citation.source_id}:${citation.id}`} className="aura-home__citation" type="button" onClick={() => setOpenCitation(citation)}>[{citation.referenceIds?.join(', ')}] {citation.title} · {citation.location}</button>)}
+              {chatCitationGroups(entry.message.content, entry.citations, id => fileNames[id] ?? `Source ${id}`).map(citation => <button key={`${citation.source_id}:${citation.id}`} className="aura-home__citation" title={citation.excerpt ? citation.excerpt.slice(0, 240) : `Open ${citation.title}, ${citation.location}`} type="button" onClick={() => setOpenCitation(citation)}>[{citation.referenceIds?.join(', ')}] {citation.title} · {citation.location}</button>)}
             </details>}
           </article>)}
-          {partial?.text && <article className="aura-home__message aura-home__message--tutor"><div className="aura-home__speaker">✦ Aura</div><TeachingText text={partial.text} /><span className="aura-stopped">Writing…</span></article>}
+          {partial?.text && <article className="aura-home__message aura-home__message--tutor is-streaming"><div className="aura-home__speaker">Aura</div><TeachingText text={partial.text} /><span className="aura-stopped">Writing…</span></article>}
           {chatError && <div className="aura-home__error" role="alert">
             <p>{chatError}</p>
             {failedQuestion && <button type="button" onClick={() => void sendQuestion(failedQuestion, true)} disabled={!canSend}>Retry question</button>}
@@ -489,7 +497,7 @@ export default function ChatHome({
           {!hasConversation && <div className="aura-home__formats">PDF <span>·</span> PowerPoint <span>·</span> Notes <span>·</span> Audio & video</div>}
         </div>
       </main>
-      {!hasConversation && <footer className="aura-home__footer">A little curiosity goes a long way.</footer>}
+      <footer className="aura-home__footer">A little curiosity goes a long way. <a href="/welcome">About Aura</a></footer>
       <SourceViewer citation={openCitation} onClose={() => setOpenCitation(null)} />
     </div>
   )

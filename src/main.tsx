@@ -7,5 +7,7 @@ import './responsive.css'
 import './reference-theme.css'
 import './ui-polish.css'
 import './layout.css'
-ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)
+ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><React.Suspense fallback={<div role="status" className="public-loading">Opening Aura…</div>}><App /></React.Suspense></React.StrictMode>)
 
+
+import './design-system.css'

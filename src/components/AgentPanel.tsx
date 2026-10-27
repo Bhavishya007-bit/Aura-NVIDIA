@@ -1,3 +1,4 @@
+import { Skeleton } from './ui'
 import TodayV2 from './TodayV2'
 import PreviousPlansV2 from './PreviousPlansV2'
 import StudyRhythm from './StudyRhythm'
@@ -254,7 +255,7 @@ export default function AgentPanel({ studyV2 = false, courseId, sourceId, materi
     {error && <div className="plan-notice plan-notice--warning" role="alert">{error} <button type="button" disabled={busy} onClick={() => setRefresh(v => v + 1)}>Retry</button></div>}
     {memoryNote && <div className="plan-notice" role="status">Noted: {memoryNote.item.record.text}<button type="button" disabled={busy} onClick={() => void act(async () => { if (memoryNote.before) await saveMemory(courseId, memoryNote.before.record, memoryNote.before.id); else await deleteMemory(courseId, memoryNote.item.id); setMemoryNote(undefined) })}>Undo</button><button type="button" aria-label="Dismiss memory notice" onClick={() => setMemoryNote(undefined)}>✕</button></div>}
     <div className="plan-sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
-    {!loaded && !error && <p className="plan-loading" role="status">Opening your saved plans…</p>}
+    {!loaded && !error && <Skeleton label="Opening your saved plans" />}
     {pane === 'Today' ? (studyV2 ? <section className="plan-today"><TodayV2 courseId={courseId}/><StudyRhythm courseId={courseId} onPractice={(topic,source)=>onOpenTool('Assessment',topic,source)}/></section> : <section className="plan-today"><StudyRhythm courseId={courseId} onPractice={(topic, source) => onOpenTool('Assessment', topic, source)} /><div className="plan-section-heading"><div><span className="plan-kicker">ONE STEP AT A TIME</span><h2>What will you learn today?</h2><p>Your workspace checklist. Pick up where you left off.</p></div>{tasks.length > 0 && <span className="plan-status">{completedTasks} / {tasks.length} done</span>}</div>{loaded && !tasks.length ? <div className="plan-empty"><span aria-hidden="true">✓</span><h3>A clear next step starts with a plan</h3><p>Create a study plan and your saved tasks will appear here.</p><button type="button" onClick={() => { setPane('Plan'); goalInput.current?.focus() }}>Create a plan</button></div> : <div className="plan-checklist">{tasks.map(renderTask)}</div>}<p className="plan-caption">Checkmarks save automatically. Tasks are not assigned to a calendar date yet.</p></section>) : <>
       {(!studyV2 || !run) && <form className="plan-compose" onSubmit={e => { e.preventDefault(); if (canStart) void create() }}>
         <div className="plan-section-heading"><div><span className="plan-kicker">A LITTLE STRUCTURE. A LOT MORE CLARITY.</span><h2>What do you want to achieve?</h2><p>Turn your material into a next step you can follow.</p></div><span className="plan-spark" aria-hidden="true">✦</span></div>

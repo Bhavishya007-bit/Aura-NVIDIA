@@ -33,6 +33,7 @@ SOURCE_DIRS = {
     "backend",
     "database",
     "src",
+    "public",
     "scripts",
     "sandbox",
     "judge",

@@ -1,3 +1,4 @@
+import { Skeleton } from './ui'
 import { useState } from 'react'
 import type { Artifact, Material } from '../services/studyToolsApi'
 import { fileType } from './studyPlanModel'
@@ -45,7 +46,7 @@ export default function StudyOverview({ material, ready, busy, artifacts, loadin
     </section>
 
     <section className="study-home-saved" aria-labelledby="study-saved-title"><header><h2 id="study-saved-title">Pick up where you left off</h2><span>Saved for this material</span></header>
-      {loading ? <p role="status">Loading your saved work…</p> : error ? <p role="alert" className="sw-error">{error}</p>
+      {loading ? <Skeleton label="Loading your saved work" /> : error ? <p role="alert" className="sw-error">{error}</p>
         : artifacts.length ? <div>{artifacts.slice(0, 3).map(artifact => <button key={artifact.id} type="button" disabled={busy} onClick={() => onOpenArtifact(artifact)}><span className="study-home-saved-icon" aria-hidden="true">↳</span><span><strong>{artifactDestination(artifact.kind)}</strong><small>{artifact.payload.focus || 'From your selected material'}</small></span><time dateTime={artifact.created_at}>{Number.isFinite(Date.parse(artifact.created_at)) ? new Date(artifact.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Saved'}</time><span aria-hidden="true">→</span></button>)}</div>
           : <p>Your notes, summaries and practice will appear here. Start with a question above.</p>}
     </section>

@@ -1,3 +1,4 @@
+import { Skeleton } from './ui'
 import StudyToolV2 from './StudyToolV2'
 import ProgressV2 from './ProgressV2'
 import { renameMaterial,deleteMaterial } from '../services/studyV2Api'
@@ -375,7 +376,7 @@ export default function StudyWorkspace(props: Props) {
         <aside className="sw-materials" aria-label="Study materials" onKeyDown={event=>{if(event.key!=='Tab'||materialsCollapsed||!window.matchMedia('(max-width: 800px)').matches)return;const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled):not([hidden]),summary,a[href]')).filter(el=>el.getClientRects().length>0);const first=controls[0],last=controls[controls.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}}}><button type="button" className="sw-material-toggle" aria-expanded={!materialsCollapsed} aria-label={materialsCollapsed?'Show materials':'Hide materials'} onClick={()=>setMaterialsCollapsed(v=>!v)}>{materialsCollapsed?`▤ ${selectedIds.length}`:'Hide materials ←'}</button><div className="sw-material-heading"><h2>Materials</h2><button type="button" aria-label="Refresh materials" disabled={!!busy || materialsLoading} onClick={() => setReload(value => value + 1)}>↻</button></div>
           <button type="button" className="sw-add" disabled={!!busy || !courseId} onClick={() => fileInput.current?.click()}>＋ Add material</button>
           <input ref={fileInput} type="file" multiple hidden accept=".pdf,.docx,.ppt,.pptx,.jpg,.jpeg,.png,audio/*,.mp4" onChange={event => void upload(Array.from(event.target.files ?? []))} />
-          {materialsLoading && <p className="sw-muted" role="status">Loading materials…</p>}
+          {materialsLoading && <Skeleton label="Loading materials" lines={3} />}
           {materialsError && <p className="sw-error" role="alert">{materialsError}</p>}
           <details className="sw-material-manage" ref={materialManager}><summary>Find &amp; manage materials</summary>
           <label className="sw-material-search"><span className="sw-sr-only">Search materials</span><input ref={materialSearchInput} type="search" placeholder="Search materials" value={materialSearch} onChange={event => setMaterialSearch(event.target.value)} /></label>

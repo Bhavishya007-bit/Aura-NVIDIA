@@ -5,6 +5,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html tsconfig*.json vite.config.ts ./
 COPY src ./src
+COPY public ./public
 RUN VITE_API_BASE_URL=/api npm run build
 
 FROM python:3.12-slim-bookworm AS runtime

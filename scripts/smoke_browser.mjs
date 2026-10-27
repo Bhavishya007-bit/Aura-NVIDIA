@@ -9,9 +9,10 @@ try{
  const context=await browser.newContext()
  const page=await context.newPage()
  await page.goto(url.href,{waitUntil:'networkidle'})
+ await page.getByRole('link',{name:'Sign in',exact:true}).first().click()
  await page.getByRole('button',{name:'Log in',exact:true}).first().waitFor()
  const response=await context.request.get(new URL('/api/auth/me',url).href)
  if(response.status()!==401)throw Error('Signed-out account access was not blocked.')
- console.log('PASS: Fresh browser opens the sign-in screen and private API rejects anonymous access.')
+ console.log('PASS: Fresh browser opens the landing page and reaches sign-in and private API rejects anonymous access.')
  await context.close()
 }finally{await browser.close()}

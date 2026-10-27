@@ -1,3 +1,4 @@
+import { Skeleton } from './ui'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { deleteMemory, getMemories, saveMemory, toggleMemory } from '../services/agentApi'
@@ -34,7 +35,7 @@ export default function MemoryDialog({ courseId, onClose }: { courseId: string; 
     <p>Help Aura understand how you learn. You can change or delete anything saved here.</p>
     <label className="aura-memory__toggle"><span><strong>Use saved memory</strong><small>Applies to this study workspace. Turning it off keeps your records but stops Aura using or adding them here.</small></span><input type="checkbox" role="switch" checked={memory.enabled} disabled={busy || !loaded} onChange={e => void act(() => toggleMemory(courseId, e.target.checked))} /></label>
     {error && <p role="alert">{error} <button type="button" onClick={() => { setError(''); setReload(v => v + 1) }}>Retry</button></p>}
-    {!loaded && !error && <p role="status">Loading your memories…</p>}
+    {!loaded && !error && <Skeleton label="Loading your memories" />}
     {notice && <p className="aura-memory__notice" role="status">{notice.text} <button type="button" disabled={busy} onClick={() => void act(async () => { await notice.undo(); setNotice(undefined) })}>Undo</button></p>}
     <div className="aura-memory__list">{memory.items.map(item => <article key={item.id}><small>{kinds[item.record.kind]}</small><p>{item.record.text}</p>{item.record.depth && <small>Explanation level: {item.record.depth}</small>}<div><button type="button" disabled={busy} onClick={() => { setEditing(item.id); setRecord(item.record); textInput.current?.focus() }}>Edit</button><button type="button" disabled={busy} onClick={() => void act(async () => { await deleteMemory(courseId, item.id); if (editing === item.id) { setEditing(undefined); setRecord(fresh()) }; setNotice({ text: 'Memory deleted.', undo: () => saveMemory(courseId, item.record) }) })}>Delete</button></div></article>)}{loaded && !memory.items.length && <div className="aura-memory__empty">A little understanding goes a long way.<p>Your saved preferences and learning milestones will appear here.</p></div>}</div>
     <form onSubmit={e => { e.preventDefault(); void act(async () => {

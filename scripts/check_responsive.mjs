@@ -123,7 +123,7 @@ async function check(page, width, height, theme) {
 try {
   const signedOut = await browser.newContext()
   const login = await signedOut.newPage()
-  await login.goto(base.href)
+  await login.goto(new URL('/login', base).href)
   await login.getByRole('button', { name: 'Log in', exact: true }).first().waitFor()
   assert.equal(await login.locator('.aura-home').count(), 0, 'Signed-out users still see authentication')
   await signedOut.close()
