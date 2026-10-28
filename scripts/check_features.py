@@ -1,4 +1,4 @@
-"""Read-only setup checks. --live makes three small real provider requests."""
+"""Setup checks. --live makes three small provider requests, charged to the selected account and global token allowance."""
 import argparse
 import json
 import os
@@ -16,6 +16,7 @@ TABLES = ('students','courses','sources','chunks','aura_memories','aura_memory_s
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live',action='store_true')
+    parser.add_argument('--account-email',help='Existing Aura account for production live-check token accounting; no password needed.')
     args=parser.parse_args()
     failed=False
     try:
@@ -41,15 +42,49 @@ def main():
     except Exception as error:
         print('FAILED: running API route check ('+type(error).__name__+').');failed=True
     if args.live:
-        from backend.ai.llm import LLM
-        for task in ('coverage','answer','deep'):
+        try:
+            from backend.production.config import enabled
+            from backend.production.limits import actor
+            student = None
+            if enabled():
+                if not args.account_email:
+                    raise ValueError('Use --account-email with your existing Aura login email for production live checks.')
+                from backend.auth_db import get_auth_connection
+                con = get_auth_connection()
+                try:
+                    with con.cursor() as cur:
+                        cur.execute('SELECT student_id FROM students WHERE LOWER(email)=LOWER(%s)', (args.account_email.strip(),))
+                        row = cur.fetchone()
+                finally:
+                    con.close()
+                if not row:
+                    raise ValueError('Account not found. Use an existing Aura login email.')
+                student = row[0]
+            # Operator-only script: use an existing account and retain all production limits.
+            token = actor.set(student) if student is not None else None
             try:
-                client=LLM().for_task(task).for_summary().with_output_budget(1024,exact=True)
-                value=client.generate_json('Return only the JSON object {"ok":true}. This is a setup connectivity check.',max_retries=1)
-                if value.get('ok') is not True:raise ValueError('Unexpected check result')
-                print('OK: '+task+' model JSON request')
-            except Exception as error:
-                print('FAILED: '+task+' model request ('+type(error).__name__+'). Check the provider warning above; do not share your key.');failed=True
+                from backend.ai.llm import LLM
+                for task in ('coverage','answer','deep'):
+                    try:
+                        client=LLM().for_task(task).for_summary().with_output_budget(1024,exact=True)
+                        value=client.generate_json('Return only the JSON object {"ok":true}. This is a setup connectivity check.',max_retries=1)
+                        if value.get('ok') is not True:raise ValueError('Unexpected check result')
+                        print('OK: '+task+' model JSON request')
+                    except Exception as error:
+                        detail = getattr(error, 'detail', None)
+                        code = detail.get('code') if isinstance(detail, dict) else None
+                        reasons = {'ai_paused': 'AI generation is paused by deployment controls.',
+                                   'daily_ai_limit': 'The account or global daily token allowance has been reached.',
+                                   'unscoped_generation': 'The live check is missing account context.'}
+                        hint = reasons.get(code, 'Check provider connectivity/configuration; do not share your key.')
+                        print('FAILED: '+task+' model request ('+type(error).__name__+'). '+hint);failed=True
+            finally:
+                if token is not None:
+                    actor.reset(token)
+        except ValueError as error:
+            print('FAILED: live check setup. '+str(error));failed=True
+        except Exception as error:
+            print('FAILED: live check setup ('+type(error).__name__+').');failed=True
     print('Setup checks '+('FAILED. Fix the reported section before retrying generation.' if failed else 'passed. Real document generation and account-specific actions still need a UI check.'))
     return 1 if failed else 0
 
