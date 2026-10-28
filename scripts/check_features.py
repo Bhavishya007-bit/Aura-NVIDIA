@@ -3,6 +3,13 @@ import argparse
 import json
 import os
 import urllib.request
+from pathlib import Path
+import sys
+
+# Support both python scripts/name.py and python -m scripts.name.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 TABLES = ('students','courses','sources','chunks','aura_memories','aura_memory_settings','aura_agent_tasks','aura_agent_runs','aura_study_artifacts','aura_study_attempts','aura_generation_jobs','aura_card_reviews','aura_study_activity')
 

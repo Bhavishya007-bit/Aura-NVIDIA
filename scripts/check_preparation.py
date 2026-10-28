@@ -1,5 +1,12 @@
 """Read-only preparation diagnostics: no model calls or document contents."""
 import os
+from pathlib import Path
+import sys
+
+# Support both python scripts/name.py and python -m scripts.name.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 def main():
     print('Embedding device:',os.getenv('AURA_EMBEDDING_DEVICE','auto'))
