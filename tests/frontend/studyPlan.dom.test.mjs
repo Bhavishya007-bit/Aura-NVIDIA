@@ -314,6 +314,18 @@ test('account menu hides student IDs, and memory settings edit/delete/toggle exi
   await click(button('Delete'))
   assert(requests.some(r => r.path === '/agents/memory/memory-a/delete' && r.method === 'POST'))
 })
+test('memory retry clears the failed state and restores usable controls', async () => {
+  failLoads = true
+  await mount(AccountMenu, { name: 'Sam Rivera', courseId: '6' })
+  await click(document.querySelector('.aura-account summary'))
+  await click(button('What Aura remembers'))
+  assert(document.querySelector('.aura-memory [role=alert]'))
+  assert(document.querySelector('.aura-memory input[role=switch]').disabled)
+  failLoads = false
+  await click(button('Retry'))
+  assert(!document.querySelector('.aura-memory [role=alert]'))
+  assert(!document.querySelector('.aura-memory input[role=switch]').disabled)
+})
 test('workspace keeps Agents identity but shows Study Plan, real extension and working Change focus', async () => {
   materials.push({ source_id: 8, source_name: 'Biology revision.pdf', source_type: 'pdf', status: 'success' })
   await mount(StudyWorkspace, { user: { id: '1', fullName: 'Sam Rivera', email: 'sam@example.test' }, courses: [{ id: '6', title: 'Biology' }], courseId: '6', coursesLoading: false, coursesError: '', theme: 'dark', onCourseChange() {}, onThemeChange() {}, onChatHome() {}, onSignOut() {}, signingOut: false, sessionNotice: '' })
@@ -376,7 +388,7 @@ test('generation failures do not expose stale provider advice and retain materia
   window.history.replaceState(null, '', '/?view=study&tab=Flashcards&source=7&topic=Membrane%20proteins')
   await mount(StudyWorkspace, { user: { id: '1', fullName: 'Sam Rivera' }, courses: [], courseId: '6', coursesLoading: false, coursesError: '', theme: 'dark', onCourseChange() {}, onThemeChange() {}, onChatHome() {}, onSignOut() {}, signingOut: false, sessionNotice: '' })
   await click(button('Generate'))
-  assert.match(document.querySelector('[role=alert]').textContent, /could not create and verify/)
+  assert([...document.querySelectorAll('[role=alert]')].some(node => /could not create and verify/.test(node.textContent)))
   assert(!visibleText().includes('Ollama'))
   assert.equal(document.querySelector('.sw-focus input').value, 'Membrane proteins')
   assert.match(document.querySelector('.aura-using').textContent, /Biological membranes.ppt/)

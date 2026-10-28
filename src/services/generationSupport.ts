@@ -11,7 +11,8 @@ export async function generationSupport(signal?: AbortSignal): Promise<Generatio
     })
   } catch (error) {
     if (signal?.aborted || error instanceof ApiHttpError && error.status === 401) throw error
-    return legacySupport
+    if (error instanceof ApiHttpError && error.status === 404) return legacySupport
+    throw error
   }
 }
 export const multiMaterialNotice = 'This tool currently supports one material at a time. Choose one to continue; your study sets are saved.'

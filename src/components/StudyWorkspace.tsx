@@ -395,6 +395,7 @@ export default function StudyWorkspace(props: Props) {
         </aside>
         <main className="sw-main">
           <div className="sw-heading"><div><p className="sw-eyebrow">{tab === 'Progress' ? 'All materials in this course' : 'YOUR STUDY WORKSPACE'}</p><h1>{tab === 'Agents' ? 'Study Plan' : tab === 'Tutor' ? 'Ask Aura' : tab === 'Overview' ? 'Your study space' : tab}</h1>{tab === 'Agents' && <p className="sw-plan-subtitle">Make time for what matters. Aura will help you get there.</p>}</div></div>
+        {support.setupNotice && <p role="alert">{support.setupNotice}</p>}
           <MaterialChips materials={materials} selected={selectedIds} onChange={changeSelection} disabled={!!busy || generation.active} onChangeOpen={changeMaterial} />
           {selectedIds.length > 1 && (tab === 'Tutor' ? !canChatGroup : tab !== 'Agents' && !canUseGroup) && <p className="sw-status" role="status">{multiMaterialNotice}</p>}
           {error && <p className="sw-error" role="alert">{error}</p>}

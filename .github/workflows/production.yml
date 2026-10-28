@@ -88,6 +88,8 @@ jobs:
           python -m pip install requests
           python scripts/smoke_public.py http://127.0.0.1:8000 --allow-local
           test "$(docker exec aura-production-smoke id -u)" = '10001'
+      - name: Check every study feature schema and API route
+        run: docker exec aura-production-smoke python scripts/check_features.py
       - name: Install test-only browser
         run: |
           npm install --prefix /tmp/aura-deploy-test-deps --no-save playwright

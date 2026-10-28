@@ -80,7 +80,7 @@ export default function AuthPage({ mode, theme, onSuccess, initialError, onNavig
       </a>
       <p className="auth-eyebrow">{isSignup ? 'START LEARNING' : 'YOUR STUDY WORKSPACE'}</p>
       <h1 id="auth-title">{isSignup ? 'Create your account' : 'Welcome back'}</h1>
-      <p className="auth-description">{registered ? 'Account created. Sign in to continue.' : isSignup ? 'Bring your learning materials and progress together.' : 'Sign in to continue to your study workspace.'}</p>
+      <p className="auth-description">{registered ? 'Account created. Sign in to continue.' : isSignup ? 'Use your own account. Choose a new Aura password—not your email password.' : 'Sign in to continue to your study workspace.'}</p>
       <form className="auth-form" onSubmit={event => void submit(event)} noValidate aria-busy={busy}>
         {isSignup && <label>Name<input autoComplete="name" value={username} maxLength={100} onChange={event => setUsername(event.target.value)} required disabled={busy} /></label>}
         <label>Email<input type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} required disabled={busy} /></label>
@@ -104,3 +104,4 @@ export default function AuthPage({ mode, theme, onSuccess, initialError, onNavig
     </section>
   </main>
 }
+

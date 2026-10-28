@@ -1,5 +1,6 @@
 import { Skeleton } from './ui'
 import { useEffect, useRef, useState } from 'react'
+import { ApiHttpError, ApiUnavailableError } from '../services/apiClient'
 import { createPortal } from 'react-dom'
 import { deleteMemory, getMemories, saveMemory, toggleMemory } from '../services/agentApi'
 import type { MemoryInput, MemoryKind, MemoryState } from '../services/agentApi'
@@ -20,7 +21,8 @@ export default function MemoryDialog({ courseId, onClose }: { courseId: string; 
   useEffect(() => { dialog.current?.showModal() }, [])
   useEffect(() => {
     let cancelled = false
-    getMemories(courseId).then(value => { if (!cancelled) { setMemory(value); setLoaded(true) } }).catch(() => { if (!cancelled) setError('Could not load your saved memories. Please retry.') })
+    setLoaded(false); setError('')
+    getMemories(courseId).then(value => { if (!cancelled) { setMemory(value); setLoaded(true); setError('') } }).catch(cause => { if (!cancelled) setError(cause instanceof ApiHttpError && cause.status === 404 ? 'Memory is unavailable for this workspace. Update Aura, then retry.' : cause instanceof ApiHttpError && cause.status === 401 ? 'Your session expired. Sign in again.' : cause instanceof ApiUnavailableError ? 'Aura could not be reached. Check your connection, then retry.' : 'Memory could not be loaded. Your saved records have not been changed. Please retry.') })
     return () => { cancelled = true }
   }, [courseId, reload])
   async function act(work: () => Promise<unknown>) {

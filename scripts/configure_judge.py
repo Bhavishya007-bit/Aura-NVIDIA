@@ -25,6 +25,7 @@ def create(directory, key, vision=False):
     values = {
         "AURA_JUDGE_DB_PASSWORD": secrets.token_hex(24),
         "AUTH_JWT_SECRET": secrets.token_urlsafe(48),
+        "AURA_JUDGE_DEMO_ENABLED": "false",
         "AURA_DEMO_EMAIL": "judge@aura.example.org",
         "AURA_DEMO_PASSWORD": secrets.token_urlsafe(24),
         "NEBIUS_API_KEY": key,
@@ -61,9 +62,14 @@ def show_login(directory):
         (Path(directory) / ".env.judge").read_text(encoding="utf-8").splitlines()
     ):
         name, sep, value = line.partition("=")
-        if sep and name in {"AURA_DEMO_EMAIL", "AURA_DEMO_PASSWORD"}:
+        if sep and name in {"AURA_DEMO_EMAIL", "AURA_DEMO_PASSWORD", "AURA_JUDGE_DEMO_ENABLED"}:
             data[name] = value.strip().strip("'")
     print("Open http://localhost:8888")
+    demo = os.getenv("AURA_DEMO_ENABLED", os.getenv("AURA_JUDGE_DEMO_ENABLED", data.get("AURA_JUDGE_DEMO_ENABLED", "false"))).strip().lower() in ("true", "1", "yes", "on")
+    if not demo:
+        print("Create your own Aura account at http://localhost:8888/signup, then upload your material.")
+        print("Choose a new Aura password, not your email-account password. No shared judge login is required.")
+        return
     print("Demo email:", data.get("AURA_DEMO_EMAIL", "Not configured"))
     print("Local demo password:", data.get("AURA_DEMO_PASSWORD", "Not configured"))
     print(

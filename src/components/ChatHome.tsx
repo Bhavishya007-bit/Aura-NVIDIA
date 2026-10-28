@@ -411,6 +411,7 @@ export default function ChatHome({
         </section>}
 
         <details className="aura-home__materials"><summary>Materials · {effectiveIds.length} selected</summary><MaterialPicker materials={materialOptions} selected={effectiveIds} onChange={changeMaterials} storageKey={`aura.sets.v1:${workspaceKey}:${courseId}`} disabled={busy || generation.active} loading={materialsLoading} />{materialsLoading && <Skeleton label="Loading materials" lines={2} />}{materialsError && <p role="alert">{materialsError} <button type="button" onClick={() => setMaterialRefresh(value => value + 1)}>Refresh</button></p>}</details>
+        {support.setupNotice && <p role="alert">{support.setupNotice}</p>}
         <MaterialChips materials={materialOptions} selected={effectiveIds} onChange={changeMaterials} disabled={busy || generation.active} />
         {!groupSupported && <p className="aura-home__loading" role="status">{multiMaterialNotice}</p>}
         {hasConversation && <section className="aura-home__conversation" aria-label="Conversation" aria-busy={sending}>

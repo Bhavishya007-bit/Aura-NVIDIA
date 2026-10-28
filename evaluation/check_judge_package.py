@@ -18,6 +18,7 @@ class JudgePackageTests(unittest.TestCase):
             target = create(folder, "synthetic-token-for-offline-test", True)
             first = target.read_text()
             self.assertIn("AURA_JUDGE_VISION_MODEL='gemma3:4b'", first)
+            self.assertIn("AURA_JUDGE_DEMO_ENABLED='false'", first)
             self.assertEqual(target.stat().st_mode & 0o777, 0o600)
             with self.assertRaises(ValueError):
                 create(folder, "replacement-test-token")
@@ -25,7 +26,8 @@ class JudgePackageTests(unittest.TestCase):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 show_login(folder)
-            self.assertIn("judge@aura.example.org", out.getvalue())
+            self.assertIn("/signup", out.getvalue())
+            self.assertNotIn("judge@aura.example.org", out.getvalue())
             self.assertNotIn("synthetic-token", out.getvalue())
             self.assertNotIn("AUTH_JWT_SECRET", out.getvalue())
 
