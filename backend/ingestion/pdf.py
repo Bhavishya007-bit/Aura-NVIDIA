@@ -1,6 +1,7 @@
 from backend.preparation_progress import report
 import pymupdf
-from .ocr import extract_image_text
+from .ocr import extract_images_text
+from .page_batch import page_ocr_batches
 from .page_render import render_for_ocr
 from .utils import generate_unit_id, has_pdf_signature
 
@@ -15,24 +16,21 @@ def ingest_pdf(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
     units, warnings = [], []
     try:
         report("reading_pages", 0, len(document))
-        for index in range(len(document)):
-            page = document.load_page(index)
+        for index, page, native_text, image, recognition, reading_error in page_ocr_batches(document, render_for_ocr, extract_images_text):
             number = index + 1
             source = {'filename': filename, 'file_type': 'pdf'}
             before = len(units)
             try:
-                native_text = page.get_text('text')
-                if not isinstance(native_text, str):
-                    raise ValueError('PDF text extraction returned an unexpected value.')
                 text = native_text.strip()
                 if text:
                     units.append({'unit_id': generate_unit_id(filename, 'page', str(number)),
                                   'source': source, 'text': text,
                                   'source_location': {'kind': 'page', 'page_number': number},
                                   'extraction_status': 'extracted', 'warnings': []})
-                if not text or page.get_images() or page.get_drawings():
-                    image = render_for_ocr(page)
-                    ocr_text, metadata, ocr_warnings = extract_image_text(image)
+                if reading_error is not None:
+                    raise reading_error
+                if recognition is not None:
+                    ocr_text, metadata, ocr_warnings = recognition
                     warnings.extend(f'Page {number}: {warning}' for warning in ocr_warnings)
                     if ocr_text:
                         units.append({'unit_id': generate_unit_id(filename, 'page_ocr', str(number)),

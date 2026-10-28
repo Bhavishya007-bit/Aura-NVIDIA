@@ -1,9 +1,10 @@
+from .page_batch import page_ocr_batches
 from backend.preparation_progress import report
 import io
 import os
 import pymupdf
 from pptx import Presentation
-from .ocr import extract_images_text, extract_image_text
+from .ocr import extract_images_text
 from .page_render import render_for_ocr
 from .utils import generate_unit_id, has_zip_signature
 from .ppt_convert import convert_ppt_to_pptx, convert_presentation_to_pdf, PptConversionError
@@ -87,16 +88,16 @@ def ingest_pptx(data: bytes, filename: str) -> tuple[list[dict], list[str]]:
         report("reading_slides", slide_number, len(presentation.slides))
     if rendered is not None:
         try:
-            for index, page in enumerate(rendered):
+            for index, page, visible_text, png, recognition, reading_error in page_ocr_batches(rendered, render_for_ocr, extract_images_text, always_ocr=True):
                 number = index + 1
                 report('reading_slide_images', index, len(rendered))
                 try:
-                    png = render_for_ocr(page)
-                    text, metadata, notices = extract_image_text(png)
+                    if reading_error is not None:
+                        raise reading_error
+                    text, metadata, notices = recognition
                     warnings.extend(f'Slide {number}: {notice}' for notice in notices)
                     # Extract text rendered by LibreOffice too: some SmartArt
                     # labels become PDF text even when OCR cannot read them.
-                    visible_text = page.get_text('text').strip()
                     combined = '\n'.join(dict.fromkeys(t for t in (visible_text, text) if t))
                     if combined:
                         units.append({'unit_id': generate_unit_id(filename, 'slide_render', str(number)),

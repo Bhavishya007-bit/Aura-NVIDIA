@@ -26,6 +26,7 @@ services:
       DATABASE_URL: postgresql://aura_judge:${AURA_JUDGE_DB_PASSWORD:-setup-required}@db:5432/aura_judge?sslmode=disable
       AURA_ALLOW_INSECURE_DATABASE: 'true'
       AURA_ENV: production
+      AURA_EMBEDDING_THREADS: ${AURA_EMBEDDING_THREADS:-4}
       AURA_ALLOWED_HOSTS: localhost,127.0.0.1
       AURA_ALLOW_REGISTRATION: 'true'
       AURA_DEMO_ENABLED: ${AURA_JUDGE_DEMO_ENABLED:-false}

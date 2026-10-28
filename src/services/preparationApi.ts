@@ -7,6 +7,8 @@ export type PreparationJob = {
   filename: string
   state: 'queued' | 'processing' | 'ready' | 'failed'
   stage: string
+  created_at?: string
+  updated_at?: string
   percentage: number | null
   result: { source_id: number; course_id: number; source_name: string; source_type: string; status: 'success' | 'partial'; content_units: number; warnings?: string[] } | null
   error: string | null

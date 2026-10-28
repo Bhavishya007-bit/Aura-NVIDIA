@@ -6,6 +6,7 @@ import './PreparationStatus.css'
 type Props = { simple?: boolean; courseId: string; refreshKey: number; pendingId?: string; pendingIds?: string[]; onReady: (job: PreparationJob) => void; onFailed?: (job: PreparationJob) => void }
 
 export default function PreparationStatus({ courseId, refreshKey, pendingId, pendingIds, onReady, onFailed, simple = false }: Props) {
+  const [now, setNow] = useState(Date.now)
   const [jobs, setJobs] = useState<PreparationJob[]>([])
   const [error, setError] = useState('')
   const [retrying, setRetrying] = useState('')
@@ -57,6 +58,8 @@ export default function PreparationStatus({ courseId, refreshKey, pendingId, pen
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not retry preparation.') }
     finally { setRetrying('') }
   }
+  const active = jobs.some(job => ['queued', 'processing'].includes(job.state))
+  useEffect(() => { if (!active) return; setNow(Date.now()); const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [active])
   const visible = jobs.filter(job => (job.state !== 'ready' || !!job.result?.warnings?.length) && !dismissed.includes(job.id))
     .sort((a, b) => Number(a.state === 'ready') - Number(b.state === 'ready')).slice(0, 5)
   if (!visible.length && !error) return null
@@ -64,6 +67,7 @@ export default function PreparationStatus({ courseId, refreshKey, pendingId, pen
     {error && <p className="aura-preparation-error" role="alert">{simple ? 'Could not check your material yet. Aura will try again.' : error}</p>}
     {visible.map(job => <div key={job.id} className="aura-preparation-item">
       <div><strong>{job.filename}</strong><span role="status">{simple ? job.state === 'ready' ? 'Ready to study' : job.state === 'failed' ? 'Needs attention' : 'Preparing your material' : preparationLabel(job)}{!simple && job.percentage !== null && job.state === 'processing' ? ` · ${job.percentage}% of this step` : ''}</span></div>
+      {['queued', 'processing'].includes(job.state) && job.created_at && Number.isFinite(Date.parse(job.created_at)) && now-Date.parse(job.created_at)>120000 && <p role="status">Uploaded {Math.floor((now-Date.parse(job.created_at))/60000)} minutes ago. {job.state === 'queued' ? 'Waiting to start; other uploads may be ahead.' : 'Image-heavy files can take longer. You can leave this page and return; preparation continues.'}</p>}
       {job.state === 'processing' && <progress max={100} value={job.percentage ?? undefined} aria-label={simple ? 'Preparing your material' : preparationLabel(job)} />}
       {job.state === 'ready' && !!job.result?.warnings?.length && <>
         <p>Ready with reading limitations. Some image or diagram details may be missing.</p>

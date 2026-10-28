@@ -55,11 +55,18 @@ class PreparationWorker:
     def process(self, row):
         job_id, student_id, course_id = str(row['id']), row['student_id'], row['course_id']
         last_progress = [None, 0.0]
+        timing = [None, time.monotonic()]
+        started = timing[1]
         def progress(stage, completed=0, total=0):
             now = time.monotonic()
             # Bound progress writes without hiding completed work or new stages.
             if stage == last_progress[0] and completed != total and now-last_progress[1] < .5:
                 return
+            if stage != timing[0]:
+                if timing[0] is not None:
+                    logger.info('preparation_stage=%s elapsed_s=%.2f job=%s', timing[0], now-timing[1], job_id)
+                logger.info('preparation_stage=%s status=started job=%s', stage, job_id)
+                timing[:] = [stage, now]
             self.change(job_id, stage=stage, completed=completed, total=total)
             last_progress[:] = [stage, now]
         try:
@@ -93,6 +100,10 @@ class PreparationWorker:
                        if isinstance(error, HTTPException) and error.status_code == 400 else
                        'Preparation could not finish. Check the backend terminal, then retry.')
             self.change(job_id, state='failed', stage='failed', error=message)
+        finally:
+            if timing[0] is not None:
+                logger.info('preparation_stage=%s elapsed_s=%.2f job=%s', timing[0], time.monotonic()-timing[1], job_id)
+            logger.info('preparation_total elapsed_s=%.2f job=%s', time.monotonic()-started, job_id)
 
     def loop(self):
         while not self.stop_event.is_set():
@@ -225,3 +236,4 @@ def install_preparation_jobs(app, legacy, database, require_course, require_sour
                 cursor.execute(f'''UPDATE aura_preparation_jobs SET state='queued',stage='queued',completed=0,total=0,error=NULL,
                     updated_at=NOW() WHERE id=%s RETURNING {FIELDS}''', (str(job_id),))
                 return public_job(cursor.fetchone())
+

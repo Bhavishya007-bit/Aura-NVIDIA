@@ -161,7 +161,7 @@ class EmbeddingModel:
         started = time.perf_counter()
         with self._document_lock:
             unique = list(dict.fromkeys(texts))
-            missing = [text for text in unique if text not in self._cache]
+            missing = sorted((text for text in unique if text not in self._cache), key=len)
             encoded = {}
             if missing:
                 parts = []
@@ -218,3 +218,4 @@ class EmbeddingModel:
                 "The query cannot fit in available GPU memory. Free GPU memory or select CPU mode."
             ) from error
         return self._storage_vectors(vector)
+
