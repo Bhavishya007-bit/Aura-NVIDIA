@@ -1,651 +1,321 @@
-# Aura — a source-based study tutor
+# Aura
 
-## Hackathon judges: downloadable test build
+**A personalized AI study workspace built around your own materials.**
 
-Start with [JUDGE_QUICKSTART.md](JUDGE_QUICKSTART.md) for the Docker-based download,
-local demo login and synthetic study material. Get the ZIP from [GitHub Releases](https://github.com/Bhavishya007-bit/Aura-NVIDIA/releases).
-Model access is supplied separately in private testing instructions; no provider key
-is bundled. Vision is optional; Code & Data uses the separate native sandbox setup.
-Entrants: complete [the submission handoff](docs/JUDGE_SUBMISSION.md) before submitting.
-The remaining sections document the native developer setup.
+Upload course material, ask questions with source citations, create a study plan,
+practice with flashcards and assessments, and track what you have studied.
+Aura uses React and TypeScript (Vite), FastAPI, PostgreSQL with pgvector, and
+NVIDIA Nemotron through Nebius Token Factory.
 
-Aura uses React/TypeScript, FastAPI and PostgreSQL with pgvector. This NVIDIA
-hackathon version uses Nemotron through Nebius Token Factory for text/JSON
-generation, including its agent runtime. Configure `NEBIUS_API_KEY` and the exact
-`NEBIUS_MODEL` in `backend/.env`. Embeddings and extraction run locally; Ollama
-is used separately for configured visual interpretation.
+## Get started
 
-**Current work:** [Phase 4 product experience and answer quality](docs/PHASE4.md).
-For the optional local Nemotron Ultra quality profile, see
-[long-answer configuration](docs/LONG_ANSWERS.md). It preserves your existing keys
-and database settings; live model quality still needs validation.
-Open **Study tools → Study Plan** for plans and research briefs. The **Today**
-view keeps your study checklist; the account menu contains **What Aura remembers**.
-Optional Tavily research adds linked web findings alongside uploaded material; configure
-`TAVILY_API_KEY` server-side. See [web research setup](docs/TAVILY_RESEARCH.md).
-Agent tables are added automatically when the backend starts. The summary-length
-issue remains deferred. Older local-model setup sections below
-describe the original Aura; they do not replace the hackathon text-model settings.
+The same installation and personal-account flow applies to everyone. There is
+no required shared account or preloaded course. The source repository is public:
+[Bhavishya007-bit/Aura-NVIDIA](https://github.com/Bhavishya007-bit/Aura-NVIDIA).
+These instructions run Aura on your computer at **http://localhost:8888**;
+they do not create an internet-hosted website.
 
-## What to try
+### What you need
 
-1. Create an account and sign in. A new account starts with its own materials.
-2. Open the study workspace and upload a small text-based PDF or PPTX.
-3. Wait until it is ready. Ask **“What is this material about?”** for an overview,
-   then ask a specific question supported by the document.
-4. Use Notes, Summary, Flashcards, or Assessment on the selected material.
-5. Submit an assessment and open Progress to see scores, topic counts and history.
-6. Refresh to check saved work. Create another account to check material isolation.
+- **Git** to download and update the source.
+- **Docker Desktop**, running with **Linux containers**, and Docker Compose v2.
+  On Linux, Docker Engine with Compose v2 also works.
+- A **Nebius Token Factory API key** with access and balance for the configured
+  Nemotron model. AI requests consume the owner's provider credits.
+- Enough memory, disk space and internet bandwidth for the application and local
+  model downloads. Around **16 GB RAM** is a planning starting point for the full
+  CPU setup, not a measured minimum. Vision needs additional memory.
 
-In Tutor, **Enter sends** and **Shift+Enter adds a line**. Messages scroll above
-the composer. Sign-in is required for chat, uploaded materials and study tools.
-Signed-out users see the login/sign-up screen; logout and expired sessions return
-to sign-in. Source-backed claims show citations and source
-excerpts with page, slide or timestamp metadata. General background is explicitly
-labelled as unverified against the uploaded material.
+The Docker setup includes the frontend, backend, PostgreSQL, OCR, LibreOffice
+and audio-processing dependencies. You do **not** need to start `npm run dev`,
+Uvicorn, or a Python virtual environment when using it. An NVIDIA GPU is not
+required; the packaged embedding runtime uses CPU.
 
-## Prerequisites
+### 1. Download Aura
 
-Install these before starting:
-
-| Software | Use |
-| --- | --- |
-| [Python 3.12](https://www.python.org/downloads/) | Backend and local AI packages |
-| [Node.js 22 LTS](https://nodejs.org/en/download) | Frontend; Node 22.18+ recommended for the test command |
-| [Git](https://git-scm.com/downloads) | Clone the repository |
-| [Ollama](https://ollama.com/download) | Run the local tutor model |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) or an existing PostgreSQL + pgvector installation | Database |
-| [LibreOffice](https://www.libreoffice.org/download/download-libreoffice/) | Convert legacy `.ppt` and render original PPT/PPTX slide previews; PDF/media previews work without it |
-
-A practical demo laptop should have about **16 GB RAM** and several GB of free
-disk space for models, dependencies and Docker. This is a planning estimate,
-not a measured minimum. CPU and NVIDIA CUDA embeddings are supported. CPU processing can take several
-minutes for a large presentation; use a short material for the first demo.
-
-The instructions below use **Windows PowerShell** from the repository root.
-
-## 1. Get the code
+Open PowerShell and run:
 
 ```powershell
 git clone https://github.com/Bhavishya007-bit/Aura-NVIDIA.git
 cd Aura-NVIDIA
-py -3.12 -m venv .venv
 ```
 
-If you received a ZIP, extract it and open a terminal in the folder containing
-`package.json` and `backend`, then create `.venv` there. The repository must
-contain this revised package before the clone instructions reproduce it.
+Already have this repository? Open its folder in PowerShell and use
+`git pull origin main` instead. Commit your own edits before pulling; resolve
+any reported conflicts rather than overwriting your work.
 
-Use the virtual environment's executable directly; activation is optional.
+### 2. Start the application
 
-## 2. Create local configuration
+For text documents and the study workspace:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/create_local_config.py
+powershell -ExecutionPolicy Bypass -File judge/start.ps1
 ```
 
-This creates `backend/.env` with a random local database password and JWT secret,
-and `.env.local` with `VITE_API_BASE_URL=/api`. Existing configuration files are
-preserved. Real `.env` files are ignored by Git; the `.env.example` files contain
-placeholders only. Do not commit the generated credentials.
-
-## 3. Install dependencies and choose CPU or GPU
-
-A GPU is optional. Both modes use **Qwen/Qwen3-Embedding-0.6B in FP32**.
-CPU mode supports laptops without a compatible NVIDIA GPU. It can take longer;
-this choice does not substitute a smaller embedding model. Floating-point
-results can differ slightly between devices.
-
-First update pip:
+For screenshots, image questions and visual interpretation, enable the optional
+vision service during first setup instead:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
+powershell -ExecutionPolicy Bypass -File judge/start.ps1 -Vision
 ```
 
-### Option A: CPU — works without an NVIDIA GPU
-
-For a new virtual environment:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install "torch>=2.2,<3" --index-url https://download.pytorch.org/whl/cpu
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe scripts/configure_embeddings.py --device cpu
-```
-
-### Option B: NVIDIA GPU — CUDA
-
-Install a compatible NVIDIA driver. At the [official PyTorch installation
-selector](https://pytorch.org/get-started/locally/), choose Windows, Pip, Python,
-and a CUDA build compatible with your hardware and driver. Run its command
-using `.\.venv\Scripts\python.exe -m pip` in place of `pip3` or `pip`.
-Aura needs torch; torchvision and torchaudio are not required by this backend.
-Use a torch version satisfying `torch>=2.2,<3`.
-
-If replacing CPU-only PyTorch, stop the backend and reinstall torch from the
-chosen CUDA index with `--upgrade --force-reinstall`. Do not run the CPU
-installation command on an already working GPU environment.
-
-Then:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -c "import torch; print('PyTorch:', torch.__version__); print('CUDA build:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())"
-.\.venv\Scripts\python.exe scripts/configure_embeddings.py --device cuda
-```
-
-`CUDA available` must be `True`. Explicit `cuda` mode reports an error when
-CUDA is unavailable instead of silently choosing CPU.
-
-For a 4 GB GPU, start with batch size 1 before warming up the model:
-
-```powershell
-.\.venv\Scripts\python.exe -c "from dotenv import set_key; set_key('backend/.env', 'AURA_EMBEDDING_BATCH_SIZE', '1')"
-```
-
-Batch size controls how many chunks are encoded together. It does not change
-the model or precision. Available VRAM also depends on other applications;
-full-precision Qwen may not fit on every GPU. If batch size 1 still fails with
-an out-of-memory error, choose CPU or use a GPU with more available memory.
-
-### Auto selection or interactive choice
-
-```powershell
-.\.venv\Scripts\python.exe scripts/configure_embeddings.py
-```
-
-The menu offers Auto, NVIDIA GPU (CUDA), and CPU. Alternatively:
-
-```powershell
-.\.venv\Scripts\python.exe scripts/configure_embeddings.py --device auto
-```
-
-Auto selects CUDA when `torch.cuda.is_available()` is true; otherwise it uses
-CPU. It does not guarantee that the model fits in GPU memory. Restart the
-backend after changing the device. Existing database and authentication
-configuration is preserved. This choice controls embeddings; OCR remains on
-CPU and Ollama manages the tutor model separately.
-
-### Complete the shared setup
-
-```powershell
-.\.venv\Scripts\python.exe -m pip check
-npm ci
-ollama pull qwen2.5:3b
-```
-
-One root `requirements.txt` contains all backend dependencies. Install the
-selected PyTorch build first; installing requirements without `--upgrade`
-keeps a compatible installed build. On macOS install torch from PyPI and
-select CPU. On Linux use the matching PyTorch selector and `.venv/bin/python`.
-
-Keep Ollama running. If needed, run `ollama serve` in another terminal. If its
-port is already occupied, the service may already be running.
-
-### Gemma 3 4B and English transcription — configure every backend laptop
-
-Ollama runs the local models. The existing `qwen2.5:3b` model handles text
-tutoring; **Gemma 3 4B** is the separate image-capable model used for figures,
-diagrams, original JPEG/PNG chat and visual interpretation of video frames.
-Gemma reads images and generates text explanations; it does not generate images.
-
-Install and configure it from the repository root:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/setup_multimodal.ps1
-```
-
-The setup script downloads Gemma and sets `OLLAMA_VISION_MODEL=gemma3:4b`,
-`WHISPER_MODEL_SIZE=small.en` and `WHISPER_LANGUAGE=en` in the existing
-`backend/.env`. It backs up the previous file and preserves text-model, database
-and CPU/GPU device settings. Run it separately on every teammate laptop.
-Stop the old backend and restart it after setup; changing .env does not update a
-running process. Use a version of Ollama supporting Gemma 3 (0.6 or later).
-
-To try it, click a citation, open its original page/slide/image, and expand
-**Explain this figure or diagram**. Ask about visible arrows, labels or axes.
-Gemma runs for this action, original-image chat and visual extraction. It does
-not replace the ordinary document/transcript text tutor. Text-only features can
-run without it, but JPG/PNG chat requires vision configuration. Text-free video
-frames and images also need the vision model to supply usable visual content.
-
-CPU inference is possible but can be slow. Ollama manages model placement
-separately from the embedding device configuration. Visual interpretation uses
-two model calls and can take several minutes. Small labels, dense diagrams and
-model interpretations require comparison with the original image.
-
-## 4. Start a fresh database — choose ONE option
-
-### Option A: Docker database (recommended for a new judge laptop)
-
-Start Docker Desktop, then:
-
-```powershell
-docker compose --env-file backend/.env up -d --wait db
-.\.venv\Scripts\python.exe scripts/init_database.py
-```
-
-Only the database is containerized. It uses the official
-[pgvector PostgreSQL image](https://github.com/pgvector/pgvector#docker), binds
-locally, and defaults to host port **5433** to avoid an existing PostgreSQL on
-5432. The named Docker volume keeps database data between restarts.
-
-`init_database.py` creates the base schema plus authentication, private workspace,
-study tool, archive-preference and learner-evidence tables in one transaction. It refuses to
-initialize a nonempty database and does not delete existing records.
-
-For later sessions, start the same database container; do not initialize again.
-Do not recreate `backend/.env` with a different password while keeping the
-existing database volume: its stored database password remains unchanged.
-
-### Option B: Existing native PostgreSQL with pgvector
-
-Create a NEW empty database named `aura` in pgAdmin. The pgvector extension
-package must already be installed on that PostgreSQL server; plain PostgreSQL
-alone is insufficient. See the [official installation instructions](https://github.com/pgvector/pgvector#installation).
-
-Edit `backend/.env` to use your actual database name, user, password and port
-(usually 5432), then run:
-
-```powershell
-.\.venv\Scripts\python.exe scripts/init_database.py
-```
-
-If updating an existing working Aura installation, **keep its configuration and
-database**. Do not run initialization. Earlier installations already applied
-`auth-migration.sql`, `backend/private_workspaces.sql`, `backend/study_tools.sql`
-and `backend/material_preferences.sql`; only apply a missing migration after
-checking its state. Do not run legacy attribution or seed scripts for a fresh
-judge account. They are manual maintenance tools, not setup requirements.
-
-## 5. Check setup and preload embeddings
-
-```powershell
-.\.venv\Scripts\python.exe scripts/check_local_setup.py
-.\.venv\Scripts\python.exe -c "from backend.ai.embeddings import get_embedding_model; m=get_embedding_model(); v=m.embed_query('Test embeddings'); print('Device:', m.device); print('Dimensions:', v.shape[-1])"
-```
-
-The check reports missing Python modules, schema columns or the Ollama model.
-Preloading embeddings downloads/caches the Qwen model before the demonstration.
-The first audio/video upload downloads the configured Whisper model; new setups
-use `small.en` for English recordings. This needs an initial download and may
-be slower than `base`, particularly on CPU. For other languages choose a
-multilingual model such as `small` and set `WHISPER_LANGUAGE` empty for detection.
-Subsequent runs use
-cached weights. Expected dimensions: 1024. Device should match your selection. Warm-up verifies
-that the model can load and encode on the selected device. It does not measure
-full-document processing time.
-
-The database stores **1024-dimensional** vectors. Keep the supplied embedding
-model for this setup; switching to a model with a different dimension requires
-a separate database/index migration and reindexing.
-
-## 6. Run Aura — two terminals
-
-Terminal 1, from the repository root:
-
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
-```
-
-Terminal 2, also from the root:
-
-```powershell
-npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
-```
-
-Open **http://127.0.0.1:5173**. The `/api` proxy forwards frontend requests to
-127.0.0.1:8000. API health: http://127.0.0.1:8000/health; API docs:
-http://127.0.0.1:8000/docs. Documentation describes the private API exposed by
-`backend.main:app`, not every older function still present in `main.py`.
-
-For a production frontend build running locally:
-
-```powershell
-npm run build
-npm run preview
-```
-
-Stop the development server before previewing; both use 5173. The backend,
-Ollama and database must remain running while Aura is used.
-
-### macOS/Linux command equivalents
-
-Use `python3.12 -m venv .venv`, then `.venv/bin/python` wherever the Windows
-instructions use `.\.venv\Scripts\python.exe`. Docker and npm commands remain
-the same. LibreOffice must be discoverable as `soffice`/`libreoffice` for `.ppt`.
-The executable has been automatically detected on Windows in the standard
-LibreOffice installation paths; `LIBREOFFICE_PATH` can override it.
-
-## Supported materials and practical limits
-
-- PDF, PPTX and DOCX text is extracted with page/slide/paragraph provenance.
-- Legacy PPT is converted by LibreOffice before extraction.
-- Audio and MP4 speech use local Whisper, retaining segment timestamps.
-- JPEG, JPG and PNG are accepted as individual materials, including in multiple-file
-  uploads. Images are limited to 20 megapixels and 100 MiB. Readable text uses
-  OCR; a configured vision model can also index a checked visual interpretation.
-  Images without readable text need the vision model to produce usable content.
-- OCR can extract image text in PDFs/slides. It is not full visual reasoning:
-  unlabeled arrows or a diagram's spatial meaning may not be established.
-- Citation buttons open the original PDF page, rendered presentation slide or
-  recording at the cited timestamp. References to one location are grouped and
-  unrelated retrieved passages are not displayed as answer citations.
-- Slide previews require LibreOffice and are cached after the first conversion.
-  Hidden slides are included to preserve numbering. Fonts/formatting can differ
-  slightly from PowerPoint. Unsupported document locations retain an excerpt
-  and original download instead of claiming an exact page mapping.
-- Uploaded files and generated tools are stored locally; this is a laptop demo,
-  not a production hosted service. Chat UI state is restored from browser storage
-  scoped to the account; it is not a cross-device synchronized chat history.
-- Generated content is checked against available passages; requests may return
-  fewer verified items than requested. Local-model checks are fallible.
-- Progress reports assessment performance and estimated per-topic mastery.
-  Source-graded quizzes and Check my understanding replies update the persistent
-  learner model. Reading explanations alone does not update mastery. Fixed BKT
-  parameters are prototype assumptions, not measured human learning gains.
-- Numerical practice, diagnostic/adaptive assessment and possible misconception
-  feedback are implemented with the limits described below. This does not by
-  itself establish that every Track D requirement has been fully validated.
-- Seeded synthetic student-policy simulation results are included. They do not
-  demonstrate human learning gains or benchmark the live question generator.
-  Live RAGAS scores require running the separate evaluation workflow below.
-- Authentication tokens expire after 30 minutes. Refresh restores the session
-  while its token remains valid. Logout-token revocation is process-local.
-
-## Verify your installation
-
-```powershell
-npm run build
-.\.venv\Scripts\python.exe scripts/check_local_setup.py
-```
-
-With services running, check signup, login, a small material upload, a cited
-tutor explanation, study-tool generation, assessment submission and Progress.
-Confirm a second account cannot access the first account's materials.
-
-## Material preparation
-
-The backend accepts uploads and prepares them in the background. The workspace
-shows preparation status and progress; wait for Ready before asking questions
-about a new material. Refreshing restores persisted job progress. Failed or
-interrupted jobs support retry. Keep the backend running during preparation.
-
-Qwen is reused within a backend process and text is encoded in batches.
-Chunks and embeddings use bulk database writes. Repeated images reuse OCR
-results, with bounded OCR workers for slide images. Background processing
-keeps the workspace usable but does not by itself reduce processing time.
-Measure extraction and indexing timings on your own laptop.
-
-## Troubleshooting
-
-| Symptom | Check |
+On macOS/Linux, use `bash judge/start.sh` or `bash judge/start.sh --vision`.
+The existing `judge/` directory name is retained for script compatibility;
+these are the normal local setup scripts for all users.
+
+The script builds the image, asks for your **Token Factory API key** using hidden
+input, generates private local settings, starts the database and app, and opens
+Aura. This key is different from a Tavily key, an Aura password, or an email
+password. The initial configuration selects Nemotron Ultra; access depends on
+your provider account. Existing settings are preserved.
+
+**First installation can be slow.** It downloads large system/Python packages;
+on slow connections it can take over an hour. Docker's changing elapsed times
+are per-step timers, not a countdown. Later builds reuse completed layers when
+possible. The first document can also trigger a separate embedding-model
+download. Vision setup downloads Gemma separately. No fixed completion time is
+guaranteed.
+
+Private configuration lives in `judge/.env.judge` and is ignored by Git. Keep
+it on your computer; never upload it, paste it into an issue, or put its API key
+in frontend/Vite settings.
+
+### 3. Create your personal account
+
+Open **http://localhost:8888**, choose **Sign up**, enter your email and choose a
+new Aura password. Aura does not connect to Gmail; do not use your email-account
+password. Existing users can sign in normally.
+
+Each account has its own workspace. A fresh account has no uploaded material.
+Accounts, documents, local settings and downloaded models are not transferred by
+GitHub. Someone installing on a different computer configures their own instance.
+
+### 4. Add and select materials
+
+1. Open the study workspace and choose **Add material**.
+2. Upload PDF, PPT/PPTX, DOCX, JPEG/PNG, supported audio, or MP4 material.
+   Each file must be at most **100 MiB**. Compress/split larger files or upload a
+   transcript where appropriate.
+3. Wait for preparation to finish. Processing files cannot be selected yet.
+4. Use the material checkboxes to select **up to five** ready files.
+5. Check the **Using** chips above the tutor or study tool. Remove a chip or
+   choose **Change** to adjust the selection.
+
+A **study set** saves a named group of materials, so you can select the same group
+again in one step. It does not merge or duplicate the original files. Select the
+files, use the study-set save/create control in Materials, and give the set a
+name. You can rename or delete the group later.
+
+Start with a small document and a question whose answer you can verify manually.
+Large presentations, scanned PDFs, media transcription and visual interpretation
+can take longer. Leave the preparation running and return to the workspace;
+avoid repeatedly reuploading the same file while it is still processing.
+
+## Using Aura
+
+| Area | What to do |
 | --- | --- |
-| `AUTH_JWT_SECRET is missing` | Generate `backend/.env`, then restart the backend |
-| `email_validator` / `jwt` / `pwdlib` missing | Install the root requirements in the interpreter used by uvicorn |
-| `password_hash` / `owner_student_id` / study table missing | Fresh database: initialization; existing installation: missing migration only |
-| `extension vector is not available` | Use the supplied Docker image or install pgvector on native PostgreSQL |
-| Port 5433 occupied | Change `DB_PORT` before starting the new Docker database |
-| `.ppt` conversion unavailable | Install LibreOffice or use `.pptx` |
-| Vite crashes with `EBUSY` watching `backend/.local_storage/.../profile/...tmp` | Pull the watcher fix on `main` and restart `npm run dev`. The frontend watcher excludes the backend directory, including LibreOffice profiles and uploads; existing prepared files can stay in place |
-| Very slow first upload | Model downloads, OCR and CPU embeddings can take time; preload and use a shorter deck |
-| Summary says it cannot verify | Check that the selected material is ready and its extracted text supports the request |
-| `vision_configured: false` or image chat asks for a model | Run `scripts/setup_multimodal.ps1` on that backend laptop, stop the old backend and restart it |
-| Garbled video transcript / disconnected quoted speech | Check `WHISPER_MODEL_SIZE=small.en` and `WHISPER_LANGUAGE=en` for English audio; restart, prepare a fresh copy and select its new source. This can improve extraction but does not guarantee accuracy |
-| Setup changed but health still reports old settings | Stop the process already listening on port 8000; restart from the correct Aura project root |
-| JPEG/PNG has no readable content | Configure the vision model for a text-free diagram/photo and retry preparation; inspect OCR/vision limitations |
-| UI still shows an old answer | Ask a new question; saved messages are not rewritten by backend updates |
-| Preview still shows old UI | Stop preview, run `npm run build`, restart preview and refresh |
+| **Tutor** | Ask about the selected materials, continue with follow-up questions, or attach screenshots and text together. |
+| **Notes** | Generate study notes, then review and use the available editing/export controls. |
+| **Summary** | Request an overview or a more detailed explanation of the selected content. |
+| **Flashcards** | Choose the number of items and optional focus, generate cards, and review them. |
+| **Assessment** | Choose a supported question type, answer the questions and submit to save feedback. |
+| **Progress** | Review recorded assessment results and topics that need more practice. |
+| **Study Plan** | Give Aura a goal, choose an outcome and optional study preferences, then create a plan or research brief. |
+| **Today** | Resume saved study tasks and mark completed work. |
+| **Account → What Aura remembers** | Review, edit or delete saved memories, and control whether memory is used. |
 
-All services run locally; no hosting deployment is needed.
+Try a goal such as **“Make a three-day plan for this material, 30 minutes per day”**.
+Study plans should be structured by day and task. Plans and background runs keep
+their saved progress when you leave the page. Available actions depend on your
+configured services and ready materials.
 
-## Personalized practice and topic mastery
+In chat, **Enter** sends and **Shift+Enter** adds a line. During generation,
+use **Stop** or **Esc**; job-based work may briefly show **Cancelling…**.
+Keep any partial results available in the interface, then edit/resend or retry.
+Stopping a browser request may not immediately stop a provider-side calculation.
 
-After a material is ready, Overview offers a short starting-point diagnostic.
-The diagnostic samples supported topics, with up to five verified questions.
-Untested topics remain unknown; this is not a full-course placement exam.
+### Sources and answer quality
 
-Assessment offers adaptive practice, a diagnostic, or a manually selected
-level. Adaptive practice selects the weakest recorded topic in the selected
-material and uses its estimated mastery to choose a level. An explicit new
-focus starts at beginner instead of borrowing another topic's score.
+**From your material** identifies claims checked against retrieved evidence;
+citations point to the material name and available page, slide or timestamp.
+DOCX excerpts may have no physical page number. Open citations to inspect the
+source. **Beyond your material** is separately labelled background; it must not
+be mistaken for content present in your files. Web-backed findings are separately
+identified when web search is configured.
 
-Tutor includes a collapsible **Check my understanding** section. Its single
-verified short-answer question is graded against the material; the checked
-reply updates mastery. Asking for explanations or simply reading an answer
-does not increase mastery. Normal tutor answers use available topic evidence
-to adjust explanation style while retaining the citation checks.
+OCR, visual interpretation and generated explanations can be wrong. A citation
+establishes source support, not independent factual correctness. Long requested
+word counts can still fall short when generation or verification fails; a short
+fallback is not a completed long summary. Check important claims against the
+original. Successful Python execution likewise does not prove its explanation or
+underlying data is correct.
 
-Overview and Progress show estimated topic mastery, checked-answer counts,
-limited-evidence labels and a practice action. Existing assessment accuracy
-remains separate from mastery; tutor checks are not counted as full quizzes.
+### Optional: Code & data
 
-On backend startup, the additive learning migration creates its tables and
-imports existing account-owned graded assessments once. Repeated startup and
-submission retries do not double-count evidence. Existing uploads, GPU/CPU
-configuration, authentication and quiz results are preserved. Do not rerun
-fresh-database initialization on an existing database.
-
-See [docs/LEARNER_MODEL.md](docs/LEARNER_MODEL.md) for the learner-model method,
-fixed prototype parameters, evidence boundaries and validation limits.
-
-## Original-source viewer
-
-Click a citation in Tutor, Chat home, Notes, Summary, Flashcards, an assessment
-or its feedback. PDF and slide citations open the cited original location, with
-Previous, Next and Back to citation controls. Video/audio citations open a
-player and seek to the citation's time. Playback requires a browser-supported
-codec. The player currently fetches the authenticated recording as a Blob;
-large files can take time before playback begins.
-
-Source access checks both the student's material ownership and course ownership.
-Original files are restricted to the backend upload directory; no permanent
-public links or access tokens in URLs are created. Missing originals retain
-available extracted excerpts. DOCX paragraph references do not imply an exact
-original page; such locations offer an excerpt and original download.
-
-No database migration or embedding refresh is needed for this feature. The
-backend uses the original files stored at upload time. Existing chat entries
-also use the corrected cited-source display; their answer text is preserved.
-
-## Source-first tutor with related explanations
-
-Tutor combines semantic retrieval with exact topic matches and nearby slides or
-pages in the selected material. It first tries a cited, checked explanation. If
-that paraphrase fails but relevant extracted text exists, it can retain exact
-supporting excerpts instead of discarding useful evidence.
-
-An optional, separately labelled **Additional explanation — outside the uploaded
-material** section expands the same topic. Generation is anchored to the source
-definition; a model consistency check rejects off-topic, contradictory or
-uncertain supplements. This check is not independent factual verification, and
-outside details are never credited to source citations. No fixed percentage of
-extra information or accuracy improvement is promised. Extra generation and
-checking calls may increase response time on CPU and GPU.
-
-Ask "Use only the presentation" or "Keep it to 2–3 sentences" to suppress extra
-background. API clients can set `include_related_background: false` on private
-chat requests. Reading additional context does not update mastery; practice
-grading remains source-based. Existing saved answer text is not rewritten.
-
-Source-grounded tutoring uses extracted evidence; the separate vision feature
-below handles original images and figures. Neither establishes measured human
-learning gains. See
-[docs/TUTOR_GROUNDING.md](docs/TUTOR_GROUNDING.md) for behavior and live checks.
-
-## Figure interpretation, numerical questions and evaluation
-
-Chat home and Study workspace accept up to five files in one selection (100 MiB
-per file). Transfers create individual preparation jobs, and model processing
-uses the existing queue. Each file has its own status. Failed transfers can be
-retried without uploading the successful files again. If the shared preparation
-queue is full, wait for capacity and retry the failed uploads. Each prepared file
-appears as a separate material in the workspace; choose it to scope your tutor.
-
-The original-source viewer now offers **Explain this figure or diagram** on PDF
-pages, slides and uploaded JPEG/PNG images. It reads the displayed image with a separately configured
-local vision model (`OLLAMA_VISION_MODEL`), rather than inferring relationships
-from OCR labels. Returned interpretations include limitations and need visual
-review. `gemma3:4b` is an image-capable example; install the model with Ollama
-before configuring it. New standalone image uploads can index checked visual
-interpretations. Existing PDF/slide visual content is interpreted on demand.
-
-Assessment offers **Numerical (with units)** for material with an explicit
-quantitative relationship. Formula support is model checked; bounded arithmetic
-and unit dimensions determine the hidden server answer key. Feedback can flag
-possible misconceptions, independently of correctness grading. Saved results
-retain the existing ownership, retry and mastery protections.
-
-The `evaluation/` directory contains an annotated demo PDF, live API collector,
-pinned local RAGAS scorer and seeded multi-session student-policy simulations.
-Included simulation results are synthetic; live model metrics require running
-the collector and scorer on your own uploaded material. See
-[docs/FINAL_FEATURES.md](docs/FINAL_FEATURES.md),
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md). The demonstration video still needs
-to be recorded and uploaded.
-
-## Run optional live evaluation
-
-Application Python packages belong in the root `requirements.txt`; optional
-RAGAS evaluation packages belong in `evaluation/requirements.txt`. Frontend
-packages are installed through `npm ci`. Ollama models, PostgreSQL/pgvector and
-LibreOffice are separate installations rather than pip dependencies.
-
-Upload `evaluation/demo_material.pdf` as a new material. Replace the two ID
-placeholders below with its actual course and source IDs, then collect responses
-from the running local backend:
+After the base installation, on Windows run:
 
 ```powershell
-.\.venv\Scripts\python.exe evaluation/collect_live.py --course-id YOUR_COURSE_ID --source-id YOUR_DEMO_SOURCE_ID
+powershell -ExecutionPolicy Bypass -File judge/enable-code.ps1
 ```
 
-The collector asks for your Aura account email and a hidden password unless an
-`AURA_BENCHMARK_TOKEN` is supplied. It saves responses and source-location metrics
-in `evaluation/results/live_responses.json`, which is ignored by Git because
-responses may contain private material. The default test set is a small fixture;
-add manually annotated questions from your actual course for a meaningful report.
+This starts the separate local Docker execution service and tests a fixed Python
+program with CSV output. Wait for **“Python execution verified”**, refresh Aura,
+and choose **Code & data**. Runs can show captured output, generated Python and
+file downloads. This is a bounded Python environment, not unrestricted terminal
+access or a general package installer.
 
-Install pinned evaluation dependencies in a separate environment and score the
-collected responses with local Ollama models:
+The local execution service uses privileged Docker-in-Docker without mounting
+the host Docker socket. It is intended for a trusted local installation; do not
+expose this service publicly. Public hosting needs a separately configured
+supported isolation backend. [Execution details](docs/CODE_ANALYSIS.md).
+
+### Optional: Web research and vision
+
+- **Web research:** set `TAVILY_API_KEY` privately in `judge/.env.judge` if you
+  have Tavily access. It is a separate service/key; a Nebius key cannot replace
+  it. Document study does not require Tavily.
+- **Vision:** the `-Vision` setup option starts a private Ollama service and
+  downloads `gemma3:4b`. It adds image interpretation; OCR alone cannot reliably
+  solve questions about relationships in diagrams. For an existing installation,
+  set `AURA_JUDGE_VISION_MODEL='gemma3:4b'` in the private local settings and run
+  the start script again. If Code & data was enabled, run `enable-code.ps1`
+  afterwards to retain that overlay.
+
+Configuration changes require recreating the app container, not just refreshing
+the browser. Never share the configuration file.
+
+## Updating and restarting
+
+From the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe -m venv .venv-eval
-.\.venv-eval\Scripts\python.exe -m pip install -r evaluation/requirements.txt
-ollama pull nomic-embed-text
-.\.venv-eval\Scripts\python.exe evaluation/score_ragas.py --judge gemma3:4b --embedding-model nomic-embed-text
+git pull origin main
 ```
 
-This uses `gemma3:4b` as the optional evaluation judge, separately from its
-vision role in the app. The scoring script writes faithfulness, answer relevancy,
-context precision/recall and failure counts to `evaluation/results/ragas_metrics.json`.
-Null scores indicate failed metric evaluation; they are not fabricated successes.
-Local model-judged scores require review and can take time on CPU.
-
-To reproduce the included synthetic policy simulation:
+**With Code & data enabled**, update/build and restart with the same overlay:
 
 ```powershell
-.\.venv\Scripts\python.exe evaluation/simulate_students.py --seed 42 --students 60 --sessions 8
+powershell -ExecutionPolicy Bypass -File judge/enable-code.ps1
 ```
 
-Live model validation and the actual 3–10 minute YouTube demonstration remain
-separate completion steps. See the evaluation and demonstration documentation.
-
-## English answer quality and evidence limits
-
-Tutor responses default to English for English questions. Unrequested Chinese,
-Japanese or Korean annotations are rejected in generated answers and omitted
-from fallback quotations. The original indexed text and original files remain
-unchanged for inspection. English explanations use a compact set of intact,
-relevant source sentences, a shorter teaching prompt and the selected file's
-identity in the relevance check. A failed draft gets a bounded repair rather
-than a long repeated collection of verification text. Checked compact synthesis
-is attempted before a short, clearly labelled evidence fallback.
-
-These changes reduce quote dumping and topic drift but cannot guarantee the
-configured local model's factual accuracy. Source citations establish agreement
-with extracted material, not independent scientific truth. OCR and visual-model
-interpretations can be wrong. Ask a NEW question after restarting: saved answers
-are not rewritten. Response `pipeline_version` is `aura-image-english-tutor-v5`.
-No reindex is needed for the answer-language changes. New image support requires
-Pillow, included in requirements.txt. See docs/IMAGE_AND_ANSWER_QUALITY.md.
-
-
-### Multimodal answer reliability update
-
-The tutor uses full retrieved passages for PDF, presentations, Word, JPEG/PNG,
-audio transcripts and MP4 content. Short OCR labels and transcript fragments
-are retained rather than filtered out as incomplete sentences. Generated claims
-still require citation, grounding and question-relevance checks.
-
-Audio uses local faster-whisper with voice activity detection. CPU remains the
-default. `WHISPER_LANGUAGE=en` is the default; set it to an empty value for
-language detection. MP4 preparation combines speech transcription with up to
-eight visual frames sampled across the duration. Frame OCR works without Gemma;
-configured `OLLAMA_VISION_MODEL=gemma3:4b` adds checked visual interpretation.
-Sampling can miss events, and still frames do not establish motion. JPEG/PNG
-uses OCR and the same optional vision model. Neither Gemma nor a successful
-build guarantees factual correctness.
-
-Restart both servers after installing the patch. Previously prepared audio,
-video or images need preparation again to acquire improved extracted content.
-Upload a fresh copy and select that new material; keep the existing database
-and originals. For each format, ask a question about a fact you can manually
-verify, open its citation and check the page/image/timestamp. Extraction failures
-now show their diagnostic warnings. Do not initialize a fresh database.
-
-
-### Original-image tutor correction
-
-When a JPEG/PNG is selected and OLLAMA_VISION_MODEL is configured, chat sends
-the original image and current question to the vision model and checks the
-interpretation against the same image. This avoids answering image questions
-from a generic cached extraction header. The interface labels this as visual
-interpretation, not independently verified factual knowledge. If the original
-is unavailable, existing OCR may still be used. Missing vision configuration
-for original-image chat produces a specific setup error.
-Known extraction header lines are excluded from tutor evidence and quoted
-fallbacks, including previously indexed image chunks. Quoted excerpts receive
-a distinct label rather than Source checked. This correction does not require
-a database reset or reupload for existing images whose original is available.
-
-### Team multimodal repair v7
-
-Apply the same source update on every teammate backend. GET /health now reports
-`tutor_version: aura-team-multimodal-v7`. Run
-`.\.venv\Scripts\python.exe scripts/check_multimodal.py` from the project root
-for a read-only version, vision model and indexed-material report. Configuration
-on one laptop does not configure another laptop. JPG/PNG chat explicitly reports
-missing vision configuration instead of silently entering text verification.
-
-DOCX extraction now combines adjacent paragraphs, keeps table headers with row
-values, and reads embedded JPEG/PNG images using OCR and optional vision. MP4
-sampling now includes beginning/middle/end even for short clips. If a draft
-fails text verification, relevant exact excerpts can be returned with an explicit
-limitation and excerpt label; the failed draft is never approved as verified.
-
-Previously empty videos and previously indexed Word documents need fresh
-preparation to acquire this extraction. Reupload a fresh copy and select the new
-source. Empty sources have no evidence: generating embeddings or restarting
-cannot fill them. Existing JPG originals work through direct image chat without
-reupload when Gemma is installed/configured on that backend. Keep the database,
-accounts, original files and CPU/GPU settings. No new dependencies were added.
-
-
-### Verify configuration before asking image/video questions
-
-After restarting the backend, use another terminal at the Aura root:
+**Without Code & data**, use:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/check_multimodal.py
-Invoke-RestMethod http://127.0.0.1:8000/health | ConvertTo-Json
+docker compose --env-file judge/.env.judge -f judge/compose.yaml up -d --build --wait app
 ```
 
-Expected: `tutor_version` is `aura-team-multimodal-v7`, `vision_configured` is
-`true`, and the diagnostic report says the configured vision model is installed.
-A true configuration flag alone does not prove model installation or accuracy.
-Old saved replies and indexed transcripts are not rewritten when settings change.
-Prepare fresh copies of poorly transcribed or empty videos, then select the new
-source. Existing JPG originals can be queried again without reupload. Do not
-reset the database. The setup script is for English recordings; preserve or
-restore a multilingual Whisper setting when your recordings are not English.
+Git updates source files on the host. A running container keeps its old image
+until rebuilt/recreated. Pulling alone does not update Python scripts or UI inside
+it. Keep Docker's build cache; avoid `--no-cache` unless diagnosing a specific
+cache problem. Completed dependency layers are reused when their inputs match.
 
+To start an already-built installation without rebuilding, use the same Compose
+files as before with `up -d --no-build`. To stop it, use `stop` with those same
+files. Database/uploads/model caches live in persistent named volumes. **Do not
+use `down -v` or delete these volumes** if you want to keep your data.
+
+## Check an installation
+
+Run these on the computer where Aura is running, from the repository root.
+They assume Code & data is enabled; otherwise omit
+`-f judge/compose.code.yaml` from the feature/status/log commands.
+
+**Service status** — the app, database and optional code service should be healthy:
+
+```powershell
+docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml ps -a
+```
+
+**Python execution**, without model requests:
+
+```powershell
+docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml exec -T app python -m scripts.check_code_runtime --smoke
+```
+
+**Database and routes**, without model requests:
+
+```powershell
+docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml exec -T app python -m scripts.check_features
+```
+
+**Model connectivity** — replace the placeholder with an existing Aura login
+email. This is an operator diagnostic run in your local container, not a public
+API. It makes three small real requests and retains account/global token limits
+and the AI pause switch:
+
+```powershell
+docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml exec -T app python -m scripts.check_features --live --account-email "YOUR_AURA_EMAIL"
+```
+
+**Slow document preparation**, without model requests or document-content output:
+
+```powershell
+docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml exec -T app python -m scripts.check_preparation
+```
+
+Passing checks do not replace testing a real upload, supported question, generated
+study tool, saved memory and assessment in the browser.
+
+### Troubleshooting
+
+| Symptom | Next action |
+| --- | --- |
+| Cannot connect to Docker / missing Linux-engine pipe | Start Docker Desktop, select Linux containers, and wait for the engine to be ready. |
+| `--account-email` is unrecognized | The container still has an older diagnostic. Pull the source and use the script-only check below. |
+| `No module named backend` | Invoke diagnostics with `python -m scripts.check_features`, not an old direct-path script. |
+| A service is unhealthy | Collect service logs below; the setup script's final exception alone is not the cause. |
+| AI paused / daily allowance reached | Check deployment controls and usage; do not disable safeguards to disguise a failure. |
+| Upload remains preparing | Run the preparation check. First model downloads, queued uploads, OCR and optional vision can dominate runtime. |
+| File exceeds 100 MiB | Compress, split, or supply a smaller document/transcript. Repeated retry cannot change the limit. |
+| Study generation fails despite healthy services | Check the live model test, selected ready materials and application logs; a healthy container is not proof of a valid generated response. |
+
+For the **diagnostic script only**, execute the freshly pulled host script inside
+an existing container without rebuilding or writing to its read-only filesystem.
+This PowerShell command replaces the old script just for this check; replace the
+email placeholder first:
+
+```powershell
+Get-Content -Raw scripts/check_features.py | docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml exec -T app python -c "import sys; exec(compile(sys.stdin.read(), '/app/scripts/check_features.py', 'exec'), {'__name__': '__main__', '__file__': '/app/scripts/check_features.py'})" --live --account-email "YOUR_AURA_EMAIL"
+```
+
+Normal application updates still require a build. This diagnostic does not alter
+the image, overwrite settings or disable production controls.
+
+Collect logs with:
+
+```powershell
+docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml logs --tail=100 app code db
+```
+
+Review logs before sharing. Never post API keys, passwords, private configuration
+or sensitive document content. Do not reset the database to diagnose a generation
+error.
+
+## Development, hosting and validation
+
+The repository includes the Vite frontend (`src/`), FastAPI backend (`backend/`),
+configuration/diagnostics (`scripts/`), local Docker stack (`judge/`), isolated
+execution image (`sandbox/`), production manifests (`deploy/`) and regression
+evaluations (`evaluation/`, `tests/`).
+
+Native development uses Python 3.12, Node.js, PostgreSQL with pgvector and the
+system tools required by your selected file formats. Configure `backend/.env`
+using `scripts/create_local_config.py`, replace database values with your own
+local PostgreSQL credentials, configure the server-side Nebius key/model, install
+`requirements.txt` and `npm ci`, and initialize the intended database with
+`scripts/init_database.py`. Then run `uvicorn backend.main:app --reload` and
+`npm run dev` in separate terminals. Docker setup is the primary reproducible
+path above; do not mix its private database settings with a native installation.
+
+Public hosting needs a reachable HTTPS host, persistent uploads/model storage,
+PostgreSQL with pgvector, server-side provider credentials and sufficient memory.
+The local `localhost:8888` address is only accessible on your computer. A public
+GitHub repository supplies source code, not a live application URL. Hosting is
+not automatically provisioned by cloning or starting Aura.
+[Production deployment procedure](docs/PHASE5.md).
+
+Evaluation scripts and documented results are in `evaluation/`. Synthetic tests,
+real provider runs and human-labelled calibration are different forms of evidence;
+none establishes universal answer accuracy. See [evaluation guidance](docs/PHASE4.md)
+and the [architecture](docs/ARCHITECTURE.md) for technical detail.
