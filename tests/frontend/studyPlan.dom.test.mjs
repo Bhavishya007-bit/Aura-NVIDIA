@@ -45,7 +45,8 @@ beforeEach(() => {
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
   window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} })
   window.HTMLElement.prototype.scrollIntoView = () => {}
-  window.HTMLDialogElement.prototype.showModal = function () { this.open = true }
+  window.HTMLDialogElement.prototype.showModal = function () { this.open = true; this.querySelector('textarea[autofocus]')?.focus() }
+  window.HTMLDialogElement.prototype.close = function () { this.open = false }
   globalThis.requestAnimationFrame = callback => setTimeout(callback, 0)
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   root = createRoot(document.getElementById('root'))
@@ -313,6 +314,23 @@ test('account menu hides student IDs, and memory settings edit/delete/toggle exi
   assert.equal(enabled, false)
   await click(button('Delete'))
   assert(requests.some(r => r.path === '/agents/memory/memory-a/delete' && r.method === 'POST'))
+})
+test('memory accepts a new preference, keeps typing focus and closes with Escape', async () => {
+  await mount(AccountMenu, { name: 'Learner', courseId: '6' })
+  const summary = document.querySelector('.aura-account summary')
+  await click(summary)
+  await click(button('What Aura remembers'))
+  const field = document.querySelector('.aura-memory textarea')
+  field.focus()
+  assert.equal(document.activeElement, field)
+  await input(field, 'Explain Java listeners with examples')
+  assert.equal(document.activeElement, field)
+  assert(!button('Save memory').disabled)
+  await click(button('Save memory'))
+  assert(requests.some(r => r.path === '/agents/memory' && r.method === 'POST' && r.body.text === 'Explain Java listeners with examples'))
+  await act(async () => { document.querySelector('.aura-memory').dispatchEvent(new dom.window.Event('cancel', { bubbles: false, cancelable: true })); await tick() })
+  assert(!document.querySelector('.aura-memory'))
+  assert.equal(document.activeElement, summary)
 })
 test('memory retry clears the failed state and restores usable controls', async () => {
   failLoads = true
@@ -1015,7 +1033,8 @@ test('v2 assessment uses multiple-select checkboxes, question navigation and sav
  await click(button('Save & resume later'));assert.deepEqual(saved.answers.q1,['A']);assert.equal(saved.position,1)
  assert.equal(saved.resume_token,'authored-token');assert.equal(saved.scoring,'partial')
  assert.equal(document.querySelector('input[type=number]').max,'50')
- assert.match(document.body.textContent,/supports about 6 distinct questions/)
+ assert.match(document.body.textContent,/aims to create the number you choose/)
+ assert(!document.body.textContent.includes("supports about 6 distinct questions"))
  await mount('div');await mount(StudyToolV2,v2Props('assessment',v2Artifact('assessment',questions)))
  assert.match(document.querySelector('.v2-test h2').textContent,/facts 2/)
  await click(button('Previous'));assert.equal(document.querySelector('.v2-test input[type=checkbox]').checked,true)

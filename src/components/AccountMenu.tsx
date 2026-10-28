@@ -12,6 +12,6 @@ export default function AccountMenu({ name, courseId, onSignOut, signingOut, dis
       <summary><span className="aura-account__avatar" aria-hidden="true">{cleanDisplayName(name).slice(0, 1).toUpperCase()}</span><span><strong>{cleanDisplayName(name)}</strong><small>{demo ? 'Demo account' : 'Your account'}</small></span><span aria-hidden="true">⌄</span></summary>
       <div className="aura-account__items"><button type="button" disabled={!courseId} onClick={() => { setMemoryOpen(true); menu.current!.open = false }}>What Aura remembers</button>{onSignOut && <button type="button" disabled={disabled || signingOut} onClick={onSignOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>}</div>
     </details>
-    {memoryOpen && <MemoryDialog courseId={courseId} onClose={() => { setMemoryOpen(false); menu.current?.querySelector('summary')?.focus() }} />}
+    {memoryOpen && <MemoryDialog courseId={courseId} onClose={() => { setMemoryOpen(false); requestAnimationFrame(() => menu.current?.querySelector('summary')?.focus()) }} />}
   </div>
 }

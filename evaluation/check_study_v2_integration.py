@@ -268,11 +268,11 @@ class StudyV2Postgres(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.json()["detail"]["code"], "over_cap")
 
-    def test_batched_capacity_shortfall_and_answer_key_redaction(self):
+    def test_requested_count_ignores_capacity_estimate_and_redacts_answers(self):
         result, job = self.generate("assessment", 50)
-        self.assertEqual(len(result["payload"]["items"]), 6)
-        self.assertTrue(result["payload"]["fulfillment"]["partial"])
-        self.assertIn("supports about 6", result["payload"]["notice"])
+        self.assertEqual(len(result["payload"]["items"]), 50)
+        self.assertFalse(result["payload"]["fulfillment"]["partial"])
+        self.assertFalse(result["payload"]["notice"])
         self.assertNotIn("correct_option_ids", result["payload"]["items"][0])
         self.assertNotIn("explanation", result["payload"]["items"][0]["options"][0])
         row = self.bridge.query("SELECT * FROM aura_study_artifacts")[0]

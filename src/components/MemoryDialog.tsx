@@ -18,7 +18,14 @@ export default function MemoryDialog({ courseId, onClose }: { courseId: string; 
   const [error, setError] = useState('')
   const [notice, setNotice] = useState<{ text: string; undo: () => Promise<unknown> }>()
   const [reload, setReload] = useState(0)
-  useEffect(() => { dialog.current?.showModal() }, [])
+  useEffect(() => {
+    const node = dialog.current
+    const before = document.activeElement as HTMLElement | null
+    if (node && !node.open) node.showModal()
+    // React autofocus runs before showModal; focus after entering the top layer.
+    textInput.current?.focus()
+    return () => { if (node?.open) node.close?.(); before?.focus() }
+  }, [])
   useEffect(() => {
     let cancelled = false
     setLoaded(false); setError('')
@@ -32,7 +39,7 @@ export default function MemoryDialog({ courseId, onClose }: { courseId: string; 
     catch { setError('Could not save this change. Please try again.') }
     finally { setBusy(false) }
   }
-  return createPortal(<dialog ref={dialog} className="aura-memory" aria-labelledby="memory-title" onCancel={onClose} onClick={e => { if (e.target === dialog.current) { const b = dialog.current.getBoundingClientRect(); if (e.clientX < b.left || e.clientX > b.right || e.clientY < b.top || e.clientY > b.bottom) onClose() } }}>
+  return createPortal(<dialog ref={dialog} className="aura-memory" aria-labelledby="memory-title" onCancel={e => { e.preventDefault(); onClose() }} onClick={e => { if (e.target === dialog.current) { const b = dialog.current.getBoundingClientRect(); if (e.clientX < b.left || e.clientX > b.right || e.clientY < b.top || e.clientY > b.bottom) onClose() } }}>
     <header><div><span className="aura-memory__eyebrow">PERSONAL TO YOU</span><h2 id="memory-title">What Aura remembers</h2></div><button type="button" aria-label="Close memory settings" onClick={onClose}>✕</button></header>
     <p>Help Aura understand how you learn. You can change or delete anything saved here.</p>
     <label className="aura-memory__toggle"><span><strong>Use saved memory</strong><small>Applies to this study workspace. Turning it off keeps your records but stops Aura using or adding them here.</small></span><input type="checkbox" role="switch" checked={memory.enabled} disabled={busy || !loaded} onChange={e => void act(() => toggleMemory(courseId, e.target.checked))} /></label>
@@ -52,6 +59,7 @@ export default function MemoryDialog({ courseId, onClose }: { courseId: string; 
       <label>Type<select value={record.kind} onChange={e => setRecord({ ...fresh(), text: record.text, kind: e.target.value as MemoryKind })}>{Object.entries(kinds).map(([value, title]) => <option key={value} value={value}>{title}</option>)}</select></label>
       <label>What should Aura remember?<textarea ref={textInput} required rows={3} maxLength={1000} value={record.text} placeholder="I understand best with worked examples." onChange={e => setRecord({ ...record, text: e.target.value })} /></label>
       {record.kind === 'preference' && <div className="aura-memory__fields"><label>Explanation level<select value={record.depth ?? ''} onChange={e => setRecord({ ...record, depth: (e.target.value || null) as MemoryInput['depth'] })}><option value="">No preference</option><option value="beginner">Beginner</option><option value="standard">Standard</option><option value="advanced">Advanced</option></select></label><label>Examples<select value={record.examples === null ? '' : String(record.examples)} onChange={e => setRecord({ ...record, examples: e.target.value === '' ? null : e.target.value === 'true' })}><option value="">No preference</option><option value="true">Include examples</option><option value="false">Keep examples minimal</option></select></label></div>}
+      <small className="aura-memory__hint">Type your preference above, then choose Save memory.</small>
       <div className="aura-memory__actions"><button type="submit" disabled={!loaded || busy || !record.text.trim()}>{editing ? 'Save changes' : 'Save memory'}</button>{editing && <button type="button" onClick={() => { setRecord(fresh()); setEditing(undefined) }}>Cancel edit</button>}</div>
     </form>
   </dialog>, document.body)

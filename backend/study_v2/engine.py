@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from fastapi import HTTPException
 from backend.generation_jobs import current, db, guard, GenerationStopped
 from backend.study_v2.contracts import Question, Card, StudyRequest, verified_citations
-from backend.study_v2.planning import outline, capacity, plan_batches, unique_items
+from backend.study_v2.planning import outline, plan_batches, refill_batches, unique_items
 from backend.study_v2.provider import complete
 from starlette.concurrency import run_in_threadpool
 
@@ -196,7 +196,7 @@ def instructions(request, allocation, existing):
         ],
         "card_type": request.card_type,
         "focus": request.focus,
-        "rules": "Each item must cite a supplied material_id and chunk_id. Copy the exact supplied slide, page or timestamp_seconds when available. For DOCX evidence marked document_excerpt=true, use document_excerpt=true and leave slide/page/timestamp_seconds null; Word paragraphs do not have reliable page numbers. Never invent a page or slide. Do not cite a different source location. For numerical items use a supported formula, state all hypothetical inputs and correct unit/tolerance. Each option needs its explanation. No copied near-duplicates or padding.",
+        "rules": "Each item must cite a supplied material_id and chunk_id. Copy the exact supplied slide, page or timestamp_seconds when available. For DOCX evidence marked document_excerpt=true, use document_excerpt=true and leave slide/page/timestamp_seconds null; Word paragraphs do not have reliable page numbers. Never invent a page or slide. Do not cite a different source location. For numerical items use a supported formula, state all hypothetical inputs and correct unit/tolerance. Each choice question MUST have four to six distinct options labelled A-F with an explanation per option. Multiple-choice needs exactly one correct option ID; multiple-select needs at least two correct IDs and at least one incorrect option. Short answers need a nonempty model_answer and rubric_keywords, and no options. Every question needs a nonblank explanation, topic and exact allocated difficulty. IDs must be unique in the batch. Use each allocation angle to test a different learning objective, not just reword an earlier question. Difficulty and topic can overlap without repeating the same answer task. No copied near-duplicates or padding.",
     }
 
 
@@ -205,10 +205,6 @@ async def batches(request, student, embed):
         outline, student, request.course_id, request.material_ids
     )
     allocations, target, notices = plan_batches(request, data)
-    if request.count > target:
-        notices.append(
-            f"The material supports about {target} distinct items; {request.count} were requested. Aura will return only items it can support."
-        )
     previous = []
     if request.kind == "flashcards" and request.append_to_deck:
         from types import SimpleNamespace
@@ -350,25 +346,15 @@ async def batches(request, student, embed):
                 "completion_tokens": usage.get("completion_tokens", 0),
             }
 
-    # Initial round plus at most two bounded top-ups.
-    for round_no in range(3):
+    # Recover rejected candidates while preserving cancellation and provider budgets.
+    # A finite work bound prevents endless generation on genuinely sparse material.
+    stalled_rounds = 0
+    for round_no in range(12):
+        before_round = len(existing)
+        if before_round >= target:
+            break
         if round_no:
-            missing = target - len(existing)
-            if missing <= 0:
-                break
-            remaining = Counter(a["kind"] for a in original_allocations)
-            if request.kind == "assessment":
-                remaining.subtract(i.kind for i in existing)
-            else:
-                remaining[request.card_type] -= len(existing)
-            flat = []
-            for allocation in original_allocations:
-                if remaining[allocation["kind"]] > 0:
-                    flat.append(allocation)
-                    remaining[allocation["kind"]] -= 1
-            flat = flat[:missing]
-            size = 10 if request.kind == "assessment" else 20
-            allocations = [flat[i : i + size] for i in range(0, len(flat), size)]
+            allocations = refill_batches(request, data, original_allocations, existing, round_no)
             total += len(allocations)
         tasks = [
             asyncio.create_task(one(a, [*previous, *existing])) for a in allocations
@@ -435,9 +421,12 @@ async def batches(request, student, embed):
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+        stalled_rounds = stalled_rounds + 1 if len(existing) == before_round else 0
+        if stalled_rounds >= 3:
+            break
     if len(existing) < target:
         notices.append(
-            f"Delivered {len(existing)} of {request.count}. Repeated, invalid or unsupported items were excluded after two top-up rounds."
+            f"Delivered {len(existing)} of {request.count}. Aura could not verify the remaining items after additional attempts. Repeated or unsupported questions were not included."
         )
     if not existing:
         raise ValueError(

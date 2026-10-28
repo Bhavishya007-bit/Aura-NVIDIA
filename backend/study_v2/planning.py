@@ -202,8 +202,8 @@ def capacity(data, kind):
 
 
 def plan_batches(request, data):
-    supported = capacity(data, request.kind)["max_supported"]
-    target = min(request.count, supported)
+    # Topic-count capacity is only a rough estimate, never a generation ceiling.
+    target = request.count
     weights = dict(request.type_mix)
     notices = []
     if (
@@ -238,7 +238,7 @@ def plan_batches(request, data):
         for c in row
         if c is not None
     ]
-    size = 10 if request.kind == "assessment" else 20
+    size = 5 if request.kind == "assessment" else 10
     numerical = [
         c for c in concepts if c["material_id"] in data.get("numerical_materials", [])
     ]
@@ -249,6 +249,7 @@ def plan_batches(request, data):
             {
                 "kind": kind,
                 "concept": pool[i % len(pool)],
+                "angle": ["recall", "explain why", "apply to a new example", "compare", "diagnose a mistake", "predict an outcome"][i % 6],
                 "difficulty": (
                     request.difficulty
                     if request.difficulty != "mixed"
@@ -295,3 +296,22 @@ def unique_items(items, existing, embed):
         previous.append(list(v))
         accepted.append(item)
     return accepted
+
+
+def refill_batches(request, data, original, existing, round_no):
+    """Fill missing types using rotating evidence instead of retrying the same prefix."""
+    from collections import Counter
+    remaining = Counter(a["kind"] for a in original)
+    remaining.subtract(i.kind if request.kind == "assessment" else i.card_type for i in existing)
+    concepts = data["concepts"]
+    angles = ("apply to a new example", "compare", "diagnose a mistake", "predict an outcome", "explain why", "recall")
+    flat = []
+    for index, allocation in enumerate(original):
+        if remaining[allocation["kind"]] <= 0:
+            continue
+        pool = [c for c in concepts if c["material_id"] in data.get("numerical_materials", [])] if allocation["kind"] == "numerical" else concepts
+        pool = pool or concepts
+        flat.append({**allocation, "concept": pool[(index + round_no * max(1, len(original))) % len(pool)], "angle": angles[(index + round_no) % len(angles)]})
+        remaining[allocation["kind"]] -= 1
+    size = 5 if request.kind == "assessment" else 10
+    return [flat[i:i+size] for i in range(0, len(flat), size)]
