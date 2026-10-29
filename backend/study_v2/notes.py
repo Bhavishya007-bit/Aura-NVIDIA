@@ -1,7 +1,7 @@
 """Section-based notes, deterministic structural coverage, one missing-section retry."""
 
-import asyncio, time
-from pydantic import Field
+import asyncio, time, logging
+from pydantic import Field, ValidationError
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 from backend.study_v2.contracts import Strict, Citation, verified_citations
@@ -9,6 +9,25 @@ from backend.study_v2.planning import outline
 from backend.study_v2.provider import complete
 from backend.study_v2.engine import persist
 from backend.generation_jobs import guard, GenerationStopped
+
+
+log = logging.getLogger(__name__)
+
+
+class NoteCheckError(ValueError):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def failure_details(error):
+    """Log categories only: no model output, documents, response bodies or keys."""
+    response = getattr(error, 'response', None)
+    status = getattr(response, 'status_code', None)
+    fields = []
+    if isinstance(error, ValidationError):
+        fields = [{"path": [str(p) for p in entry['loc']], "type": entry['type']} for entry in error.errors(include_input=False, include_url=False)[:6]]
+    return {"error_type": type(error).__name__, "http_status": status if type(status) is int else None, "schema_fields": fields, "reason": error.reason if isinstance(error, NoteCheckError) else None}
 
 
 class NoteSection(Strict):
@@ -36,7 +55,7 @@ async def generate_notes(request, student):
     async def one(section):
         async with semaphore:
             evidence = [
-                {**c, "material_id": c["source_id"]}
+                {**c, "material_id": c["source_id"], "document_excerpt": str(c["source_name"]).lower().endswith(".docx") and all(c.get(k) is None for k in ("slide", "page", "seconds"))}
                 for c in chunks
                 if c["chunk_id"] in section["chunk_ids"]
             ]
@@ -46,6 +65,7 @@ async def generate_notes(request, student):
                 {
                     "task": "Produce complete structured notes for this source section. Return one JSON object matching schema, with id exactly the source section id. Explain relationships and important terms. Do not create unsupported examples/formulas; explicitly omit unavailable requested additions. Cornell style uses Cues, Notes and Summary headings; outline uses nested bullets; study_guide uses explanation, key terms and recap.",
                     "schema": NoteSection.model_json_schema(),
+                    "citation_rules": "Cite only supplied material_id and chunk_id. Copy exact slide/page/seconds values into slide/page/timestamp_seconds. For DOCX marked document_excerpt=true, set document_excerpt=true and leave physical locations null. Do not invent locations. Return id, title, text and citations directly, not inside items or notes. Text must contain at least 40 characters; citations must be nonempty.",
                     "section": section,
                     "depth": request.depth,
                     "style": request.style,
@@ -58,7 +78,7 @@ async def generate_notes(request, student):
                 {k: v for k, v in value.items() if not k.startswith("_provider_")}
             )
             if note.id != section["id"] or not verified_citations(note, evidence):
-                raise ValueError("Section citations do not resolve.")
+                raise NoteCheckError("citation_identity")
             verdict = await complete(
                 {"evidence": evidence},
                 {
@@ -68,7 +88,7 @@ async def generate_notes(request, student):
                 "assessment",
             )
             if verdict.get("supported") is not True:
-                raise ValueError("Notes did not pass source check.")
+                raise NoteCheckError("source_check")
             usage = value.get("_provider_usage", {})
             check_usage = verdict.get("_provider_usage", {})
             return note, {
@@ -105,8 +125,9 @@ async def generate_notes(request, student):
                     accepted[note.id] = note
                 except (GenerationStopped, HTTPException):
                     raise
-                except Exception:
-                    pass
+                except Exception as error:
+                    details = failure_details(error)
+                    log.warning("notes_section=unavailable round=%d error_type=%s http_status=%s reason=%s schema_fields=%s", round_no + 1, details['error_type'], details['http_status'], details['reason'], details['schema_fields'])
                 attempts += 1
                 coverage = {
                     "covered": len(accepted),
