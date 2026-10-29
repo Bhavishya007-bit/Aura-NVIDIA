@@ -10,6 +10,7 @@ import requests
 
 MODEL = 'nvidia/Nemotron-3-Ultra-550b-a55b'
 PROFILE = {
+    'AURA_DAILY_LIMITS_ENABLED': 'false',
     'NEBIUS_BASE_URL': 'https://api.tokenfactory.us-central1.nebius.com/v1',
     'NEBIUS_MODEL': MODEL,
     'NEBIUS_COVERAGE_MODEL': MODEL,
@@ -81,8 +82,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true', help='Update backend/.env; keep keys and database settings.')
     parser.add_argument('--smoke', action='store_true', help='Make one small paid synthetic request, without student material.')
+    parser.add_argument('--env-file', type=Path, help='Configuration file to update; defaults to backend/.env.')
     args = parser.parse_args()
-    path = Path(__file__).resolve().parents[1] / 'backend' / '.env'
+    path = args.env_file or Path(__file__).resolve().parents[1] / 'backend' / '.env'
     if args.apply and not path.is_file():
         parser.error('Create backend/.env using the existing setup first.')
     # Validate access before replacing a working configuration when both flags

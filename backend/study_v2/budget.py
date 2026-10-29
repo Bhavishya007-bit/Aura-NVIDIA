@@ -3,6 +3,7 @@
 import os
 from fastapi import HTTPException
 from backend.generation_jobs import db, current
+from backend.production.config import flag
 
 
 def reserve(tokens, student=None):
@@ -21,7 +22,7 @@ def reserve(tokens, student=None):
             (job[1],),
         )
         row = cur.fetchone()
-        if row["used_tokens"] + row["reserved_tokens"] + tokens > cap:
+        if flag("AURA_DAILY_LIMITS_ENABLED", False) and row["used_tokens"] + row["reserved_tokens"] + tokens > cap:
             raise HTTPException(
                 429,
                 {

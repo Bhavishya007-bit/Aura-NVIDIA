@@ -89,7 +89,7 @@ def reserve(payload):
                 (account,),
             )
             row = cur.fetchone()
-            if row["used_tokens"] + row["reserved_tokens"] + tokens > limit:
+            if flag("AURA_DAILY_LIMITS_ENABLED", False) and row["used_tokens"] + row["reserved_tokens"] + tokens > limit:
                 raise HTTPException(
                     429,
                     {

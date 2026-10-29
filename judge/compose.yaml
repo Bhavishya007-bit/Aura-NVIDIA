@@ -26,6 +26,13 @@ services:
       DATABASE_URL: postgresql://aura_judge:${AURA_JUDGE_DB_PASSWORD:-setup-required}@db:5432/aura_judge?sslmode=disable
       AURA_ALLOW_INSECURE_DATABASE: 'true'
       AURA_ENV: production
+      # Prototype: track usage without blocking on daily token allowances.
+      AURA_DAILY_LIMITS_ENABLED: ${AURA_DAILY_LIMITS_ENABLED:-false}
+      # Apply Ultra to existing installations too; keys remain in the private env file.
+      NEBIUS_MODEL: ${AURA_NVIDIA_MODEL:-nvidia/Nemotron-3-Ultra-550b-a55b}
+      NEBIUS_COVERAGE_MODEL: ${AURA_NVIDIA_MODEL:-nvidia/Nemotron-3-Ultra-550b-a55b}
+      NEBIUS_ANSWER_MODEL: ${AURA_NVIDIA_MODEL:-nvidia/Nemotron-3-Ultra-550b-a55b}
+      NEBIUS_DEEP_MODEL: ${AURA_NVIDIA_MODEL:-nvidia/Nemotron-3-Ultra-550b-a55b}
       AURA_EMBEDDING_THREADS: ${AURA_EMBEDDING_THREADS:-4}
       AURA_ALLOWED_HOSTS: localhost,127.0.0.1
       AURA_ALLOW_REGISTRATION: 'true'

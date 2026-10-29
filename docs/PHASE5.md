@@ -1,5 +1,7 @@
 # Phase 5 — Deploy and harden
 
+Prototype policy: daily user/global/study token blocking is currently disabled by default (`AURA_DAILY_LIMITS_ENABLED=false`). Usage accounting, authentication, cancellation, finite run budgets and the AI pause switch remain. The ceilings described below apply only when `AURA_DAILY_LIMITS_ENABLED=true`. Local Docker now explicitly selects Nemotron Ultra for all text roles; see the main README for the shared setup procedure.
+
 ## Current release status
 
 The deployment code and production safeguards are implemented. A public deployment is **not yet created**. Render is connected, its “My Workspace” was confirmed, and read-only discovery found no services or databases. The user explicitly chose **free hosting only**. No paid resources have been created. There is no configured Nebius compute project, managed PostgreSQL URL or server-side Token Factory key in this execution workspace. Token Factory model credits are not assumed to cover AI Cloud compute or database hosting.

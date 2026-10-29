@@ -408,7 +408,7 @@ class StudyV2Postgres(unittest.TestCase):
         self.assertNotIn(7, [r["source_id"] for r in visible.json()["sources"]])
 
     def test_daily_budget_reservations_are_released_and_isolated(self):
-        with patch.dict(os.environ, {"STUDY_DAILY_TOKEN_BUDGET": "100"}):
+        with patch.dict(os.environ, {"STUDY_DAILY_TOKEN_BUDGET": "100", "AURA_DAILY_LIMITS_ENABLED": "true"}):
             reservation = budget.reserve(80, 42)
             with self.assertRaises(Exception) as error:
                 budget.reserve(30, 42)

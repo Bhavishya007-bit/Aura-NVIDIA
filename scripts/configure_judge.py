@@ -41,6 +41,7 @@ def create(directory, key, vision=False):
         "NEBIUS_SUMMARY_REASONING_EFFORT": "none",
         "NEBIUS_VERIFICATION_REASONING_EFFORT": "none",
         "AURA_SUMMARY_BACKGROUND": "true",
+        "AURA_DAILY_LIMITS_ENABLED": "false",
         "AURA_USER_DAILY_TOKENS": "500000",
         "AURA_GLOBAL_DAILY_TOKENS": "2000000",
         "STUDY_DAILY_TOKEN_BUDGET": "1000000",

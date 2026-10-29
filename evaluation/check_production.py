@@ -165,6 +165,7 @@ class ProductionPostgres(unittest.TestCase):
                 os.environ,
                 {
                     "AURA_ENV": "production",
+                    "AURA_DAILY_LIMITS_ENABLED": "true",
                     "AURA_AI_ENABLED": "true",
                     "AURA_USER_DAILY_TOKENS": "300",
                     "AURA_GLOBAL_DAILY_TOKENS": "1000",

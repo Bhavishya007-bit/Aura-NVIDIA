@@ -151,6 +151,34 @@ fallback is not a completed long summary. Check important claims against the
 original. Successful Python execution likewise does not prove its explanation or
 underlying data is correct.
 
+### Prototype model and usage policy
+
+The local Docker stack uses **NVIDIA Nemotron 3 Ultra 550B** for coverage,
+answers, agents and deep reasoning through Nebius Token Factory, including
+existing installations after rebuild/recreation. `AURA_NVIDIA_MODEL` can override
+this shared Docker selection. Ultra is a text model; OCR, embeddings and the
+optional local vision service remain separate. There is no automatic downgrade
+when model access fails.
+
+Aura's daily user/global/study token blocking is **disabled by default** for the
+prototype (`AURA_DAILY_LIMITS_ENABLED=false`). Existing usage records remain and
+new requests are still accounted for; old daily totals no longer block new work.
+No database reset is needed. Cancellation, finite agent/generation budgets,
+per-request size limits, authentication and the AI pause switch remain active.
+Provider credits and provider rate/context limits still apply. To re-enable daily
+blocking later, set `AURA_DAILY_LIMITS_ENABLED=true` and recreate the app.
+
+For a native backend using an existing `backend/.env`, run
+`python scripts/configure_model_quality.py --apply` and restart Uvicorn to select
+the same Ultra profile without replacing keys or database credentials. In Docker,
+the Compose configuration applies the model and daily-limit policy automatically.
+
+Official model and event references:
+[Nebius Ultra quickstart](https://github.com/nebius/token-factory-cookbook/blob/main/models/nemotron/nemotron3-ultra-550b-a55b.md),
+[hackathon rules](https://nebiusglobalaihackathon.devpost.com/rules).
+A larger model does not guarantee accurate answers; source and duplicate checks
+remain in place.
+
 ### Optional: Code & data
 
 After the base installation, on Windows run:
@@ -241,8 +269,7 @@ docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compos
 
 **Model connectivity** — replace the placeholder with an existing Aura login
 email. This is an operator diagnostic run in your local container, not a public
-API. It makes three small real requests and retains account/global token limits
-and the AI pause switch:
+API. It makes three small real requests and retains the AI pause switch:
 
 ```powershell
 docker compose --env-file judge/.env.judge -f judge/compose.yaml -f judge/compose.code.yaml exec -T app python -m scripts.check_features --live --account-email "YOUR_AURA_EMAIL"
@@ -265,7 +292,7 @@ study tool, saved memory and assessment in the browser.
 | `--account-email` is unrecognized | The container still has an older diagnostic. Pull the source and use the script-only check below. |
 | `No module named backend` | Invoke diagnostics with `python -m scripts.check_features`, not an old direct-path script. |
 | A service is unhealthy | Collect service logs below; the setup script's final exception alone is not the cause. |
-| AI paused / daily allowance reached | Check deployment controls and usage; do not disable safeguards to disguise a failure. |
+| AI paused / daily allowance reached | Daily limits are off by default for the prototype. Check whether your installation explicitly enables them; AI pause controls remain separate. |
 | Upload remains preparing | Run the preparation check. First model downloads, queued uploads, OCR and optional vision can dominate runtime. |
 | File exceeds 100 MiB | Compress, split, or supply a smaller document/transcript. Repeated retry cannot change the limit. |
 | Study generation fails despite healthy services | Check the live model test, selected ready materials and application logs; a healthy container is not proof of a valid generated response. |
