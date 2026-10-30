@@ -2,7 +2,7 @@
 export const siteFacts = {
   name: 'Aura',
   repoUrl: 'https://github.com/Bhavishya007-bit/Aura-NVIDIA',
-  demoVideoUrl: '', // [FILL IN] Public YouTube URL, after publishing the demo.
+  demoVideoUrl: 'https://youtu.be/MCvJ8x0uHZM', // [FILL IN] Public YouTube URL, after publishing the demo.
   canonicalUrl: '', // [FILL IN] Public deployment origin, if deployed.
   contactUrl: '', // [FILL IN] Contact mailto: or HTTPS link.
   privacyUrl: '', // [FILL IN] Reviewed privacy policy URL.
