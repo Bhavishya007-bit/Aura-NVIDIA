@@ -160,9 +160,9 @@ def install(app, dist=None):
         response.headers.update(
             {
                 "X-Content-Type-Options": "nosniff",
-                "Referrer-Policy": "same-origin",
+                "Referrer-Policy": "strict-origin-when-cross-origin",
                 "X-Frame-Options": "SAMEORIGIN",
-                "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
+                "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self' blob: https://www.youtube-nocookie.com; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
             }
         )
         if request.url.scheme == "https":
